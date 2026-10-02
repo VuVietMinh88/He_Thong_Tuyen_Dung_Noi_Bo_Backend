@@ -23,7 +23,7 @@ public class ApiCorsConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
+        registry.addMapping("/api/health")
                 .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "HEAD", "OPTIONS")
                 .allowedHeaders("Accept", "Content-Type")
