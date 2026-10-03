@@ -78,9 +78,22 @@ public class AuthService {
 
     @Transactional
     public void logout(Jwt jwt) {
-        AuthSession session = sessions.findByIdForUpdate(UUID.fromString(jwt.getId()))
+        UUID sessionId;
+        UUID userId;
+        try {
+            sessionId = UUID.fromString(jwt.getId());
+            userId = UUID.fromString(jwt.getSubject());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        AuthSession session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
-        session.revoke(clock.instant());
+        // Authentication ran before this lock; another request may have changed the session meanwhile.
+        Instant now = clock.instant();
+        if (!session.getUserId().equals(userId) || !session.isActive(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        session.revoke(now);
     }
 
     @Transactional(readOnly = true)

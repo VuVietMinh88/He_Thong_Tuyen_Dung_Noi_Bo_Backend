@@ -127,6 +127,14 @@ Token đúng định dạng gồm43ký tự Base64URL. Thiếu/null/sai định 
 
 Thành công trả200 cùng cấu trúc JSON như login, có `Cache-Control: no-store`, không tạo cookie. Database lưu hash của refresh mới và thời hạn7ngày tính từ lần gia hạn. Hai request đồng thời dùng cùng token chỉ một request thành công; frontend cần điều phối một request refresh tại một thời điểm và cập nhật đồng thời cả hai token. Xem [thiết kế phiên](../architecture/auth-sessions.md).
 
+### Hợp đồng Logout — TKNHTTDNB1-99
+
+`POST /api/v1/auth/logout` cần bearer access token còn hạn, không cần body. Thành công trả204, body rỗng và `Cache-Control: no-store`. Backend khóa phiên, kiểm lại chủ sở hữu và trạng thái còn hoạt động rồi thu hồi. Logout không xóa tài khoản hoặc dữ liệu nghiệp vụ.
+
+Thiếu JWT, JWT sai/hết hạn hoặc phiên đã bị thu hồi trả401 `UNAUTHORIZED`; nếu phiên đổi trạng thái trong lúc request chờ khóa thì trả401 `SESSION_INVALID`. Client xóa cặp token khi logout thành công hoặc nhận401; lỗi mạng/5xx cần được xử lý riêng vì chưa xác nhận server đã thu hồi phiên.
+
+Logout thu hồi mọi access/refresh token của đúng phiên đó, kể cả token mới được cấp bởi một request refresh chạy đồng thời. Các phiên đăng nhập khác vẫn hoạt động. Gọi logout lần nữa bằng cùng phiên trả401; không tạo hoặc phục hồi phiên.
+
 ```powershell
 Invoke-RestMethod -Method Post `
     -Uri 'http://localhost:8080/api/v1/auth/logout' -Headers $authHeaders
