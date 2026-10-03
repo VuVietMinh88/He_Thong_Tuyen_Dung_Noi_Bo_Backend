@@ -293,6 +293,87 @@ class AuthIntegrationTest {
         assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(401);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"expired", "malformed"})
+    void loginCanRecoverWhileTheClientStillAttachesAnInvalidBearer(String kind) throws Exception {
+        JsonNode original = successfulLogin();
+        clock.set(START.plusSeconds(900));
+        String oldHeader = kind.equals("expired") ? original.path("accessToken").asText() : "not.a.jwt";
+        var response = request("POST", "/api/v1/auth/login", json.writeValueAsString(Map.of(
+                "email", EMAIL, "password", PASSWORD)), oldHeader);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode replacement = body(response);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                replacement.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        var invalidPassword = request("POST", "/api/v1/auth/login", json.writeValueAsString(Map.of(
+                "email", EMAIL, "password", "WrongPassword1")), oldHeader);
+        assertThat(invalidPassword.statusCode()).isEqualTo(401);
+        assertThat(body(invalidPassword).path("code").asText()).isEqualTo("LOGIN_FAILED");
+    }
+
+    @Test
+    void aValidJwtCannotOutliveItsDatabaseSessionAndReadsDoNotExtendIt() throws Exception {
+        JsonNode original = successfulLogin();
+        Instant expiresAt = START.plusSeconds(60);
+        jdbc.update("UPDATE auth_sessions SET expires_at = ?", Timestamp.from(expiresAt));
+        String hash = jdbc.queryForObject("SELECT refresh_token_hash FROM auth_sessions", String.class);
+        clock.set(expiresAt.minusSeconds(1));
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT expires_at FROM auth_sessions", Timestamp.class).toInstant())
+                .isEqualTo(expiresAt);
+
+        clock.set(expiresAt);
+        var me = request("GET", "/api/v1/auth/me", null, original.path("accessToken").asText());
+        assertThat(me.statusCode()).isEqualTo(401);
+        assertThat(body(me).path("code").asText()).isEqualTo("UNAUTHORIZED");
+        assertThat(me.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+        assertThat(me.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        var expiredRefresh = refresh(original.path("refreshToken").asText());
+        assertThat(expiredRefresh.statusCode()).isEqualTo(401);
+        assertThat(body(expiredRefresh).path("code").asText()).isEqualTo("SESSION_INVALID");
+        assertThat(request("POST", "/api/v1/auth/logout", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(jdbc.queryForObject("SELECT refresh_token_hash FROM auth_sessions", String.class)).isEqualTo(hash);
+        assertThat(jdbc.queryForObject("SELECT expires_at FROM auth_sessions", Timestamp.class).toInstant())
+                .isEqualTo(expiresAt);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_sessions WHERE revoked_at IS NOT NULL",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void refreshImmediatelyBeforeSevenDaysKeepsTheSessionUsablePastTheOldDeadline() throws Exception {
+        JsonNode original = successfulLogin();
+        Instant oldDeadline = START.plus(Duration.ofDays(7));
+        clock.set(oldDeadline.minusSeconds(1));
+        var response = refresh(original.path("refreshToken").asText());
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode replacement = body(response);
+        assertThat(Instant.parse(replacement.path("refreshExpiresAt").asText()))
+                .isEqualTo(clock.instant().plus(Duration.ofDays(7)));
+
+        clock.set(oldDeadline);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                replacement.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(refresh(replacement.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void expiredAccessCanBeRefreshedBeforeLogoutAndCannotRefreshAfterLogout() throws Exception {
+        JsonNode original = successfulLogin();
+        clock.set(START.plusSeconds(900));
+        assertThat(request("POST", "/api/v1/auth/logout", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(401);
+        var response = refresh(original.path("refreshToken").asText());
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode replacement = body(response);
+        assertThat(request("POST", "/api/v1/auth/logout", null,
+                replacement.path("accessToken").asText()).statusCode()).isEqualTo(204);
+        assertThat(refresh(replacement.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+    }
+
     @Test
     void logoutImmediatelyRevokesAllTokensOfThatSession() throws Exception {
         JsonNode original = successfulLogin();

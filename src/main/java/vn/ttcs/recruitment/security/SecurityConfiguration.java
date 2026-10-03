@@ -30,9 +30,10 @@ public class SecurityConfiguration {
     public BearerTokenResolver bearerTokenResolver() {
         DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
         return request -> {
-            // Refresh authenticates its body token; a stale bearer must not block recovery.
+            // These endpoints authenticate their body; a stale bearer must not block recovery.
             if ("POST".equals(request.getMethod())
-                    && "/api/v1/auth/refresh".equals(request.getServletPath())) {
+                    && ("/api/v1/auth/refresh".equals(request.getServletPath())
+                    || "/api/v1/auth/login".equals(request.getServletPath()))) {
                 return null;
             }
             return resolver.resolve(request);
