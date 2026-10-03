@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -204,6 +205,10 @@ class AuthIntegrationTest {
         assertThat(refreshed.statusCode()).isEqualTo(200);
         JsonNode replacement = body(refreshed);
         assertThat(replacement.path("refreshToken").asText()).isNotEqualTo(originalRefresh);
+        assertThat(refreshed.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        assertThat(refreshed.headers().allValues("Set-Cookie")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT refresh_token_hash FROM auth_sessions", String.class))
+                .isEqualTo(tokenService.hashRefreshToken(replacement.path("refreshToken").asText()));
         assertThat(Instant.parse(replacement.path("refreshExpiresAt").asText()))
                 .isEqualTo(clock.instant().plus(Duration.ofDays(7)));
         assertThat(refresh(originalRefresh).statusCode()).isEqualTo(401);
@@ -215,11 +220,53 @@ class AuthIntegrationTest {
     void concurrentRefreshConsumesTheOldTokenOnlyOnce() throws Exception {
         String refreshToken = successfulLogin().path("refreshToken").asText();
         try (var executor = Executors.newFixedThreadPool(2)) {
-            var results = executor.invokeAll(List.<Callable<Integer>>of(
-                    () -> refresh(refreshToken).statusCode(), () -> refresh(refreshToken).statusCode()));
-            assertThat(List.of(results.get(0).get(), results.get(1).get()))
+            var results = executor.invokeAll(List.<Callable<HttpResponse<String>>>of(
+                    () -> refresh(refreshToken), () -> refresh(refreshToken)));
+            var responses = List.of(results.get(0).get(), results.get(1).get());
+            assertThat(responses.stream().map(HttpResponse::statusCode).toList())
                     .containsExactlyInAnyOrder(200, 401);
+            JsonNode winner = body(responses.stream().filter(response -> response.statusCode() == 200)
+                    .findFirst().orElseThrow());
+            assertThat(request("GET", "/api/v1/auth/me", null, winner.path("accessToken").asText()).statusCode())
+                    .isEqualTo(200);
+            assertThat(refresh(winner.path("refreshToken").asText()).statusCode()).isEqualTo(200);
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"expired", "malformed"})
+    void refreshUsesItsBodyTokenEvenWhenAnInvalidBearerHeaderIsAttached(String kind) throws Exception {
+        JsonNode original = successfulLogin();
+        clock.set(START.plusSeconds(900));
+        String headerToken = kind.equals("expired") ? original.path("accessToken").asText() : "not.a.jwt";
+        var response = request("POST", "/api/v1/auth/refresh", json.writeValueAsString(Map.of(
+                "refreshToken", original.path("refreshToken").asText())), headerToken);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode replacement = body(response);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                replacement.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void invalidRefreshRequestsDoNotChangeTheLiveSession() throws Exception {
+        JsonNode original = successfulLogin();
+        String hash = jdbc.queryForObject("SELECT refresh_token_hash FROM auth_sessions", String.class);
+        Timestamp expiry = jdbc.queryForObject("SELECT expires_at FROM auth_sessions", Timestamp.class);
+        for (String payload : List.of("{}", "null", "{\"refreshToken\":null}",
+                "{\"refreshToken\":\"\"}", "{\"refreshToken\":\"bad-token\"}", "{")) {
+            var response = request("POST", "/api/v1/auth/refresh", payload, null);
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(response.body()).doesNotContain(original.path("refreshToken").asText(), "bad-token");
+        }
+        var unknown = refresh("A".repeat(43));
+        assertThat(unknown.statusCode()).isEqualTo(401);
+        assertThat(body(unknown).path("code").asText()).isEqualTo("SESSION_INVALID");
+        assertThat(unknown.body()).doesNotContain("A".repeat(43));
+        assertThat(jdbc.queryForObject("SELECT refresh_token_hash FROM auth_sessions", String.class)).isEqualTo(hash);
+        assertThat(jdbc.queryForObject("SELECT expires_at FROM auth_sessions", Timestamp.class)).isEqualTo(expiry);
+        assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(200);
     }
 
     @Test
