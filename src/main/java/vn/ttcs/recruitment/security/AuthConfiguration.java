@@ -21,6 +21,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 
@@ -63,8 +64,11 @@ public class AuthConfiguration {
         timestamps.setClock(clock);
         JwtClaimValidator<List<String>> audience = new JwtClaimValidator<>("aud",
                 value -> value != null && value.contains(TokenService.AUDIENCE));
+        // Require an expiry and reject at the deadline; the timestamp validator alone permits both cases.
+        JwtClaimValidator<Instant> expiration = new JwtClaimValidator<>("exp",
+                value -> value != null && clock.instant().isBefore(value));
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(timestamps,
-                new JwtIssuerValidator(TokenService.ISSUER), audience));
+                new JwtIssuerValidator(TokenService.ISSUER), audience, expiration));
         return decoder;
     }
 }
