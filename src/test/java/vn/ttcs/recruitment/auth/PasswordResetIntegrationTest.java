@@ -5,6 +5,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -152,6 +154,121 @@ class PasswordResetIntegrationTest {
     }
 
     @Test
+    void resetChangesPasswordClearsLockAndRevokesAllRecoveryLinksAndSessions() throws Exception {
+        JsonNode firstSession = login(PASSWORD);
+        JsonNode secondSession = login(PASSWORD);
+        String firstLink = issueToken();
+        clock.set(START.plusSeconds(60));
+        String secondLink = issueToken();
+        jdbc.update("UPDATE user_accounts SET failed_login_attempts = 5, locked_until = ?",
+                Timestamp.from(START.plusSeconds(900)));
+
+        var result = reset(firstLink, NEW_PASSWORD, null);
+        assertThat(result.statusCode()).isEqualTo(200);
+        assertThat(result.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        assertThat(result.body()).doesNotContain(firstLink, NEW_PASSWORD, "accessToken", "refreshToken");
+        assertThat(passwordEncoder.matches(NEW_PASSWORD, passwordHash())).isTrue();
+        assertThat(jdbc.queryForObject("SELECT failed_login_attempts FROM user_accounts", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_accounts WHERE locked_until IS NOT NULL", Integer.class)).isZero();
+        for (JsonNode session : List.of(firstSession, secondSession)) {
+            assertThat(me(session.path("accessToken").asText()).statusCode()).isEqualTo(401);
+            assertThat(refresh(session.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+        }
+        assertThat(reset(firstLink, "AnotherPassword1", null).statusCode()).isEqualTo(400);
+        assertThat(reset(secondLink, "AnotherPassword1", null).statusCode()).isEqualTo(400);
+        assertThat(post("/login", Map.of("email", EMAIL, "password", PASSWORD), null).statusCode()).isEqualTo(401);
+        assertThat(post("/login", Map.of("email", EMAIL, "password", NEW_PASSWORD), null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void resetImmediatelyBeforeThirtyMinutesSucceeds() throws Exception {
+        String token = issueToken();
+        clock.set(START.plusSeconds(1799));
+        assertThat(reset(token, NEW_PASSWORD, null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void resettingOneAccountPreservesOtherAccountsSessionsAndRecoveryLinks() throws Exception {
+        accounts.saveAndFlush(new Account("other@example.test", "Other user",
+                passwordEncoder.encode(PASSWORD), Set.of(Role.INTERVIEWER), START));
+        var otherLogin = post("/login", Map.of("email", "other@example.test", "password", PASSWORD), null);
+        assertThat(otherLogin.statusCode()).isEqualTo(200);
+        forgot("other@example.test", null);
+        awaitMailJobs();
+        String otherLink = lastEmailedToken();
+        String ownLink = issueToken();
+
+        assertThat(reset(ownLink, NEW_PASSWORD, null).statusCode()).isEqualTo(200);
+        assertThat(me(body(otherLogin).path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(body(otherLogin).path("refreshToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(reset(otherLink, "OtherNewPassword1", null).statusCode()).isEqualTo(200);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1800, 1801})
+    void resetAtOrAfterThirtyMinutesFailsWithoutChangingPassword(long elapsed) throws Exception {
+        String token = issueToken();
+        clock.set(START.plusSeconds(elapsed));
+        var expired = reset(token, NEW_PASSWORD, null);
+        assertThat(expired.statusCode()).isEqualTo(400);
+        assertThat(body(expired).path("code").asText()).isEqualTo("RESET_TOKEN_INVALID");
+        assertThat(body(expired)).isEqualTo(body(reset(generator.create(), NEW_PASSWORD, null)));
+        assertThat(passwordEncoder.matches(PASSWORD, passwordHash())).isTrue();
+        assertThat(unusedTokens()).isEqualTo(1);
+    }
+
+    @Test
+    void disabledAccountCannotConsumeAnIssuedToken() throws Exception {
+        String token = issueToken();
+        jdbc.update("UPDATE user_accounts SET enabled = false");
+        assertThat(reset(token, NEW_PASSWORD, null).statusCode()).isEqualTo(400);
+        assertThat(passwordEncoder.matches(PASSWORD, passwordHash())).isTrue();
+        assertThat(unusedTokens()).isEqualTo(1);
+    }
+
+    @Test
+    void refreshTokenCannotBeUsedAsResetToken() throws Exception {
+        String refreshToken = login(PASSWORD).path("refreshToken").asText();
+        assertThat(reset(refreshToken, NEW_PASSWORD, null).statusCode()).isEqualTo(400);
+        assertThat(passwordEncoder.matches(PASSWORD, passwordHash())).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"abc123", "abcdefgh", "12345678", "ắắắắắắắắắắắắắắắắắắắắắắắắắ1"})
+    void invalidNewPasswordDoesNotConsumeToken(String password) throws Exception {
+        String token = issueToken();
+        var response = reset(token, password, null);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).doesNotContain(token, password);
+        assertThat(unusedTokens()).isEqualTo(1);
+        assertThat(reset(token, NEW_PASSWORD, null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void malformedRequestsDoNotQueueMailOrRevealCredentials() throws Exception {
+        for (String payload : List.of("{}", "null", "{\"email\":null}", "{\"email\":\"bad-email\"}", "{")) {
+            assertThat(request("POST", "/forgot-password", payload, null).statusCode()).isEqualTo(400);
+        }
+        for (String payload : List.of("{}", "null", "{\"token\":null,\"newPassword\":null}", "{")) {
+            assertThat(request("POST", "/reset-password", payload, null).statusCode()).isEqualTo(400);
+        }
+        assertThat(reset("bad-token", NEW_PASSWORD, null).statusCode()).isEqualTo(400);
+        awaitMailJobs();
+        assertThat(SMTP.messages()).isEmpty();
+        assertThat(countTokens()).isZero();
+    }
+
+    @Test
+    void staleBearerDoesNotBlockRecoveryButResetStillNeedsItsOwnToken() throws Exception {
+        String bearer = login(PASSWORD).path("accessToken").asText();
+        clock.set(START.plusSeconds(900));
+        assertThat(forgot(EMAIL, bearer).statusCode()).isEqualTo(202);
+        awaitMailJobs();
+        assertThat(reset(generator.create(), NEW_PASSWORD, bearer).statusCode()).isEqualTo(400);
+        assertThat(reset(lastEmailedToken(), NEW_PASSWORD, "not.a.jwt").statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void parallelRequestsAreThrottledForOneMinuteWithoutRevealingIt() throws Exception {
         try (var executor = Executors.newFixedThreadPool(4)) {
             List<Callable<Integer>> tasks = new ArrayList<>();
@@ -173,9 +290,64 @@ class PasswordResetIntegrationTest {
         assertThat(SMTP.messages()).hasSize(2);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void concurrentResetConsumesOnlyOneLinkPerAccount(boolean differentLinks) throws Exception {
+        String first = issueToken();
+        clock.set(START.plusSeconds(60));
+        String second = differentLinks ? issueToken() : first;
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var results = executor.invokeAll(List.<Callable<Integer>>of(
+                    () -> { barrier.await(); return reset(first, NEW_PASSWORD, null).statusCode(); },
+                    () -> { barrier.await(); return reset(second, "ConcurrentPassword1", null).statusCode(); }));
+            assertThat(List.of(results.get(0).get(), results.get(1).get())).containsExactlyInAnyOrder(200, 400);
+            String winner = results.get(0).get() == 200 ? NEW_PASSWORD : "ConcurrentPassword1";
+            assertThat(passwordEncoder.matches(winner, passwordHash())).isTrue();
+        }
+        assertThat(unusedTokens()).isZero();
+    }
+
+    @Test
+    void racingRefreshCannotLeaveAnActiveOldSessionAfterReset() throws Exception {
+        JsonNode login = login(PASSWORD);
+        String token = issueToken();
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var results = executor.invokeAll(List.<Callable<HttpResponse<String>>>of(
+                    () -> { barrier.await(); return reset(token, NEW_PASSWORD, null); },
+                    () -> { barrier.await(); return refresh(login.path("refreshToken").asText()); }));
+            assertThat(results.get(0).get().statusCode()).isEqualTo(200);
+            var refreshed = results.get(1).get();
+            assertThat(refreshed.statusCode()).isIn(200, 401);
+            if (refreshed.statusCode() == 200) {
+                assertThat(me(body(refreshed).path("accessToken").asText()).statusCode()).isEqualTo(401);
+                assertThat(refresh(body(refreshed).path("refreshToken").asText()).statusCode()).isEqualTo(401);
+            }
+        }
+        assertThat(me(login.path("accessToken").asText()).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void racingOldPasswordLoginCannotSurvivePasswordReset() throws Exception {
+        String token = issueToken();
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var results = executor.invokeAll(List.<Callable<HttpResponse<String>>>of(
+                    () -> { barrier.await(); return reset(token, NEW_PASSWORD, null); },
+                    () -> { barrier.await(); return post("/login", Map.of("email", EMAIL, "password", PASSWORD), null); }));
+            assertThat(results.get(0).get().statusCode()).isEqualTo(200);
+            var loggedIn = results.get(1).get();
+            assertThat(loggedIn.statusCode()).isIn(200, 401);
+            if (loggedIn.statusCode() == 200) {
+                assertThat(me(body(loggedIn).path("accessToken").asText()).statusCode()).isEqualTo(401);
+            }
+        }
+    }
+
     @Test
     void smtpFailureRollsBackNewTokenAndAllowsRetryWithoutLeakingFailure() throws Exception {
-        issueToken();
+        String original = issueToken();
         clock.set(START.plusSeconds(60));
         SMTP.rejectDelivery(true);
         var failed = forgot(EMAIL, null);
@@ -188,7 +360,7 @@ class PasswordResetIntegrationTest {
         SMTP.rejectDelivery(false);
         issueToken();
         assertThat(countTokens()).isEqualTo(2);
-        assertThat(unusedTokens()).isEqualTo(2);
+        assertThat(reset(original, NEW_PASSWORD, null).statusCode()).isEqualTo(200);
     }
 
     @Test

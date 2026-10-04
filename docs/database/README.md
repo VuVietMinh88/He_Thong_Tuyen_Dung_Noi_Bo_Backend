@@ -9,12 +9,13 @@ SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/`
 | `user_accounts` | UUID, email, tên, BCrypt hash, trạng thái, số lần sai, thời điểm hết khóa/tạo |
 | `user_roles` | Tài khoản và các vai trò được cấp |
 | `auth_sessions` | UUID phiên, chủ phiên, SHA-256 refresh token, thời điểm tạo/hết hạn/thu hồi |
+| `password_reset_tokens` | V2: chủ tài khoản, SHA-256 reset token, thời điểm tạo/hết hạn/đã dùng |
 | `flyway_schema_history` | Flyway tự tạo để ghi lịch sử migration |
 
 Email unique, chữ thường, bỏ khoảng trắng đầu/cuối. Bảng/cột dùng `snake_case`, Java dùng `camelCase`. Vai trò nội bộ: `ADMIN`, `HR_MANAGER`, `RECRUITER`, `HIRING_MANAGER`, `INTERVIEWER`, `APPROVER`. Ứng viên không có tài khoản trong luồng này.
 
-`TIMESTAMPTZ` lưu thời điểm có múi giờ; backend dùng UTC. Không lưu password hoặc refresh token gốc. API không trả hash ra client.
+`TIMESTAMPTZ` lưu thời điểm có múi giờ; backend dùng UTC. Không lưu password, refresh token hoặc reset token gốc. API không trả hash ra client.
 
-Flyway chạy migration một lần. Đã áp dụng V1 thì tạo `V2__ten_thay_doi.sql`, không sửa V1. Hibernate `ddl-auto=validate` chỉ kiểm schema. V1 dành cho database mới; ghép với schema đã có dữ liệu cần đánh giá riêng trước khi chạy.
+Flyway chạy migration một lần. V1 tạo tài khoản/phiên; V2 bổ sung `password_reset_tokens` cho task106–110, không đổi dữ liệuV1. Migration tiếp theo dùngV3, không sửaV1/V2 đã áp dụng. Hibernate `ddl-auto=validate` chỉ kiểm schema. Sao lưu database trước khi nâng cấp; khi backend khởi động với DB đang ởV1, Flyway sẽ tự chạyV2. Trong lần triển khai này chỉ kiểm upgrade trên PostgreSQL tạm.
 
 Test dùng PostgreSQL tạm thời thật để kiểm transaction, khóa hàng và constraint; không dùng H2 thay thế.

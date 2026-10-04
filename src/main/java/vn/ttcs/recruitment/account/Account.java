@@ -89,6 +89,11 @@ public class Account {
         lockedUntil = null;
     }
 
+    public void resetPassword(String encodedPassword) {
+        passwordHash = encodedPassword;
+        clearLoginFailures();
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getFullName() { return fullName; }
