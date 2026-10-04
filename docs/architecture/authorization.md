@@ -1,0 +1,9 @@
+# Phân quyền theo vai trò
+
+Nguồn ban đầu: bảng `2. User Roles` của đặc tả `HỆ THỐNG TUYỂN DỤNG NỘI BỘ` và Jira TKNHTTDNB1-14, 119–127. Đây là ma trận khởi tạo; BA/PO cần xác nhận nếu nghiệp vụ thay đổi. Bảy vai trò nghiệp vụ gồm sáu vai trò nội bộ `ADMIN`, `HR_MANAGER`, `RECRUITER`, `HIRING_MANAGER`, `INTERVIEWER`, `APPROVER` và `CANDIDATE` bên ngoài. Ứng viên không có `user_accounts`/phiên đăng nhập nội bộ; luồng ứng viên công khai sẽ có cơ chế riêng khi được xây dựng.
+
+Flyway V3 bổ sung bảng `roles`, `permissions`, `role_permissions` và khóa ngoại từ `user_roles.role`. Bảng `user_roles` V1 cùng dữ liệu tài khoản sẵn có được giữ lại. Vai trò Candidate có `internal=false` và không thể đưa vào `user_roles` vì ràng buộc sáu vai trò nội bộ hiện có. Không sửa nội dung V1/V2 đã áp dụng.
+
+Ma trận nguồn dùng `F` toàn quyền, `W` ghi trong phạm vi được giao, `R` chỉ đọc, dấu `*` chỉ dữ liệu của bản thân/vị trí/vòng phỏng vấn liên quan. V3 biến các ô đó thành quyền đọc/ghi với phạm vi `ALL` hoặc `SCOPED`. Riêng ô Recruiter–hồ sơ ứng viên vốn ghi `F` trong bảng nguồn được giới hạn thành `SCOPED` theo tiêu chí Jira: recruiter không xem ứng viên của vị trí không thuộc mình. Admin được toàn quyền trên tất cả module theo ghi chú của bảng nguồn. Các thao tác xác thực cá nhân dùng `SELF_PROFILE_READ` và `SELF_SECURITY_WRITE` cho sáu vai trò nội bộ.
+
+Các mã `*_SCOPED` **chưa tự kiểm tra quyền sở hữu từng bản ghi**: API ứng viên, vị trí tuyển dụng, dải lương chưa tồn tại trong backend hiện tại. Khi triển khai các API đó, truy vấn phải lọc theo phân công recruiter/vị trí/vòng phỏng vấn ở tầng server; trường dải lương cần loại khỏi response không được phép xem. Chỉ kiểm tra quyền module là chưa đủ để nghiệm thu toàn bộ Jira 127.
