@@ -145,6 +145,63 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void changingPasswordKeepsCallerSessionButRevokesOtherSessions() throws Exception {
+        JsonNode caller = successfulLogin();
+        JsonNode other = successfulLogin();
+        String newPassword = "ChangedPassword123!";
+        var changed = request("POST", "/api/v1/auth/change-password", json.writeValueAsString(Map.of(
+                "currentPassword", PASSWORD, "newPassword", newPassword)),
+                caller.path("accessToken").asText());
+        assertThat(changed.statusCode()).isEqualTo(200);
+        assertThat(changed.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(changed.body()).doesNotContain(PASSWORD, newPassword);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                caller.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                other.path("accessToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(refresh(caller.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(other.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
+        assertThat(login(EMAIL, newPassword).statusCode()).isEqualTo(200);
+        assertThat(passwordEncoder.matches(newPassword, jdbc.queryForObject(
+                "SELECT password_hash FROM user_accounts WHERE email = ?", String.class, EMAIL))).isTrue();
+    }
+
+    @Test
+    void changingPasswordRejectsWrongCurrentPasswordWithoutChangingTheAccount() throws Exception {
+        JsonNode caller = successfulLogin();
+        JsonNode other = successfulLogin();
+        var changed = request("POST", "/api/v1/auth/change-password", json.writeValueAsString(Map.of(
+                "currentPassword", "WrongPassword1", "newPassword", "ChangedPassword123!")),
+                caller.path("accessToken").asText());
+        assertThat(changed.statusCode()).isEqualTo(400);
+        assertThat(body(changed).path("code").asText()).isEqualTo("CURRENT_PASSWORD_INCORRECT");
+        assertThat(changed.body()).doesNotContain("WrongPassword1", "ChangedPassword123!");
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                other.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void changingPasswordRequiresAuthenticationAndPasswordPolicy() throws Exception {
+        JsonNode caller = successfulLogin();
+        String path = "/api/v1/auth/change-password";
+        String validBody = json.writeValueAsString(Map.of("currentPassword", PASSWORD,
+                "newPassword", "ChangedPassword123!"));
+        assertThat(request("POST", path, validBody, null).statusCode()).isEqualTo(401);
+        for (String invalid : List.of("short1", "lettersOnly", "12345678", "ắ".repeat(50))) {
+            var response = request("POST", path, json.writeValueAsString(Map.of(
+                    "currentPassword", PASSWORD, "newPassword", invalid)),
+                    caller.path("accessToken").asText());
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(body(response).path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        }
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                caller.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void unknownWrongAndDisabledAccountsHaveTheSameFailure() throws Exception {
         var unknown = login("unknown@example.test", PASSWORD);
         var wrong = login(EMAIL, "WrongPassword1");

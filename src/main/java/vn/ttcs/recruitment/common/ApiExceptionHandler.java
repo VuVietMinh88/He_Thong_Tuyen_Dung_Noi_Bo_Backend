@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.auth.IncorrectCurrentPasswordException;
 import vn.ttcs.recruitment.auth.passwordreset.InvalidResetTokenException;
 
 import java.util.LinkedHashMap;
@@ -15,6 +16,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(IncorrectCurrentPasswordException.class)
+    public ResponseEntity<ApiError> incorrectCurrentPassword(IncorrectCurrentPasswordException exception) {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("CURRENT_PASSWORD_INCORRECT", exception.getMessage()));
+    }
+
 
     @ExceptionHandler(InvalidResetTokenException.class)
     public ResponseEntity<ApiError> invalidResetToken(InvalidResetTokenException exception) {
