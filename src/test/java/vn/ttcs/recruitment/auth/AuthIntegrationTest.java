@@ -522,6 +522,41 @@ class AuthIntegrationTest {
         assertThat(body(me).path("roles").toString()).contains("INTERVIEWER").doesNotContain("ADMIN");
     }
 
+    @Test
+    void permissionsFollowRoleChangesImmediatelyAndRestrictedCandidateAccessStaysScoped() throws Exception {
+        JsonNode tokens = successfulLogin();
+        String accessToken = tokens.path("accessToken").asText();
+        UUID userId = UUID.fromString(tokens.path("user").path("id").asText());
+        var admin = request("GET", "/api/v1/auth/permissions", null, accessToken);
+        assertThat(admin.statusCode()).isEqualTo(200);
+        assertThat(body(admin).path("permissions").toString()).contains("USER_ADMIN_WRITE_ALL");
+
+        jdbc.update("UPDATE user_roles SET role = 'INTERVIEWER' WHERE user_id = ?", userId);
+        var interviewer = request("GET", "/api/v1/auth/permissions", null, accessToken);
+        assertThat(interviewer.statusCode()).isEqualTo(200);
+        assertThat(body(interviewer).path("permissions").toString())
+                .contains("CANDIDATES_READ_SCOPED", "EVALUATIONS_WRITE_SCOPED")
+                .doesNotContain("CANDIDATES_READ_ALL", "USER_ADMIN_READ_ALL");
+
+        jdbc.update("UPDATE user_roles SET role = 'RECRUITER' WHERE user_id = ?", userId);
+        var recruiter = request("GET", "/api/v1/auth/permissions", null, accessToken);
+        assertThat(body(recruiter).path("permissions").toString())
+                .contains("CANDIDATES_READ_SCOPED", "CANDIDATES_WRITE_SCOPED")
+                .doesNotContain("CANDIDATES_READ_ALL");
+
+        jdbc.update("UPDATE user_roles SET role = 'HR_MANAGER' WHERE user_id = ?", userId);
+        var hr = request("GET", "/api/v1/auth/permissions", null, accessToken);
+        assertThat(body(hr).path("permissions").toString())
+                .contains("CANDIDATES_READ_ALL", "USER_ADMIN_READ_ALL")
+                .doesNotContain("USER_ADMIN_WRITE_ALL");
+
+        jdbc.update("DELETE FROM user_roles WHERE user_id = ?", userId);
+        var denied = request("GET", "/api/v1/auth/me", null, accessToken);
+        assertThat(denied.statusCode()).isEqualTo(403);
+        assertThat(body(denied).path("message").asText()).contains("không có quyền");
+        assertThat(request("GET", "/api/v1/users", null, accessToken).statusCode()).isEqualTo(403);
+    }
+
     @ParameterizedTest
     @EnumSource(Role.class)
     void internalRolesCanReadOnlyTheirOwnProfile(Role role) throws Exception {

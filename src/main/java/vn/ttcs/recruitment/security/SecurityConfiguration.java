@@ -65,6 +65,7 @@ public class SecurityConfiguration {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, AuthService authService,
                                                   JsonSecurityErrors errors,
+                                                  PermissionService permissions,
                                                   BearerTokenResolver bearerTokenResolver) throws Exception {
         return http
                 .cors(withDefaults())
@@ -80,8 +81,10 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.HEAD, "/api/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout", "/api/v1/auth/change-password").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",
+                                "/api/v1/auth/permissions").hasAuthority("PERM_SELF_PROFILE_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout",
+                                "/api/v1/auth/change-password").hasAuthority("PERM_SELF_SECURITY_WRITE")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
@@ -92,8 +95,11 @@ public class SecurityConfiguration {
                         .accessDeniedHandler((request, response, exception) -> errors.forbidden(response))
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
                             Account account = authService.requireActiveAccount(token);
-                            var authorities = account.getRoles().stream()
-                                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name())).toList();
+                            var authorities = new java.util.ArrayList<>(account.getRoles().stream()
+                                    .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name())).toList());
+                            permissions.forUser(account.getId()).stream()
+                                    .map(code -> new SimpleGrantedAuthority("PERM_" + code))
+                                    .forEach(authorities::add);
                             return new JwtAuthenticationToken(token, authorities, account.getId().toString());
                         })))
                 .build();
