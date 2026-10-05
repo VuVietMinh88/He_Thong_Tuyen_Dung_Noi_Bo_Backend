@@ -32,7 +32,7 @@ class PasswordResetMigrationTest {
                     sessionId, userId, "b".repeat(64), createdAt, expiresAt);
 
             var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(3);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(4);
             flyway.validate();
             assertThat(jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE id=?", String.class, userId))
                     .isEqualTo("test-hash");

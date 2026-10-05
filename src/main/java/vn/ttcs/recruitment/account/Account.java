@@ -34,6 +34,14 @@ public class Account {
     @Column(nullable = false)
     private String fullName;
 
+    @Column(length = 20)
+    private String phone;
+
+    @Column(length = 120)
+    private String displayTitle;
+
+    private UUID departmentId;
+
     @Column(nullable = false, length = 100)
     private String passwordHash;
 
@@ -106,9 +114,23 @@ public class Account {
         clearLoginFailures();
     }
 
+    public void updateProfile(String fullName, String phone, String displayTitle) {
+        this.fullName = fullName;
+        this.phone = phone;
+        this.displayTitle = displayTitle;
+    }
+
+    public void assignDepartment(UUID departmentId) {
+        this.departmentId = departmentId;
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getFullName() { return fullName; }
+    public String getPhone() { return phone; }
+    public String getDisplayTitle() { return displayTitle; }
+    public UUID getDepartmentId() { return departmentId; }
+    public Instant getCreatedAt() { return createdAt; }
     public String getPasswordHash() { return passwordHash; }
     public boolean isEnabled() { return enabled; }
     public Set<Role> getRoles() { return Set.copyOf(roles); }
