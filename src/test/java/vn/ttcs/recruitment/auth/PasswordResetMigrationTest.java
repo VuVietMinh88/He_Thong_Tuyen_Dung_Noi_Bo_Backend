@@ -32,7 +32,7 @@ class PasswordResetMigrationTest {
                     sessionId, userId, "b".repeat(64), createdAt, expiresAt);
 
             var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(3);
             flyway.validate();
             assertThat(jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE id=?", String.class, userId))
                     .isEqualTo("test-hash");
@@ -44,8 +44,11 @@ class PasswordResetMigrationTest {
                     Integer.class)).isGreaterThan(0);
             jdbc.update("INSERT INTO password_reset_tokens (id,user_id,token_hash,created_at,expires_at) VALUES (?,?,?,?,?)",
                     UUID.randomUUID(), userId, "a".repeat(64), createdAt, expiresAt);
+            jdbc.update("INSERT INTO account_activation_tokens (user_id,token_hash,created_at,expires_at) VALUES (?,?,?,?)",
+                    userId, "c".repeat(64), createdAt, expiresAt);
             jdbc.update("DELETE FROM user_accounts WHERE id=?", userId);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM password_reset_tokens", Integer.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM account_activation_tokens", Integer.class)).isZero();
         }
     }
 }

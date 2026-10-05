@@ -67,6 +67,18 @@ public class Account {
         this.enabled = true;
     }
 
+    public static Account pendingActivation(String email, String fullName, String passwordHash,
+                                             Set<Role> roles, Instant createdAt) {
+        Account account = new Account(email, fullName, passwordHash, roles, createdAt);
+        account.enabled = false;
+        return account;
+    }
+
+    public void activate() {
+        enabled = true;
+        clearLoginFailures();
+    }
+
     public boolean isLoginLocked(Instant now) {
         return lockedUntil != null && lockedUntil.isAfter(now);
     }

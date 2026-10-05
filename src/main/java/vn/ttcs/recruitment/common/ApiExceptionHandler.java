@@ -10,12 +10,33 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.auth.IncorrectCurrentPasswordException;
 import vn.ttcs.recruitment.auth.passwordreset.InvalidResetTokenException;
+import vn.ttcs.recruitment.account.DuplicateEmailException;
+import vn.ttcs.recruitment.account.AccountInvitationException;
+import vn.ttcs.recruitment.account.InvalidActivationTokenException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ResponseEntity<ApiError> duplicateEmail(DuplicateEmailException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())
+                .body(ApiError.of("EMAIL_ALREADY_EXISTS", exception.getMessage()));
+    }
+
+    @ExceptionHandler(AccountInvitationException.class)
+    public ResponseEntity<ApiError> invitationFailed(AccountInvitationException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).cacheControl(CacheControl.noStore())
+                .body(ApiError.of("ACCOUNT_EMAIL_UNAVAILABLE", exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidActivationTokenException.class)
+    public ResponseEntity<ApiError> invalidActivation(InvalidActivationTokenException exception) {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("ACTIVATION_TOKEN_INVALID", exception.getMessage()));
+    }
+
     @ExceptionHandler(IncorrectCurrentPasswordException.class)
     public ResponseEntity<ApiError> incorrectCurrentPassword(IncorrectCurrentPasswordException exception) {
         return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())

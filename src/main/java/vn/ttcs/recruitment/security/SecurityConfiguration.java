@@ -9,6 +9,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.authorization.AuthorizationManagers;
+import org.springframework.security.authorization.AuthorityAuthorizationManager;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
@@ -35,7 +37,8 @@ public class SecurityConfiguration {
                     && ("/api/v1/auth/refresh".equals(request.getServletPath())
                     || "/api/v1/auth/login".equals(request.getServletPath())
                     || "/api/v1/auth/forgot-password".equals(request.getServletPath())
-                    || "/api/v1/auth/reset-password".equals(request.getServletPath()))) {
+                    || "/api/v1/auth/reset-password".equals(request.getServletPath())
+                    || "/api/v1/auth/activate-account".equals(request.getServletPath()))) {
                 return null;
             }
             return resolver.resolve(request);
@@ -80,7 +83,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/health", "/api/v1/health").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/api/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
-                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
+                                "/api/v1/auth/activate-account").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",
                                 "/api/v1/auth/permissions").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout",

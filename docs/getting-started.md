@@ -86,7 +86,7 @@ Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; kh
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu dùng SMTP: xem [cấu hình mail và API](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp bản này, Flyway sẽ thêm bảng reset token bằng migrationV2; giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tớiV4 (reset token, quyền, activation token); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
 
 Từ thư mục gốc repo Backend:
 

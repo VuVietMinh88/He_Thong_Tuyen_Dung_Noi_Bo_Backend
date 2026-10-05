@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
+    boolean existsByEmail(String email);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.email = :email")
     Optional<Account> findByEmailForUpdate(@Param("email") String email);
