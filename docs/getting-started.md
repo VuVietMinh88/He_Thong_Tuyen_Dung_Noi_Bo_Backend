@@ -86,7 +86,9 @@ Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; kh
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tớiV4 (reset token, quyền, activation token); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tớiV5 (reset token, quyền, activation token, phòng ban/hồ sơ); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+
+[Tìm kiếm/sửa tài khoản](api/accounts.md) và [xem/sửa hồ sơ cá nhân](api/profile.md) dùng Bearer token từ đăng nhập, không cần SMTP. Các API này đọc dữ liệu người dùng hiện tại; V5 không tự tạo phòng ban mẫu. CORS đã cho phépPUT từ các origin được cấu hình.
 
 Từ thư mục gốc repo Backend:
 
