@@ -13,12 +13,40 @@ import vn.ttcs.recruitment.auth.passwordreset.InvalidResetTokenException;
 import vn.ttcs.recruitment.account.DuplicateEmailException;
 import vn.ttcs.recruitment.account.AccountInvitationException;
 import vn.ttcs.recruitment.account.InvalidActivationTokenException;
+import vn.ttcs.recruitment.account.AccountNotFoundException;
+import vn.ttcs.recruitment.account.InvalidDepartmentException;
+import vn.ttcs.recruitment.account.InvalidAccountQueryException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(AccountNotFoundException.class)
+    public ResponseEntity<ApiError> accountNotFound(AccountNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).cacheControl(CacheControl.noStore())
+                .body(ApiError.of("ACCOUNT_NOT_FOUND", exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidDepartmentException.class)
+    public ResponseEntity<ApiError> invalidDepartment(InvalidDepartmentException exception) {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("INVALID_DEPARTMENT", exception.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidAccountQueryException.class)
+    public ResponseEntity<ApiError> invalidQuery(InvalidAccountQueryException exception) {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("VALIDATION_ERROR", exception.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> invalidParameter() {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("VALIDATION_ERROR", "Tham số đường dẫn hoặc bộ lọc không hợp lệ."));
+    }
+
     @ExceptionHandler(DuplicateEmailException.class)
     public ResponseEntity<ApiError> duplicateEmail(DuplicateEmailException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())
