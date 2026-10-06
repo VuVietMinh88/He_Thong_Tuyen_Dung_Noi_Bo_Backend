@@ -31,7 +31,8 @@ class PasswordResetMigrationTest {
             jdbc.update("INSERT INTO auth_sessions (id,user_id,refresh_token_hash,created_at,expires_at) VALUES (?,?,?,?,?)",
                     sessionId, userId, "b".repeat(64), createdAt, expiresAt);
 
-            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
+            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                    .target("6").load();
             assertThat(flyway.migrate().migrationsExecuted).isEqualTo(5);
             flyway.validate();
             assertThat(jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE id=?", String.class, userId))
