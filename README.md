@@ -26,6 +26,7 @@ Team K3S4_N3. Java21, Spring Boot4.1.1, Maven Wrapper và PostgreSQL. Đây là 
 - [auth](docs/api/auth.md)
 - [departments](docs/api/departments.md)
 - [password-reset](docs/api/password-reset.md)
+- [positions](docs/api/positions.md)
 - [profile](docs/api/profile.md)
 
 Phân quyền: [thiết kế](docs/architecture/authorization.md) và [ma trận vai trò và quyền](docs/architecture/role-permission-matrix.md) (đề xuất chờ BA/PO xác nhận).

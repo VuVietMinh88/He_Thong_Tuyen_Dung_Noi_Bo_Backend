@@ -44,15 +44,31 @@ public class Position {
     }
 
     public Position(String code, String name, String level, long salaryMin, long salaryMax, Instant createdAt) {
+        this(code, name, level, salaryMin, salaryMax, true, createdAt);
+    }
+
+    public Position(String code, String name, String level, long salaryMin, long salaryMax, boolean active,
+                    Instant createdAt) {
         this.id = UUID.randomUUID();
         this.code = code;
         this.name = name;
         this.level = level;
         this.salaryMin = salaryMin;
         this.salaryMax = salaryMax;
-        this.active = true;
+        this.active = active;
         this.createdAt = createdAt;
         this.updatedAt = createdAt;
+    }
+
+    public void update(String code, String name, String level, long salaryMin, long salaryMax, boolean active,
+                       Instant updatedAt) {
+        this.code = code;
+        this.name = name;
+        this.level = level;
+        this.salaryMin = salaryMin;
+        this.salaryMax = salaryMax;
+        this.active = active;
+        this.updatedAt = updatedAt;
     }
 
     public UUID getId() { return id; }

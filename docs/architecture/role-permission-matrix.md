@@ -6,7 +6,7 @@ Tài liệu phục vụ Jira TKNHTTDNB1-119 "Xác định danh sách Role và Pe
 
 **Trạng thái: đề xuất của nhóm backend, chờ BA/PO xác nhận. Đây chưa phải bản chốt.** Nội dung mô tả đúng những gì database đang cấp (Flyway V3 và V5) và những gì server đang kiểm. Sau khi BA/PO trả lời các câu hỏi ở mục 8, backend sẽ điều chỉnh bằng migration mới theo mục 4.
 
-Nguồn: bảng `2. User Roles` của đặc tả "HỆ THỐNG TUYỂN DỤNG NỘI BỘ", Jira TKNHTTDNB1-14 và TKNHTTDNB1-205. Cơ chế kiểm quyền được mô tả trong [thiết kế phân quyền](authorization.md). Test `RolePermissionSeedMigrationTest` so dữ liệu seed với hằng `EXPECTED_GRANTS` viết tay trong test, là bản chép lại mục 5.1 và 5.2. Migration đổi quyền mà chưa sửa `EXPECTED_GRANTS` sẽ làm test thất bại. Test không đọc file này, nên người đổi ma trận phải tự cập nhật tài liệu trong cùng thay đổi (mục 4).
+Nguồn: bảng `2. User Roles` của đặc tả "HỆ THỐNG TUYỂN DỤNG NỘI BỘ", Jira TKNHTTDNB1-14 và TKNHTTDNB1-205. Cơ chế kiểm quyền được mô tả trong [thiết kế phân quyền](authorization.md). Test `RolePermissionSeedMigrationTest` so dữ liệu seed với hằng `EXPECTED_GRANTS` viết tay trong test, là bản chép lại mục 5.1 và 5.2. Migration đổi quyền mà chưa sửa `EXPECTED_GRANTS` sẽ làm test thất bại. `ApiAuthorizationMatrixIntegrationTest` đọc lại chính hằng này để biết vai trò nào được gọi API nào, nên quyền mong đợi chỉ được viết ở một chỗ. Test không đọc file này, nên người đổi ma trận phải tự cập nhật tài liệu trong cùng thay đổi (mục 4).
 
 ## 1. Bảy vai trò
 
@@ -37,7 +37,7 @@ Có 10 module × 2 thao tác × 2 phạm vi = 40 mã. Database tạo đủ 40 m�
 
 | Module | Dòng trong bảng nguồn | `SCOPED` nghĩa là (đề xuất) | API backend hiện có |
 |---|---|---|---|
-|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196)|
+|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196), chức danh (203)|
 |`REQUISITIONS`|Yêu cầu tuyển dụng|Hiring Manager: yêu cầu của bộ phận mình. Recruiter: yêu cầu được phân công. Approver: yêu cầu được chuyển cho mình duyệt|Chưa có|
 |`JOB_POSTINGS`|Tin tuyển dụng|Recruiter: tin của vị trí được phân công|Chưa có|
 |`CANDIDATES`|Hồ sơ ứng viên & pipeline|Recruiter: ứng viên của vị trí được phân công. Hiring Manager: ứng viên của vị trí mình sở hữu. Interviewer: ứng viên trong vòng mình phỏng vấn. Candidate: hồ sơ của chính mình|Chưa có|
@@ -84,8 +84,8 @@ V3 xử lý `W` giống `W*`, vì chú thích của bảng nguồn ghi `W` là "
    INSERT INTO role_permissions (role_code, permission_code) VALUES ('APPROVER', 'CANDIDATES_READ_SCOPED');
    ```
 
-3. Trong cùng thay đổi, cập nhật `EXPECTED_GRANTS` trong `src/test/java/vn/ttcs/recruitment/auth/RolePermissionSeedMigrationTest.java` và mục 5–7 của tài liệu này. Nếu thay đổi chạm tới mã quyền mà API hiện có kiểm tra, cập nhật thêm enum `Identity` trong `ApiAuthorizationMatrixIntegrationTest`; lệnh test ở bước 5 không phát hiện thiếu sót này, chỉ `verify` đầy đủ mới phát hiện. Test chỉ kiểm `EXPECTED_GRANTS`, không kiểm tài liệu, nên phải sửa tài liệu bằng tay. Nếu điều kiện của endpoint thay đổi, sửa thêm `SecurityConfiguration`, phần kiểm lại trong service tương ứng (`AccountProvisioningService`, `AccountManagementService`, `AccountRoleService`, `AccountLockService` cho tài khoản; `DepartmentService` cho phòng ban; `ProfileService` cho hồ sơ cá nhân) và [thiết kế phân quyền](authorization.md).
-4. Thêm vai trò mới cần thêm bước: trong migration mới, `INSERT INTO roles` (vì `user_roles` và `role_permissions` có khóa ngoại tới `roles`) và sửa ràng buộc CHECK của `user_roles`; thêm giá trị vào enum `Role` trong Java; thêm vai trò vào `EXPECTED_GRANTS` và enum `Identity` của hai test.
+3. Trong cùng thay đổi, cập nhật `EXPECTED_GRANTS` trong `src/test/java/vn/ttcs/recruitment/auth/RolePermissionSeedMigrationTest.java` và mục 5–7 của tài liệu này. `ApiAuthorizationMatrixIntegrationTest` tự đọc `EXPECTED_GRANTS`, không cần sửa quyền ở enum `Identity`; chạy thêm test này (hoặc `verify` đầy đủ) để thấy API nào đổi kết quả cho phép/từ chối. Test chỉ kiểm `EXPECTED_GRANTS`, không kiểm tài liệu, nên phải sửa tài liệu bằng tay. Nếu điều kiện của endpoint thay đổi, sửa thêm `SecurityConfiguration`, phần kiểm lại trong service tương ứng (`AccountProvisioningService`, `AccountManagementService`, `AccountRoleService`, `AccountLockService` cho tài khoản; `DepartmentService` cho phòng ban; `PositionService` cho chức danh; `ProfileService` cho hồ sơ cá nhân) và [thiết kế phân quyền](authorization.md).
+4. Thêm vai trò mới cần thêm bước: trong migration mới, `INSERT INTO roles` (vì `user_roles` và `role_permissions` có khóa ngoại tới `roles`) và sửa ràng buộc CHECK của `user_roles`; thêm giá trị vào enum `Role` trong Java; thêm vai trò vào `EXPECTED_GRANTS` và thêm một hằng cho vai trò đó vào enum `Identity` của `ApiAuthorizationMatrixIntegrationTest`.
 5. Chạy `./mvnw.cmd test -Dtest=RolePermissionSeedMigrationTest` (Windows) hoặc `sh ./mvnw test -Dtest=RolePermissionSeedMigrationTest` ở thư mục gốc của repo Backend. Sau đó chạy `verify` đầy đủ trước khi tạo Pull Request.
 
 Sau khi migrate, quyền mới có hiệu lực ở yêu cầu kế tiếp. Người dùng không cần đăng nhập lại; frontend chỉ cần tải lại danh sách quyền.
@@ -160,8 +160,12 @@ URL dùng tiền tố `/api/v1`. "6 vai trò nội bộ" là ADMIN, HR_MANAGER, 
 |24|`POST /departments`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 |25|`PUT /departments/{id}`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 |26|`GET /api/health` (không có `/v1`)|Công khai; API sức khỏe cũ giữ lại để tương thích|Mọi người|
+|27|`GET /positions`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
+|28|`GET /positions/{id}`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
+|29|`POST /positions`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
+|30|`PUT /positions/{id}`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 
-Ngoài bộ lọc trong `SecurityConfiguration`, service của tài khoản (13–20), phòng ban (21–25) và hồ sơ cá nhân (9–10) kiểm lại mã quyền trước khi xử lý; với thao tác ghi, việc kiểm lại diễn ra sau khi khóa bản ghi. Thao tác ghi tài khoản yêu cầu đồng thời vai trò `ADMIN` và mã `USER_ADMIN_WRITE_ALL`, ở cả `SecurityConfiguration` lẫn `AccountProvisioningService`, `AccountManagementService`, `AccountRoleService` và `AccountLockService`. Vì vậy, nếu sau này cấp `USER_ADMIN_WRITE_ALL` cho vai trò khác, vai trò đó vẫn nhận 403 cho tới khi sửa cả năm chỗ này.
+Ngoài bộ lọc trong `SecurityConfiguration`, service của tài khoản (13–20), phòng ban (21–25), chức danh (27–30) và hồ sơ cá nhân (9–10) kiểm lại mã quyền trước khi xử lý; với thao tác ghi, việc kiểm lại diễn ra sau khi khóa bản ghi. Thao tác ghi tài khoản yêu cầu đồng thời vai trò `ADMIN` và mã `USER_ADMIN_WRITE_ALL`, ở cả `SecurityConfiguration` lẫn `AccountProvisioningService`, `AccountManagementService`, `AccountRoleService` và `AccountLockService`. Vì vậy, nếu sau này cấp `USER_ADMIN_WRITE_ALL` cho vai trò khác, vai trò đó vẫn nhận 403 cho tới khi sửa cả năm chỗ này.
 
 Mọi URL không có trong bảng đều bị từ chối mặc định. Khi bộ lọc Bearer gặp token thiếu, sai hoặc phiên đã hết, server trả **401** `UNAUTHORIZED` kèm `WWW-Authenticate: Bearer`. Khi phiên hợp lệ nhưng thiếu quyền, server trả **403** `FORBIDDEN` với thông báo tiếng Việt. Cả hai phản hồi này đều có `Cache-Control: no-store`. Riêng refresh token hỏng và các lần service kiểm lại phiên thấy phiên đã mất trả 401 với mã `SESSION_INVALID` qua `ApiExceptionHandler`, không kèm hai header trên. Quyền được đọc lại từ database ở mỗi yêu cầu, nên thay đổi vai trò có hiệu lực ngay ở yêu cầu kế tiếp.
 
@@ -175,7 +179,7 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 6. **Admin có toàn quyền mọi module.** Quyền này gồm cả dữ liệu cá nhân của ứng viên, phiếu đánh giá và offer (`*_ALL`), theo ghi chú "Admin toàn quyền mọi module". Phần mô tả vai trò chỉ nêu quản lý tài khoản, danh mục và nhật ký. Xem câu hỏi 6.
 7. **HR Manager chỉ xem tài khoản.** `USER_ADMIN_READ_ALL` cho phép xem danh sách và chi tiết tài khoản, không cho tạo, sửa, gán vai trò hay khóa tài khoản. Nhật ký hệ thống (audit log) trong dòng "Người dùng & nhật ký" chưa được xây dựng và chưa có API.
 8. **Recruiter xem lịch và phiếu của mọi vị trí.** Theo bảng nguồn, Recruiter có `INTERVIEWS` = F và `EVALUATIONS` = R, nên được seed `ALL`. Do đó Recruiter có thể xem lịch phỏng vấn và phiếu đánh giá của ứng viên thuộc vị trí không được phân công, dù hồ sơ ứng viên đã bị giới hạn. Xem câu hỏi 8.
-9. **Dải lương chưa có mã quyền riêng.** Bảng nguồn đặt "vị trí" trong dòng "Danh mục tổ chức & vị trí", tức module `ORGANIZATION`. Cả sáu vai trò nội bộ đều có `ORGANIZATION_READ_ALL`. Nếu dải lương nằm trong danh mục chức danh, quyền này không đủ để che dải lương. Xem câu hỏi 4.
+9. **Dải lương chưa có mã quyền riêng.** Bảng nguồn đặt "vị trí" trong dòng "Danh mục tổ chức & vị trí", tức module `ORGANIZATION`. Cả sáu vai trò nội bộ đều có `ORGANIZATION_READ_ALL`. Nếu dải lương nằm trong danh mục chức danh, quyền này không đủ để che dải lương. Xem câu hỏi 4. API chức danh của task 203 (mục 6, dòng 27–30) hiện trả dải lương cho mọi người có `ORGANIZATION_READ_ALL`; task 205 sẽ bổ sung quyền riêng để ẩn dải lương.
 10. **Quyền `SCOPED` chưa được kiểm theo từng bản ghi.** Các API ứng viên, yêu cầu tuyển dụng, offer, báo cáo chưa tồn tại. Hiện chỉ có kiểm tra mã quyền theo module.
 
 ## 8. Câu hỏi cần BA/PO xác nhận

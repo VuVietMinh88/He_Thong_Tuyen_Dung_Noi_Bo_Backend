@@ -117,6 +117,12 @@ public class SecurityConfiguration {
                                 "/api/v1/auth/permissions").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout",
                                 "/api/v1/auth/change-password").hasAuthority("PERM_SELF_SECURITY_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/positions", "/api/v1/positions/*")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/positions")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
