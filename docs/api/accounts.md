@@ -1,6 +1,6 @@
 # Quản trị tài khoản nội bộ
 
-Jira TKNHTTDNB1-145–149, story17; dữ liệu phòng ban dùng schema194. Backend dùng `/api/v1`. Tạo/sửa yêu cầu `ADMIN` và `USER_ADMIN_WRITE_ALL`; đọc yêu cầu `USER_ADMIN_READ_ALL` (hiện Admin và HR_MANAGER). Quyền được kiểm trên server mỗi yêu cầu. Gán/thu hồi vai trò và khóa quản trị thuộc các task riêng.
+Jira TKNHTTDNB1-145–149, story17; dữ liệu phòng ban dùng schema194. Backend dùng `/api/v1`. Tạo/sửa yêu cầu `ADMIN` và `USER_ADMIN_WRITE_ALL`; đọc yêu cầu `USER_ADMIN_READ_ALL` (hiện Admin và HR_MANAGER). Quyền được kiểm trên server mỗi yêu cầu. Gán/thu hồi vai trò dùng [API riêng](account-roles.md); khóa quản trị thuộc nhóm task162–166.
 
 ## GET /accounts
 
@@ -67,7 +67,7 @@ Admin gửi đầy đủ trạng thái mới của các trường được phép
 
 Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. API quản lý danh mục phòng ban thuộc195, chưa có trong nhóm này;194 chỉ cung cấp schema. Không tự tạo phòng ban từ tên do người dùng nhập.
 
-Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò và khóa tài khoản có task riêng.
+Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md).
 
 Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
 

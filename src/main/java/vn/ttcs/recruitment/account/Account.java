@@ -124,6 +124,14 @@ public class Account {
         this.departmentId = departmentId;
     }
 
+    public void addRole(Role role) {
+        roles.add(role);
+    }
+
+    public void removeRole(Role role) {
+        roles.remove(role);
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getFullName() { return fullName; }

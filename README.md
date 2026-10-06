@@ -20,6 +20,7 @@ Team K3S4_N3. Java21, Spring Boot4.1.1, Maven Wrapper và PostgreSQL. Đây là 
 
 ## Tài liệu API đang có
 
+- [account-roles](docs/api/account-roles.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
 - [password-reset](docs/api/password-reset.md)
