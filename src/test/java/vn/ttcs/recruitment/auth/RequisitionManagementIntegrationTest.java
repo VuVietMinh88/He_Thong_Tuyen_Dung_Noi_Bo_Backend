@@ -252,8 +252,8 @@ class RequisitionManagementIntegrationTest {
 
     @Test
     void rejectsValuesOfTheWrongJsonTypeAndFieldsTheServerDecides() throws Exception {
+        // A wrong reason code is a VALIDATION_ERROR on "reason" since task 246 (RequisitionValidationIntegrationTest).
         Map<String, String> invalidJson = new LinkedHashMap<>();
-        invalidJson.put("reason", "\"PROMOTION\"");
         invalidJson.put("positionId", "\"not-a-uuid\"");
         invalidJson.put("neededBy", "\"31/12/2026\"");
         // Jackson would otherwise store 1.5 as 1 or convert the text; a salary must be a JSON whole number.
@@ -266,8 +266,7 @@ class RequisitionManagementIntegrationTest {
         for (var entry : invalidJson.entrySet()) {
             error(request("POST", BASE, withRawField(entry.getKey(), entry.getValue()), headToken), 400, "INVALID_JSON");
         }
-        // Reasons are case-sensitive codes, and an impossible calendar date is not silently moved.
-        error(request("POST", BASE, withRawField("reason", "\"replacement\""), headToken), 400, "INVALID_JSON");
+        // An impossible calendar date is not silently moved.
         error(request("POST", BASE, withRawField("neededBy", "\"2026-02-30\""), headToken), 400, "INVALID_JSON");
         // A headcount must be a JSON whole number as well: 1.5 is not cut to 1, 0.9 is not cut to 0 (which would
         // give the misleading "must be greater than 0" message) and "2" is not converted. 3000000000 is outside int.

@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -61,15 +62,15 @@ public class RequisitionService {
     private record Caller(UUID id, AccessScope scope) { }
 
     // Task 244: saves a new DRAFT owned by the caller, so the manager can come back and finish it later.
-    // Business rules on the content (salary justification, needed-by date, department scope) are not checked yet;
-    // the later tasks of story S2-10 add them here.
+    // Task 246 adds: the position and the department must still be active. Other business rules on the content
+    // (salary justification, needed-by date, department scope) come in the later tasks of story S2-10.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
         requireValidSalaryRange(request);
-        requireExistingPositionAndDepartment(request);
+        requireActivePositionAndDepartment(request);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
-                request.headcount(), request.reason(), request.proposedSalaryMin(), request.proposedSalaryMax(),
+                request.headcount(), request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
                 request.candidateRequirements(), caller.id(), now());
         return RequisitionView.from(requisitions.saveAndFlush(requisition));
@@ -116,16 +117,18 @@ public class RequisitionService {
     @Transactional
     public RequisitionView update(Jwt jwt, UUID id, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
-        // Lock order: the actor's account, the actor's session (inside requireWriteAccess), then the requisition.
+        // Lock order: the actor's account, the actor's session (inside requireWriteAccess), then the requisition,
+        // then (shared) the chosen position and department.
         // The scope is checked after this lock, so a department manager change made while we waited is respected.
         var requisition = requisitions.findByIdForUpdate(id).orElseThrow(RequisitionService::notFound);
         requireInScope(caller, requisition);
         requireDraft(requisition);
         requireValidSalaryRange(request);
-        requireExistingPositionAndDepartment(request);
-        requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(), request.reason(),
-                request.proposedSalaryMin(), request.proposedSalaryMax(), request.salaryJustification(),
-                request.neededBy(), request.jobDescription(), request.candidateRequirements(), now());
+        requireActivePositionAndDepartment(request);
+        requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
+                request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
+                request.salaryJustification(), request.neededBy(), request.jobDescription(),
+                request.candidateRequirements(), now());
         requisitions.flush();
         return RequisitionView.from(requisition);
     }
@@ -204,17 +207,35 @@ public class RequisitionService {
         }
     }
 
-    // V13 foreign keys would reject an unknown id with a 500, so report it as a form error first.
-    // There is no API that deletes positions or departments, so the ids cannot disappear before the insert.
-    private void requireExistingPositionAndDepartment(RequisitionRequest request) {
-        if (!positions.existsById(request.positionId())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUISITION_POSITION", "Chức danh không tồn tại.",
-                    Map.of("positionId", "Chức danh không tồn tại."));
+    // The position and the department must exist: V13 foreign keys would reject an unknown id with a 500, so it is
+    // reported as a form error first. Task 246: they must also still be active. HR sets active=false to stop new
+    // hiring for a position or department, so a draft cannot choose one; a draft whose position or department was
+    // deactivated later is saved again only after the manager picks an active one (or HR turns it back on).
+    // Both rows are read with FOR SHARE (see the repositories): a deactivation waits until this transaction commits,
+    // and one committed while this request waited is seen here. There is no API that deletes positions or
+    // departments, so the ids cannot disappear before the insert.
+    private void requireActivePositionAndDepartment(RequisitionRequest request) {
+        Optional<Boolean> positionActive = positions.findActiveForShare(request.positionId());
+        if (positionActive.isEmpty()) {
+            throw invalidField("INVALID_REQUISITION_POSITION", "positionId", "Chức danh không tồn tại.");
         }
-        if (departments.findById(request.departmentId()).isEmpty()) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REQUISITION_DEPARTMENT", "Phòng ban không tồn tại.",
-                    Map.of("departmentId", "Phòng ban không tồn tại."));
+        if (!positionActive.get()) {
+            throw invalidField("REQUISITION_POSITION_INACTIVE", "positionId",
+                    "Chức danh đã ngừng áp dụng, hãy chọn chức danh khác.");
         }
+        Optional<Boolean> departmentActive = departments.findActiveForShare(request.departmentId());
+        if (departmentActive.isEmpty()) {
+            throw invalidField("INVALID_REQUISITION_DEPARTMENT", "departmentId", "Phòng ban không tồn tại.");
+        }
+        if (!departmentActive.get()) {
+            throw invalidField("REQUISITION_DEPARTMENT_INACTIVE", "departmentId",
+                    "Phòng ban đã ngừng áp dụng, hãy chọn phòng ban khác.");
+        }
+    }
+
+    // A 400 about one request field: the same text is the message and the form error of that field.
+    private static ApiException invalidField(String code, String field, String message) {
+        return new ApiException(HttpStatus.BAD_REQUEST, code, message, Map.of(field, message));
     }
 
     private void requireUnexpiredToken(Jwt jwt, Instant now) {
