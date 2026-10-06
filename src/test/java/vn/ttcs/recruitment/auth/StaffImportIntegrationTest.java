@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -149,15 +150,13 @@ class StaffImportIntegrationTest {
         // Every filled-in row, in file order; the empty row 5 is not a person.
         assertThat(statuses(body)).containsExactly(
                 "2 CREATED", "3 SKIPPED", "4 SKIPPED", "6 CREATED", "7 SKIPPED", "8 SKIPPED");
-        assertThat(new ArrayList<>(body.propertyNames())).containsExactly("rows", "stoppedAtRow");
+        assertThat(new ArrayList<>(body.propertyNames())).containsExactly(
+                "totalRows", "createdCount", "skippedCount", "stoppedAtRow", "created", "skipped");
         assertThat(body.path("stoppedAtRow").isNull()).as("every valid row was tried").isTrue();
         JsonNode first = excelRow(body, 2);
         List<String> fields = new ArrayList<>(first.propertyNames());
-        assertThat(fields).containsExactly("rowNumber", "email", "status", "accountId");
+        assertThat(fields).containsExactly("rowNumber", "email", "accountId");
         assertThat(first.path("email").asText()).isEqualTo("an@example.com");
-        for (int skipped : List.of(3, 4, 7, 8)) {
-            assertThat(excelRow(body, skipped).path("accountId").isNull()).as("row " + skipped).isTrue();
-        }
 
         UUID anId = UUID.fromString(first.path("accountId").asText());
         Account an = accounts.findById(anId).orElseThrow();
@@ -334,11 +333,16 @@ class StaffImportIntegrationTest {
 
         JsonNode first = expectOk(responses.get(0));
         JsonNode second = expectOk(responses.get(1));
+        assertThat(first.path("createdCount").asInt() + second.path("createdCount").asInt()).isEqualTo(6);
         for (int rowNumber = 2; rowNumber <= 7; rowNumber++) {
             // Whichever import reaches a row first creates it; the other skips it because the email now exists.
-            assertThat(List.of(excelRow(first, rowNumber).path("status").asText(),
-                    excelRow(second, rowNumber).path("status").asText()))
-                    .as("row " + rowNumber).containsExactlyInAnyOrder("CREATED", "SKIPPED");
+            JsonNode inFirst = excelRow(first, rowNumber);
+            JsonNode inSecond = excelRow(second, rowNumber);
+            assertThat(List.of(inFirst.has("accountId"), inSecond.has("accountId")))
+                    .as("row " + rowNumber).containsExactlyInAnyOrder(true, false);
+            JsonNode skipped = inFirst.has("accountId") ? inSecond : inFirst;
+            assertThat(skipped.path("errors").findValuesAsString("code")).containsExactly("EMAIL_ALREADY_EXISTS");
+            assertThat(skipped.path("errors").findValuesAsString("cell")).containsExactly("A" + rowNumber);
         }
         for (int person = 1; person <= 6; person++) {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM user_accounts WHERE email = ?", Integer.class,
@@ -419,7 +423,6 @@ class StaffImportIntegrationTest {
         assertThat(recipients()).isEmpty();
     }
 
-    // "2 CREATED" for each row of the response, in response order. Only a created row has an account id.
     // The SMTP server's reply must not reach the client. Only the error code and message are checked: the response
     // also holds generated account UUIDs, which can contain a number such as 550 or 451 by chance.
     private static void assertNoSmtpDetailsInErrors(JsonNode body, String statusCode, String detail) {
@@ -431,20 +434,31 @@ class StaffImportIntegrationTest {
         }
     }
 
+    // "2 CREATED" for each row of the report, in Excel row order: CREATED for a row of "created", NOT_ATTEMPTED for
+    // a skipped row the import did not try because it had stopped, SKIPPED for every other skipped row.
+    // Only a created row has an account id, and no row is in both lists.
     private static List<String> statuses(JsonNode body) {
-        List<String> statuses = new ArrayList<>();
-        for (JsonNode row : body.path("rows")) {
-            String status = row.path("status").asText();
-            assertThat(row.path("accountId").isNull()).as(row.toString()).isEqualTo(!status.equals("CREATED"));
-            statuses.add(row.path("rowNumber").asInt() + " " + status);
+        Map<Integer, String> statuses = new TreeMap<>();
+        for (JsonNode row : body.path("created")) {
+            assertThat(row.path("accountId").isString()).as(row.toString()).isTrue();
+            assertThat(statuses.put(row.path("rowNumber").asInt(), "CREATED")).as(row.toString()).isNull();
         }
-        return statuses;
+        for (JsonNode row : body.path("skipped")) {
+            assertThat(row.has("accountId")).as(row.toString()).isFalse();
+            String status = row.path("errors").path(0).path("code").asText().equals("NOT_ATTEMPTED")
+                    ? "NOT_ATTEMPTED" : "SKIPPED";
+            assertThat(statuses.put(row.path("rowNumber").asInt(), status)).as(row.toString()).isNull();
+        }
+        return statuses.entrySet().stream().map(entry -> entry.getKey() + " " + entry.getValue()).toList();
     }
 
+    // The row with this Excel row number, from "created" or "skipped".
     private static JsonNode excelRow(JsonNode body, int rowNumber) {
-        for (JsonNode row : body.path("rows")) {
-            if (row.path("rowNumber").asInt() == rowNumber) {
-                return row;
+        for (String list : List.of("created", "skipped")) {
+            for (JsonNode row : body.path(list)) {
+                if (row.path("rowNumber").asInt() == rowNumber) {
+                    return row;
+                }
             }
         }
         throw new AssertionError("No row " + rowNumber + " in " + body);
@@ -460,7 +474,8 @@ class StaffImportIntegrationTest {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
         JsonNode body = json.readTree(response.body());
         assertThat(body.path("code").asText()).as(response.body()).isEqualTo(code);
-        assertThat(body.has("rows")).isFalse();
+        assertThat(body.has("created")).isFalse();
+        assertThat(body.has("skipped")).isFalse();
     }
 
     private List<String> emails() {

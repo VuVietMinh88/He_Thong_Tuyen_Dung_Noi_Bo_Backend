@@ -1,10 +1,10 @@
 # Nhập danh sách nhân sự từ Excel
 
-Phạm vi TKNHTTDNB1-170–173 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
+Phạm vi TKNHTTDNB1-170–174 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
 
 Nhập hàng loạt cũng là tạo tài khoản, nên dùng đúng quy tắc của `POST /accounts`: cần **vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`**. `SecurityConfiguration` kiểm trước, sau đó `StaffImportService` đọc lại phiên, vai trò và quyền từ database ở mỗi yêu cầu. Theo seed hiện tại chỉ ADMIN dùng được; HR_MANAGER chỉ có quyền đọc tài khoản nên nhận 403.
 
-Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), và API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173). Báo cáo tổng kết sau khi nhập (174: số dòng thành công, số dòng bị bỏ qua và lý do) thuộc task tiếp theo của story, chưa có trong tài liệu này.
+Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173), và trả báo cáo tổng kết gồm số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua (174).
 
 ## GET /accounts/import/template
 
@@ -280,62 +280,98 @@ const response = await fetch(`${apiBaseUrl}/api/v1/accounts/import`, {
 2. Đọc tệp đúng như bước 2–10 của [xem trước](#server-kiểm-tra-theo-thứ-tự). Gặp lỗi cấp tệp (bảng [Lỗi](#lỗi)) thì cả tệp bị từ chối và **chưa tạo tài khoản nào**, kể cả cho các dòng đúng.
 3. Kiểm tra lại mọi dòng như bước 11 của xem trước, theo database **lúc nhập**. Từ lúc xem trước, có thể đã có người tạo tài khoản trùng email hoặc ngừng áp dụng một phòng ban.
 4. Đi lần lượt từng dòng theo thứ tự trong tệp:
-   - Dòng có lỗi: bỏ qua (`SKIPPED`), không ghi gì, không gửi email.
-   - Dòng hợp lệ: tạo tài khoản bằng chính `AccountProvisioningService` của `POST /accounts`, trong **transaction riêng của dòng đó**. Transaction khóa và kiểm lại phiên, vai trò, quyền của người nhập; khóa phòng ban theo mã (`SELECT ... FOR SHARE`) và kiểm phòng ban còn áp dụng; kiểm email chưa có tài khoản; lưu tài khoản ở trạng thái chờ kích hoạt cùng vai trò, phòng ban, số điện thoại và chức danh; tạo token kích hoạt; cuối cùng gửi email mời giống `POST /accounts`. Dòng xong thì được commit ngay, trước khi sang dòng sau.
+   - Dòng có lỗi: bỏ qua, không ghi gì, không gửi email. Dòng vào danh sách `skipped` của báo cáo cùng đúng các lỗi mà xem trước báo cho dòng đó.
+   - Dòng hợp lệ: tạo tài khoản bằng chính `AccountProvisioningService` của `POST /accounts`, trong **transaction riêng của dòng đó**. Transaction khóa và kiểm lại phiên, vai trò, quyền của người nhập; khóa phòng ban theo mã (`SELECT ... FOR SHARE`) và kiểm phòng ban còn áp dụng; kiểm email chưa có tài khoản; lưu tài khoản ở trạng thái chờ kích hoạt cùng vai trò, phòng ban, số điện thoại và chức danh; tạo token kích hoạt; cuối cùng gửi email mời giống `POST /accounts`. Dòng xong thì được commit ngay, trước khi sang dòng sau, và vào danh sách `created`.
+5. Trả [báo cáo tổng kết](#response-200-báo-cáo-tổng-kết): số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua.
 
 Tài khoản tạo từ tệp giống hệt tài khoản tạo bằng `POST /accounts` rồi sửa hồ sơ bằng `PUT /accounts/{id}`: trạng thái `PENDING_ACTIVATION`, mật khẩu tạm và link kích hoạt (hạn theo `ACCOUNT_ACTIVATION_TTL`) chỉ có trong email gửi cho người đó.
 
 ### Dòng hợp lệ nhưng thất bại lúc tạo
 
-Giữa bước 3 và lúc tạo một dòng, dữ liệu vẫn có thể đổi. Khi đó chỉ transaction của dòng ấy bị hủy; tài khoản của các dòng trước và sau không bị ảnh hưởng.
+Giữa bước 3 và lúc tạo một dòng, dữ liệu vẫn có thể đổi. Khi đó chỉ transaction của dòng ấy bị hủy; tài khoản của các dòng trước và sau không bị ảnh hưởng. Dòng đó vào `skipped` với đúng một lý do (cột giữa của bảng; xem thêm bảng [Lý do bỏ qua](#lý-do-bỏ-qua)).
 
-| Tình huống lúc tạo dòng | Kết quả |
-|---|---|
-|Email vừa được dùng cho một tài khoản khác, kể cả khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_email_key` quyết định ai tạo trước)|Dòng `SKIPPED`; tài khoản đã có giữ nguyên tên, vai trò, mật khẩu; không gửi email. Tiếp tục dòng sau|
-|Phòng ban vừa ngừng áp dụng hoặc đổi mã|Dòng `SKIPPED`, không tạo gì. Tiếp tục dòng sau|
-|Máy chủ thư trả lời nhưng **từ chối địa chỉ** người nhận (mã SMTP 5xx cho địa chỉ đó, ví dụ hộp thư không tồn tại)|Tài khoản của dòng đó bị hủy như `POST /accounts`, dòng `SKIPPED`. Máy chủ thư vẫn hoạt động với địa chỉ khác nên tiếp tục dòng sau|
-|**Máy chủ thư không hoạt động**: không kết nối được, đăng nhập SMTP sai, hết thời gian chờ, lỗi tạm thời (mã 4xx) hoặc lỗi khác|Tài khoản của dòng đó bị hủy như `POST /accounts`, dòng `SKIPPED`. Server **dừng tạo**: `stoppedAtRow` là số dòng này; các dòng hợp lệ sau đó là `NOT_ATTEMPTED` (không thử, không ghi gì, không gửi email); các dòng lỗi sau đó vẫn `SKIPPED`|
-|Phiên hết hạn hoặc bị thu hồi, Admin bị khóa, mất vai trò `ADMIN` hoặc quyền `USER_ADMIN_WRITE_ALL`|Request dừng ngay với 401 `SESSION_INVALID` hoặc 403 `FORBIDDEN`, không có danh sách dòng. Tài khoản đã tạo trước đó vẫn giữ|
+| Tình huống lúc tạo dòng | Lý do trong báo cáo | Kết quả |
+|---|---|---|
+|Email vừa được dùng cho một tài khoản khác, kể cả khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_email_key` quyết định ai tạo trước)|`EMAIL_ALREADY_EXISTS`, ô cột A|Tài khoản đã có giữ nguyên tên, vai trò, mật khẩu; không gửi email. Tiếp tục dòng sau|
+|Phòng ban vừa ngừng áp dụng hoặc đổi mã|`INVALID_DEPARTMENT`, ô cột D|Không tạo gì. Tiếp tục dòng sau|
+|Máy chủ thư trả lời nhưng **từ chối địa chỉ** người nhận (mã SMTP 5xx cho địa chỉ đó, ví dụ hộp thư không tồn tại)|`EMAIL_ADDRESS_REFUSED`, ô cột A|Tài khoản của dòng đó bị hủy như `POST /accounts`. Máy chủ thư vẫn hoạt động với địa chỉ khác nên tiếp tục dòng sau|
+|**Máy chủ thư không hoạt động**: không kết nối được, đăng nhập SMTP sai, hết thời gian chờ, lỗi tạm thời (mã 4xx) hoặc lỗi khác|`ACCOUNT_EMAIL_UNAVAILABLE`, không gắn ô|Tài khoản của dòng đó bị hủy như `POST /accounts`. Server **dừng tạo**: `stoppedAtRow` là số dòng này; mỗi dòng hợp lệ sau đó vào `skipped` với lý do `NOT_ATTEMPTED` (không thử, không ghi gì, không gửi email); các dòng lỗi sau đó vẫn vào `skipped` với lỗi dữ liệu của chúng|
+|Phiên hết hạn hoặc bị thu hồi, Admin bị khóa, mất vai trò `ADMIN` hoặc quyền `USER_ADMIN_WRITE_ALL`|Không có báo cáo|Request dừng ngay với 401 `SESSION_INVALID` hoặc 403 `FORBIDDEN`. Tài khoản đã tạo trước đó vẫn giữ|
 
 Server phân biệt hai trường hợp gửi email lỗi theo lỗi mà thư viện gửi thư trả về (`AccountInvitationMailSender.refusedRecipient`). Từ chối địa chỉ là vấn đề của **riêng dòng đó**: máy chủ đã trả lời ngay nên thử dòng sau không tốn thời gian chờ. Máy chủ thư không hoạt động thì các dòng sau gần như chắc chắn cũng lỗi, và mỗi lần thử có thể chờ hết thời gian chờ SMTP (tới 5 giây mỗi bước), làm request 500 dòng kéo dài hàng chục phút, nên server dừng.
 
-Xem trước không biết máy chủ thư có nhận một địa chỉ hay không, nên dòng bị từ chối địa chỉ vẫn hiện là hợp lệ khi xem trước. Nếu một dòng `SKIPPED` (không phải dòng `stoppedAtRow`) mà xem trước lại tệp vẫn báo hợp lệ, nhiều khả năng máy chủ thư đã từ chối địa chỉ đó: hãy kiểm tra lại email của dòng.
+Xem trước không biết máy chủ thư có nhận một địa chỉ hay không, nên dòng bị từ chối địa chỉ vẫn hiện là hợp lệ khi xem trước; chỉ báo cáo nhập mới cho biết lý do `EMAIL_ADDRESS_REFUSED`. Khi đó hãy kiểm tra lại email của dòng.
 
-**Nhập lại cùng tệp là an toàn.** Dòng đã tạo ở lần trước nay có email đã tồn tại nên bị bỏ qua: không tạo trùng, không gửi email lần hai, không đổi mật khẩu tạm. Vì vậy sau khi request bị dừng (`stoppedAtRow` khác `null`, 401, 403, mất kết nối), Admin chỉ cần tải lại đúng tệp đó khi hệ thống đã ổn: dòng `stoppedAtRow` và các dòng `NOT_ATTEMPTED` sẽ được thử lại.
+**Nhập lại cùng tệp là an toàn.** Dòng đã tạo ở lần trước nay có email đã tồn tại nên bị bỏ qua với lý do `EMAIL_ALREADY_EXISTS`: không tạo trùng, không gửi email lần hai, không đổi mật khẩu tạm. Vì vậy sau khi request bị dừng (`stoppedAtRow` khác `null`, 401, 403, mất kết nối), Admin chỉ cần tải lại đúng tệp đó khi hệ thống đã ổn: dòng `stoppedAtRow` và các dòng có lý do `NOT_ATTEMPTED` sẽ được thử lại.
 
-### Response 200
+### Response 200: báo cáo tổng kết
+
+Response là báo cáo tổng kết của lần nhập (TKNHTTDNB1-174): đếm số dòng, liệt kê các dòng đã tạo tài khoản và các dòng bị bỏ qua kèm lý do. Ví dụ một tệp có dòng 3 sai dữ liệu và máy chủ thư từ chối địa chỉ ở dòng 4:
 
 ```json
 {
-  "rows": [
+  "totalRows": 4,
+  "createdCount": 2,
+  "skippedCount": 2,
+  "stoppedAtRow": null,
+  "created": [
+    { "rowNumber": 2, "email": "nguyen.van.an@example.com", "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40" },
+    { "rowNumber": 5, "email": "le.van.cuong@example.com", "accountId": "1f0c7a52-93d4-4b7e-8c1a-5e2b9d3f6a17" }
+  ],
+  "skipped": [
     {
-      "rowNumber": 2,
-      "email": "nguyen.van.an@example.com",
-      "status": "CREATED",
-      "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40"
+      "rowNumber": 3,
+      "email": "tran.thi.binh@example.com",
+      "errors": [
+        { "rowNumber": 3, "column": "fullName", "cell": "B3", "code": "REQUIRED", "message": "Họ và tên là bắt buộc." },
+        { "rowNumber": 3, "column": "departmentCode", "cell": "D3", "code": "DEPARTMENT_INACTIVE", "message": "Phòng ban mã \"OLD\" đã ngừng áp dụng, không gán được nhân sự mới." }
+      ]
     },
     {
       "rowNumber": 4,
-      "email": "tran.thi.binh@example.com",
-      "status": "SKIPPED",
-      "accountId": null
+      "email": "pham.thi.dung@example.com",
+      "errors": [
+        { "rowNumber": 4, "column": "email", "cell": "A4", "code": "EMAIL_ADDRESS_REFUSED", "message": "Máy chủ thư từ chối địa chỉ email này nên không gửi được email mời; chưa tạo tài khoản. Hãy kiểm tra lại email." }
+      ]
     }
-  ],
-  "stoppedAtRow": null
+  ]
 }
 ```
 
-Khi máy chủ thư ngừng hoạt động ở dòng 3 của một tệp 4 dòng (dòng 2 đã tạo xong trước đó):
+Khi máy chủ thư ngừng hoạt động ở dòng 3 của một tệp 4 dòng (dòng 2 đã tạo xong trước đó, dòng 4 sai email):
 
 ```json
 {
-  "rows": [
-    { "rowNumber": 2, "email": "an@example.com", "status": "CREATED", "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40" },
-    { "rowNumber": 3, "email": "binh@example.com", "status": "SKIPPED", "accountId": null },
-    { "rowNumber": 4, "email": "sai-email", "status": "SKIPPED", "accountId": null },
-    { "rowNumber": 5, "email": "cuong@example.com", "status": "NOT_ATTEMPTED", "accountId": null }
+  "totalRows": 4,
+  "createdCount": 1,
+  "skippedCount": 3,
+  "stoppedAtRow": 3,
+  "created": [
+    { "rowNumber": 2, "email": "an@example.com", "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40" }
   ],
-  "stoppedAtRow": 3
+  "skipped": [
+    {
+      "rowNumber": 3,
+      "email": "binh@example.com",
+      "errors": [
+        { "rowNumber": 3, "column": null, "cell": null, "code": "ACCOUNT_EMAIL_UNAVAILABLE", "message": "Máy chủ thư không hoạt động nên không gửi được email mời; chưa tạo tài khoản. Việc nhập dừng ở dòng này; hãy nhập lại tệp khi máy chủ thư hoạt động." }
+      ]
+    },
+    {
+      "rowNumber": 4,
+      "email": "sai-email",
+      "errors": [
+        { "rowNumber": 4, "column": "email", "cell": "A4", "code": "EMAIL_INVALID", "message": "Email không đúng định dạng, ví dụ đúng: nguyen.van.an@example.com." }
+      ]
+    },
+    {
+      "rowNumber": 5,
+      "email": "cuong@example.com",
+      "errors": [
+        { "rowNumber": 5, "column": null, "cell": null, "code": "NOT_ATTEMPTED", "message": "Dòng hợp lệ nhưng chưa được nhập vì việc nhập đã dừng ở dòng 3 do máy chủ thư không hoạt động. Nhập lại tệp khi máy chủ thư hoạt động để tạo tài khoản này." }
+      ]
+    }
+  ]
 }
 ```
 
@@ -343,14 +379,35 @@ Header `Cache-Control: no-store`. Response là 200 kể cả khi không dòng n�
 
 | Trường | Ý nghĩa |
 |---|---|
-|rows|Mọi dòng nhân sự đọc được, cùng thứ tự và cùng `rowNumber` như response xem trước; dòng trống không có trong danh sách|
-|rowNumber|Số dòng Excel hiển thị bên trái sheet|
-|email|Email như xem trước (bỏ khoảng trắng đầu/cuối, đổi về chữ thường); `null` khi ô trống|
-|status|`CREATED`: đã tạo tài khoản chờ kích hoạt và gửi email mời. `SKIPPED`: dòng có lỗi, hoặc đã thử tạo nhưng thất bại (bảng trên); không tạo gì và không gửi email. `NOT_ATTEMPTED`: dòng hợp lệ nhưng **chưa được thử** vì server đã dừng ở `stoppedAtRow`; không tạo gì và không gửi email. Nhập lại cùng tệp sẽ thử dòng này|
-|accountId|Id của tài khoản mới, dùng được với `GET /accounts/{id}`; `null` khi không phải `CREATED`|
+|totalRows|Số dòng nhân sự đọc được, bằng `totalRows` của xem trước cùng tệp và luôn bằng `createdCount + skippedCount`. Dòng trống không được đếm|
+|createdCount|Số dòng thành công, tức số tài khoản đã tạo; bằng số phần tử của `created`|
+|skippedCount|Số dòng bị bỏ qua (không tạo tài khoản, không gửi email); bằng số phần tử của `skipped`|
 |stoppedAtRow|Số dòng Excel mà server không gửi được email mời vì máy chủ thư không hoạt động, rồi dừng tạo. `null` khi mọi dòng hợp lệ đều đã được thử. Giao diện nên báo rõ, ví dụ `Máy chủ thư lỗi ở dòng 3; các dòng sau chưa được nhập. Hãy nhập lại tệp sau.`|
+|created|Các dòng đã tạo tài khoản chờ kích hoạt và gửi email mời. Mảng rỗng `[]` khi không tạo được dòng nào, không bao giờ `null`|
+|created[].rowNumber|Số dòng Excel hiển thị bên trái sheet, giống `rowNumber` của xem trước|
+|created[].email|Email như xem trước (bỏ khoảng trắng đầu/cuối, đổi về chữ thường)|
+|created[].accountId|Id của tài khoản mới, dùng được với `GET /accounts/{id}`|
+|skipped|Các dòng không được tạo tài khoản. Mảng rỗng `[]` khi mọi dòng đều được tạo, không bao giờ `null`|
+|skipped[].rowNumber|Số dòng Excel|
+|skipped[].email|Email như xem trước; `null` khi ô trống|
+|skipped[].errors|Lý do bỏ qua, **luôn có ít nhất một phần tử**. Mỗi phần tử có các trường `rowNumber`, `column`, `cell`, `code`, `message` như lỗi của xem trước|
 
-Response không chứa mật khẩu tạm hay token kích hoạt. Response hiện chỉ cho biết dòng nào được tạo, bị bỏ qua hay chưa được thử, và server có dừng hay không; số dòng thành công, số dòng bị bỏ qua và lý do bỏ qua từng dòng thuộc báo cáo tổng kết (TKNHTTDNB1-174). Trong lúc chờ task đó, frontend có thể tự đếm theo `status`, và lỗi dữ liệu của từng dòng vẫn xem được bằng API xem trước.
+Mỗi dòng nhân sự có ở **đúng một** trong hai danh sách. Cả `created` và `skipped` đều theo thứ tự dòng trong tệp (số dòng tăng dần); trong một dòng, lỗi dữ liệu theo thứ tự cột A→F như xem trước. Vì vậy cùng tệp và cùng dữ liệu trong hệ thống luôn cho báo cáo theo cùng thứ tự.
+
+### Lý do bỏ qua
+
+| Nguồn | Mã | `column` / `cell` | Khi nào | Nhập lại cùng tệp |
+|---|---|---|---|---|
+|Lỗi dữ liệu|Các mã ở [Kiểm tra từng dòng](#kiểm-tra-từng-dòng): `REQUIRED`, `TOO_LONG`, `EMAIL_INVALID`, `EMAIL_ALREADY_EXISTS`, `EMAIL_DUPLICATED_IN_FILE`, `ROLE_UNKNOWN`, `DEPARTMENT_NOT_FOUND`, `DEPARTMENT_INACTIVE`, `PHONE_INVALID`|Ô có lỗi|Dòng sai khi server kiểm tra lại lúc nhập (bước 3). `errors` giống hệt `errors` mà xem trước trả cho dòng đó vào cùng thời điểm, có thể nhiều lỗi (mỗi cột tối đa một)|Vẫn bị bỏ qua cho tới khi sửa tệp hoặc dữ liệu hệ thống|
+|Đổi trong lúc nhập|`EMAIL_ALREADY_EXISTS`|`email`, ô cột A|Email vừa được dùng cho tài khoản khác sau khi server kiểm tra, ví dụ hai Admin nhập cùng lúc. Cùng mã với lỗi dữ liệu và với lỗi 409 của `POST /accounts`; message nói rõ là vừa xảy ra trong lúc nhập|Vẫn bị bỏ qua (email đã có tài khoản)|
+||`INVALID_DEPARTMENT`|`departmentCode`, ô cột D|Phòng ban vừa ngừng áp dụng hoặc đổi mã. Cùng mã với lỗi 400 của `PUT /accounts/{id}`|Bị bỏ qua với `DEPARTMENT_NOT_FOUND` hoặc `DEPARTMENT_INACTIVE`|
+|Gửi email mời|`EMAIL_ADDRESS_REFUSED`|`email`, ô cột A|Máy chủ thư từ chối địa chỉ người nhận|Được thử lại, nhưng nhiều khả năng lại bị từ chối nếu không sửa email|
+||`ACCOUNT_EMAIL_UNAVAILABLE`|`null` / `null`|Máy chủ thư không hoạt động ở dòng này; dòng này là `stoppedAtRow`. Cùng mã với lỗi 503 của `POST /accounts`|Được thử lại|
+||`NOT_ATTEMPTED`|`null` / `null`|Dòng hợp lệ nằm sau `stoppedAtRow` nên chưa được thử. Message nêu dòng đã dừng|Được thử lại|
+
+Lý do thuộc nhóm "đổi trong lúc nhập" và "gửi email mời" luôn là lỗi duy nhất của dòng. `column` và `cell` chỉ là `null` khi lý do không nằm ở ô nào (hai mã cuối); lỗi của xem trước luôn có `column` và `cell`. Giao diện có thể ghép `Dòng 4, ô A4: <message>`, hoặc `Dòng 5: <message>` khi `cell` là `null`.
+
+Báo cáo không chứa mật khẩu tạm, token kích hoạt hay câu trả lời gốc của máy chủ thư (mã SMTP, tên máy chủ). Server không lưu báo cáo: nó chỉ có trong response này, nên muốn xem lại sau thì frontend phải tự giữ hoặc cho người dùng tải xuống.
 
 ### Lỗi và thời gian xử lý
 
