@@ -1,6 +1,6 @@
 # API khung năng lực
 
-Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá) và TKNHTTDNB1-213 "Kiểm tra tổng trọng số khung năng lực bằng 100%", story TKNHTTDNB1-25 (S2-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá), TKNHTTDNB1-213 "Kiểm tra tổng trọng số khung năng lực bằng 100%" và TKNHTTDNB1-214 "Xử lý dùng lại khung năng lực cho nhiều chức danh" (trường `positions` của chi tiết khung), story TKNHTTDNB1-25 (S2-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
 
 Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi, service khóa tài khoản người gọi rồi phiên, kiểm lại trạng thái tài khoản, phiên, hạn JWT và quyền, sau đó mới khóa khung năng lực.
 
@@ -13,7 +13,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 
 ## Khái niệm
 
-- **Khung năng lực** là một bộ tiêu chí đánh giá dùng lại được: nhiều chức danh trỏ tới cùng một khung qua cột `positions.competency_framework_id` (V8), tiêu chí chỉ lưu một lần và không bị sao chép theo từng chức danh. Sửa khung là sửa cho mọi chức danh đang dùng khung đó. API gán khung cho chức danh chưa có trong task này.
+- **Khung năng lực** là một bộ tiêu chí đánh giá dùng lại được: nhiều chức danh trỏ tới cùng một khung qua cột `positions.competency_framework_id` (V8), tiêu chí chỉ lưu một lần và không bị sao chép theo từng chức danh. Sửa khung là sửa cho mọi chức danh đang dùng khung đó. Gán hoặc bỏ khung của một chức danh bằng `PUT`/`DELETE /positions/{id}/competency-framework` (task 214, chỉ gán được khung `ACTIVE`), mô tả ở [API chức danh](positions.md#khung-năng-lực-của-chức-danh-task-214); chi tiết khung liệt kê các chức danh đang dùng nó trong trường `positions`.
 - **Tiêu chí** có tên, mô tả tùy chọn, trọng số phần trăm và thứ tự hiển thị. Đây là bộ tiêu chí sẽ sinh phiếu đánh giá phỏng vấn ở Sprint 6.
 - **Trạng thái** `DRAFT` (bản nháp đang soạn: tổng trọng số có thể chưa đủ hoặc vượt 100) hoặc `ACTIVE` (khung hoàn chỉnh: tổng trọng số **đúng 100%**). Request có trường `status` tùy chọn; gửi `"ACTIVE"` để lưu khung hoàn chỉnh. Quy tắc nằm ở mục [Khung hoàn chỉnh và tổng trọng số 100%](#khung-hoàn-chỉnh-và-tổng-trọng-số-100) (task 213).
 
@@ -89,7 +89,7 @@ Trạng thái sau khi lưu:
 |PUT khung đang `ACTIVE`|bỏ trống, `null` hoặc `"ACTIVE"`|Vẫn `ACTIVE`; **mọi lần sửa phải giữ tổng đúng 100**|
 |PUT khung đang `ACTIVE`|`"DRAFT"`|409 `COMPETENCY_FRAMEWORK_ALREADY_ACTIVE`, không thay đổi gì|
 
-Muốn thêm, bỏ hoặc đổi trọng số của khung `ACTIVE` thì gửi một PUT có cả danh sách tiêu chí mới đã cân lại đủ 100%; không cần (và không thể) chuyển về `DRAFT` trước. **Quyết định tạm thời của task 213:** khung `ACTIVE` không quay lại `DRAFT`, vì chức danh (task 214) và phiếu đánh giá sau này dựa vào khung luôn hoàn chỉnh. Nếu nghiệp vụ cần "ngừng dùng" một khung, BA/PO cần bổ sung yêu cầu riêng.
+Muốn thêm, bỏ hoặc đổi trọng số của khung `ACTIVE` thì gửi một PUT có cả danh sách tiêu chí mới đã cân lại đủ 100%; không cần (và không thể) chuyển về `DRAFT` trước. **Quyết định tạm thời của task 213:** khung `ACTIVE` không quay lại `DRAFT`, vì chức danh (task 214) và phiếu đánh giá sau này dựa vào khung luôn hoàn chỉnh. Nhờ quy tắc này, khung đang được chức danh dùng (chỉ khung `ACTIVE` mới gán được) không bao giờ trở lại trạng thái thiếu trọng số. Nếu nghiệp vụ cần "ngừng dùng" một khung, BA/PO cần bổ sung yêu cầu riêng.
 
 Ví dụ kích hoạt khung đang có hai tiêu chí (gửi lại `id` của cả hai để giữ chúng):
 
@@ -142,7 +142,7 @@ Cách làm an toàn ở frontend: `GET /competency-frameworks/{id}`, sửa trên
 7. Mã khung không trùng khung khác (409 `COMPETENCY_FRAMEWORK_CODE_EXISTS`).
 8. Ghi, rồi kiểm ngay hai ràng buộc UNIQUE "kiểm lúc COMMIT" của V8 (`checkUniqueConstraintsNow`) để lỗi trùng còn sót vẫn thành 409 thay vì 500.
 
-Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Trạng thái cũng được đọc sau khi khóa: nếu người trước vừa chuyển khung sang `ACTIVE`, PUT không gửi `status` của người sau sẽ giữ `ACTIVE` nên phải có tổng đúng 100, nếu không nhận 400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409.
+Một lần gán khung cho chức danh (task 214) đọc khung bằng `SELECT ... FOR SHARE`, nên PUT khung chờ lần gán đang chạy commit, và lần gán đến trong lúc PUT khung đang chạy cũng chờ rồi đọc trạng thái mới nhất. Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Trạng thái cũng được đọc sau khi khóa: nếu người trước vừa chuyển khung sang `ACTIVE`, PUT không gửi `status` của người sau sẽ giữ `ACTIVE` nên phải có tổng đúng 100, nếu không nhận 400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409.
 
 Response của tạo/sửa và `GET /competency-frameworks/{id}`:
 
@@ -176,12 +176,28 @@ Response của tạo/sửa và `GET /competency-frameworks/{id}`:
       "sortOrder": 3
     }
   ],
+  "positions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "code": "DEV_JUNIOR",
+      "name": "Lập trình viên",
+      "level": "Junior",
+      "active": true
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "code": "DEV_SENIOR",
+      "name": "Lập trình viên",
+      "level": "Senior",
+      "active": true
+    }
+  ],
   "createdAt": "2026-10-07T08:00:00Z",
   "updatedAt": "2026-10-07T08:00:00Z"
 }
 ```
 
-UUID trong ví dụ chỉ minh họa. `criteria` sắp theo `sortOrder`. `createdAt` giữ nguyên khi sửa; `updatedAt` là thời điểm ghi gần nhất (UTC, độ chính xác micro giây như PostgreSQL lưu).
+UUID trong ví dụ chỉ minh họa. `criteria` sắp theo `sortOrder`. `positions` (task 214) là các chức danh đang trỏ tới khung này, sắp theo code rồi UUID; mọi chức danh trong danh sách dùng chung đúng các tiêu chí ở `criteria` (cùng `id`), không có bản sao. Mỗi phần tử chỉ có `id`, `code`, `name`, `level`, `active`, **không có dải lương**, vì mọi người có quyền đọc khung đều thấy danh sách này; dải lương xem ở `GET /positions/{id}` theo quyền riêng. Khung chưa được chức danh nào dùng (kể cả khung vừa tạo) có `positions: []`. Danh sách khung (`GET /competency-frameworks`) không có trường này. `createdAt` giữ nguyên khi sửa; `updatedAt` là thời điểm ghi gần nhất (UTC, độ chính xác micro giây như PostgreSQL lưu).
 
 ## Danh sách
 
@@ -242,6 +258,6 @@ Mọi lỗi đều không thay đổi dữ liệu: cả khung lẫn danh sách t
 
 ## Database và phạm vi
 
-Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
+Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Task 214 cũng không thêm migration hay mã quyền: chi tiết khung đọc thêm cột `positions.competency_framework_id` của V8, còn hai endpoint gán/bỏ khung nằm ở [API chức danh](positions.md#khung-năng-lực-của-chức-danh-task-214). Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
 
-Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, gán khung cho chức danh (task 214), dữ liệu cho phiếu đánh giá (task 215) và câu hỏi phỏng vấn (task 220–223).
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, dữ liệu cho phiếu đánh giá (task 215) và câu hỏi phỏng vấn (task 220–223).

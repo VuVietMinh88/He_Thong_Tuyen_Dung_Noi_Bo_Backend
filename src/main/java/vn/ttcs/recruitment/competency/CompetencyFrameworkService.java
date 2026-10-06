@@ -4,6 +4,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -36,10 +37,18 @@ import java.util.UUID;
 // ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER).
 // Jira 213: a complete (ACTIVE) framework must have criteria weights that total exactly 100%; a DRAFT may still
 // be incomplete.
+// Jira 214: positions share a framework (PositionService assigns it); the detail lists the positions using it.
 @Service
 public class CompetencyFrameworkService {
     // The weights of an ACTIVE framework add up to this many percent.
     private static final BigDecimal FULL_WEIGHT = new BigDecimal("100");
+    // Plain SQL on the positions table, so this package does not depend on the position package
+    // (the position package already uses CompetencyFrameworkRepository to assign frameworks).
+    private static final String POSITIONS_USING_QUERY = """
+            SELECT id, code, name, level, active FROM positions
+            WHERE competency_framework_id = ?
+            ORDER BY code, id
+            """;
 
     private final CompetencyFrameworkRepository frameworks;
     private final CompetencyCriterionRepository criteria;
@@ -47,17 +56,19 @@ public class CompetencyFrameworkService {
     private final AuthSessionRepository sessions;
     private final AuthService auth;
     private final PermissionService permissions;
+    private final JdbcTemplate jdbc;
     private final Clock clock;
 
     public CompetencyFrameworkService(CompetencyFrameworkRepository frameworks, CompetencyCriterionRepository criteria,
                                       AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
-                                      PermissionService permissions, Clock clock) {
+                                      PermissionService permissions, JdbcTemplate jdbc, Clock clock) {
         this.frameworks = frameworks;
         this.criteria = criteria;
         this.accounts = accounts;
         this.sessions = sessions;
         this.auth = auth;
         this.permissions = permissions;
+        this.jdbc = jdbc;
         this.clock = clock;
     }
 
@@ -84,12 +95,14 @@ public class CompetencyFrameworkService {
                 .toList(), page, size, result.getTotalElements(), result.getTotalPages());
     }
 
-    // REPEATABLE_READ: the framework and its criteria come from the same snapshot, never half of an edit.
+    // REPEATABLE_READ: the framework, its criteria and its positions come from the same snapshot, never half of
+    // an edit.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public CompetencyFrameworkView get(Jwt jwt, UUID id) {
         requireReadAccess(jwt);
         var framework = frameworks.findById(id).orElseThrow(CompetencyFrameworkService::notFound);
-        return CompetencyFrameworkView.from(framework, criteria.findByFrameworkIdOrderBySortOrderAsc(id));
+        return CompetencyFrameworkView.from(framework, criteria.findByFrameworkIdOrderBySortOrderAsc(id),
+                positionsUsing(id));
     }
 
     @Transactional
@@ -117,7 +130,8 @@ public class CompetencyFrameworkService {
         }
         var saved = replaceCriteria(framework.getId(), request.criteria(), List.of());
         checkCriteriaNow();
-        return CompetencyFrameworkView.from(framework, saved);
+        // A framework that did not exist a moment ago has no positions yet.
+        return CompetencyFrameworkView.from(framework, saved, List.of());
     }
 
     @Transactional
@@ -149,7 +163,15 @@ public class CompetencyFrameworkService {
         var saved = replaceCriteria(id, request.criteria(), current);
         // Step 3: also flushes the framework change, so a code taken meanwhile is reported here too.
         checkCriteriaNow();
-        return CompetencyFrameworkView.from(framework, saved);
+        // The positions keep pointing to this framework, so they see the new criteria at once (nothing was copied).
+        return CompetencyFrameworkView.from(framework, saved, positionsUsing(id));
+    }
+
+    // Jira 214: the positions that use the framework. They all read the same criteria rows of the framework.
+    private List<CompetencyFrameworkPositionView> positionsUsing(UUID frameworkId) {
+        return jdbc.query(POSITIONS_USING_QUERY, (row, number) -> new CompetencyFrameworkPositionView(
+                row.getObject("id", UUID.class), row.getString("code"), row.getString("name"),
+                row.getString("level"), row.getBoolean("active")), frameworkId);
     }
 
     // Makes the stored criteria equal to the requested list (plain replace):

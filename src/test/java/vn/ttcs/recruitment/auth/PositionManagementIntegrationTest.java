@@ -114,7 +114,7 @@ class PositionManagementIntegrationTest {
         JsonNode result = expect(response, 201);
         noStore(response);
         UUID id = UUID.fromString(result.path("id").asText());
-        assertThat(result.size()).isEqualTo(9);
+        assertThat(result.size()).isEqualTo(10);
         assertThat(result.path("code").asText()).isEqualTo("CEO");
         assertThat(result.path("name").asText()).isEqualTo("Giám đốc điều hành");
         assertThat(result.path("level").asText()).isEqualTo("Director");
@@ -122,6 +122,9 @@ class PositionManagementIntegrationTest {
         assertThat(result.path("salaryMin").asLong()).isEqualTo(1_500_000_000L);
         assertThat(result.path("salaryMax").asLong()).isEqualTo(THREE_BILLION_VND);
         assertThat(result.path("active").asBoolean()).isTrue();
+        // Jira 214: the key is always there; a new position has no competency framework yet.
+        assertThat(result.has("competencyFrameworkId")).isTrue();
+        assertThat(result.path("competencyFrameworkId").isNull()).isTrue();
         assertThat(Instant.parse(result.path("createdAt").asText())).isEqualTo(START);
         assertThat(Instant.parse(result.path("updatedAt").asText())).isEqualTo(START);
 
@@ -217,11 +220,11 @@ class PositionManagementIntegrationTest {
             assertThat(view.path("code").asText()).isEqualTo("READ");
             assertThat(view.path("level").asText()).isEqualTo("Junior");
             if (hrManager) {
-                assertThat(view.size()).isEqualTo(9);
+                assertThat(view.size()).isEqualTo(10);
                 assertThat(view.path("salaryMin").asLong()).isEqualTo(15_000_000L);
                 assertThat(view.path("salaryMax").asLong()).isEqualTo(25_000_000L);
             } else {
-                assertThat(view.size()).isEqualTo(7);
+                assertThat(view.size()).isEqualTo(8);
                 assertThat(view.has("salaryMin")).isFalse();
                 assertThat(view.has("salaryMax")).isFalse();
             }
@@ -276,7 +279,7 @@ class PositionManagementIntegrationTest {
                     "SALARY_RANGES_READ_ALL");
             JsonNode written = expect(update(target, payload("DEV", "Developer", "Junior", 30_000_000L, 40_000_000L,
                     true), hrToken), 200);
-            assertThat(written.size()).isEqualTo(7);
+            assertThat(written.size()).isEqualTo(8);
             assertThat(written.has("salaryMin")).isFalse();
             assertThat(written.has("salaryMax")).isFalse();
             assertThat(expect(get(BASE + "/" + target, hrToken), 200).has("salaryMax")).isFalse();

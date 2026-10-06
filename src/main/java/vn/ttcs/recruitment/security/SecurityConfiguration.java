@@ -134,6 +134,12 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/competency-frameworks/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Choosing the shared competency framework of a position never touches its salary band,
+                        // so organization writers do it without the salary permission.
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*/competency-framework")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/positions/*/competency-framework")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

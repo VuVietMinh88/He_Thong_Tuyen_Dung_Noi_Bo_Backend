@@ -114,12 +114,15 @@ class CompetencyFrameworkManagementIntegrationTest {
         JsonNode result = expect(response, 201);
         noStore(response);
         UUID id = UUID.fromString(result.path("id").asText());
-        assertThat(result.size()).isEqualTo(8);
+        assertThat(result.size()).isEqualTo(9);
         assertThat(result.path("code").asText()).isEqualTo("DEV_CORE");
         assertThat(result.path("name").asText()).isEqualTo("Năng lực lập trình viên");
         assertThat(result.path("description").asText()).isEqualTo("Dùng cho mọi cấp lập trình viên");
         // Without a status in the request, a new framework is a DRAFT.
         assertThat(result.path("status").asText()).isEqualTo("DRAFT");
+        // Jira 214: no position uses a framework that was just created.
+        assertThat(result.path("positions").isArray()).isTrue();
+        assertThat(result.path("positions").isEmpty()).isTrue();
         assertThat(Instant.parse(result.path("createdAt").asText())).isEqualTo(START);
         assertThat(Instant.parse(result.path("updatedAt").asText())).isEqualTo(START);
 
