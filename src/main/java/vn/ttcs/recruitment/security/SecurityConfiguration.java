@@ -52,6 +52,9 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization"));
+        // Browsers hide this header from cross-origin scripts unless it is exposed; the frontend reads the
+        // file name of downloads such as the staff import template from it.
+        configuration.setExposedHeaders(List.of("Content-Disposition"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration legacyHealth = new CorsConfiguration();
@@ -193,6 +196,10 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/profile/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts/import/template")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
