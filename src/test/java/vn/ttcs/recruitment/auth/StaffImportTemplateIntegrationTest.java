@@ -19,7 +19,6 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.ContentDisposition;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -286,7 +285,7 @@ class StaffImportTemplateIntegrationTest {
         assertThatThrownBy(() -> service.createTemplate(jwt(adminId, adminSession, START)))
                 .isInstanceOf(AuthenticationFailureException.class);
         jdbc.update("UPDATE auth_sessions SET revoked_at = ? WHERE id = ?", Timestamp.from(START), adminSession);
-        assertThatThrownBy(() -> service.createTemplate(admin)).isInstanceOf(AuthenticationException.class);
+        assertThatThrownBy(() -> service.createTemplate(admin)).isInstanceOf(AuthenticationFailureException.class);
     }
 
     @Test

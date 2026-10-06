@@ -2,12 +2,9 @@ package vn.ttcs.recruitment.account.importing;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountInvitationException;
 import vn.ttcs.recruitment.account.AccountProvisioningService;
 import vn.ttcs.recruitment.account.CreateAccountRequest;
@@ -17,14 +14,10 @@ import vn.ttcs.recruitment.account.NewAccountProfile;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.account.importing.StaffImportReport.CreatedRow;
 import vn.ttcs.recruitment.account.importing.StaffImportReport.SkippedRow;
-import vn.ttcs.recruitment.auth.AuthService;
-import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
-import vn.ttcs.recruitment.security.PermissionService;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,37 +30,32 @@ import java.util.stream.Collectors;
 public class StaffImportService {
     private static final long MAX_FILE_SIZE_BYTES = StaffImportTemplate.MAX_FILE_SIZE_MB * 1024L * 1024L;
 
-    private final AuthService auth;
-    private final PermissionService permissions;
     private final JdbcTemplate jdbc;
     private final StaffImportTemplate template;
     private final StaffImportReader reader;
     private final StaffImportValidator validator;
     private final AccountProvisioningService provisioning;
-    private final Clock clock;
 
-    public StaffImportService(AuthService auth, PermissionService permissions, JdbcTemplate jdbc,
-                              StaffImportTemplate template, StaffImportReader reader,
-                              StaffImportValidator validator, AccountProvisioningService provisioning, Clock clock) {
-        this.auth = auth;
-        this.permissions = permissions;
+    public StaffImportService(JdbcTemplate jdbc, StaffImportTemplate template, StaffImportReader reader,
+                              StaffImportValidator validator, AccountProvisioningService provisioning) {
         this.jdbc = jdbc;
         this.template = template;
         this.reader = reader;
         this.validator = validator;
         this.provisioning = provisioning;
-        this.clock = clock;
     }
 
-    @Transactional(readOnly = true)
+    // No transaction here, as in preview: the access check locks rows in its own short transaction, which commits
+    // at once, and the role names are then read with one query.
     public byte[] createTemplate(Jwt jwt) {
         requireImportAccess(jwt);
         return template.write(roleOptions());
     }
 
     // Preview only reads: it creates no account and stores neither the file nor its rows. There is no
-    // transaction, so no database connection is held while the workbook is parsed; checking the rows afterwards
-    // runs two short read-only queries. Accounts or departments may still change before the real import.
+    // transaction, so no database connection is held while the workbook is parsed: the access check before it
+    // commits at once, and checking the rows afterwards runs two short read-only queries. Accounts or departments
+    // may still change before the real import.
     public StaffImportPreview preview(Jwt jwt, MultipartFile file) {
         requireImportAccess(jwt);
         List<StaffImportRow> rows = reader.read(uploadedXlsx(file));
@@ -134,17 +122,12 @@ public class StaffImportService {
         return new CreateAccountRequest(row.email(), row.fullName(), roles);
     }
 
-    // Importing creates accounts, so it needs the same rule as POST /accounts: the ADMIN role and
-    // USER_ADMIN_WRITE_ALL. Both are read again from the database instead of trusting the security filter alone.
+    // Importing creates accounts, so all three import APIs need exactly the rule of POST /accounts: the ADMIN role
+    // and USER_ADMIN_WRITE_ALL. SecurityConfiguration checks them first; this checks them again in the service that
+    // creates the accounts, with the caller's account and session locked, so a role or permission removed while
+    // this request waited is seen. It runs before the file is opened: a refused caller learns nothing from it.
     private void requireImportAccess(Jwt jwt) {
-        if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(clock.instant())) {
-            throw AuthenticationFailureException.sessionInvalid();
-        }
-        Account actor = auth.requireActiveAccount(jwt);
-        if (!actor.getRoles().contains(Role.ADMIN)
-                || !permissions.forUser(actor.getId()).contains("USER_ADMIN_WRITE_ALL")) {
-            throw new AccessDeniedException("Staff import requires ADMIN and USER_ADMIN_WRITE_ALL");
-        }
+        provisioning.requireCreateAccess(jwt);
     }
 
     // Checks what can be seen without opening the file: it is present, small enough and named .xlsx.
