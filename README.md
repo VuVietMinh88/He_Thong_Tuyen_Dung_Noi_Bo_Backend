@@ -43,6 +43,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [password-reset](docs/api/password-reset.md)
 - [positions](docs/api/positions.md)
 - [profile](docs/api/profile.md)
+- [requisitions](docs/api/requisitions.md)
 
 Phân quyền: [thiết kế](docs/architecture/authorization.md) và [ma trận vai trò và quyền](docs/architecture/role-permission-matrix.md) (đề xuất chờ BA/PO xác nhận).
 
