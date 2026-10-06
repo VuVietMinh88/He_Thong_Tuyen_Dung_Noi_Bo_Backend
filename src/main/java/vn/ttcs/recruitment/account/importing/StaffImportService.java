@@ -32,15 +32,18 @@ public class StaffImportService {
     private final JdbcTemplate jdbc;
     private final StaffImportTemplate template;
     private final StaffImportReader reader;
+    private final StaffImportValidator validator;
     private final Clock clock;
 
     public StaffImportService(AuthService auth, PermissionService permissions, JdbcTemplate jdbc,
-                              StaffImportTemplate template, StaffImportReader reader, Clock clock) {
+                              StaffImportTemplate template, StaffImportReader reader,
+                              StaffImportValidator validator, Clock clock) {
         this.auth = auth;
         this.permissions = permissions;
         this.jdbc = jdbc;
         this.template = template;
         this.reader = reader;
+        this.validator = validator;
         this.clock = clock;
     }
 
@@ -50,11 +53,13 @@ public class StaffImportService {
         return template.write(roleOptions());
     }
 
-    // Preview only reads the uploaded file: it creates no account and stores neither the file nor its rows.
-    // There is no transaction, so no database connection is held while the workbook is parsed.
+    // Preview only reads: it creates no account and stores neither the file nor its rows. There is no
+    // transaction, so no database connection is held while the workbook is parsed; checking the rows afterwards
+    // runs two short read-only queries. Accounts or departments may still change before the real import.
     public StaffImportPreview preview(Jwt jwt, MultipartFile file) {
         requireImportAccess(jwt);
-        return StaffImportPreview.of(reader.read(uploadedXlsx(file)));
+        List<StaffImportRow> rows = reader.read(uploadedXlsx(file));
+        return StaffImportPreview.of(validator.check(rows));
     }
 
     // Importing creates accounts, so it needs the same rule as POST /accounts: the ADMIN role and
