@@ -35,3 +35,10 @@ build/
 .env
 .env.*
 !.env.example
+
+# Local PostgreSQL data and backups (Compose uses a named volume)
+/pgdata/
+/postgres-data/
+/backups/
+*.dump
+*.backup
