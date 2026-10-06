@@ -32,6 +32,8 @@ V7 chỉ tạo bảng mới `positions`, không đổi dữ liệu hoặc quyề
 
 V7_1 (task 205) không đổi bảng `positions` hay dữ liệu chức danh. Migration chỉ thêm bốn dòng `permissions` của module `SALARY_RANGES` (`READ`/`WRITE` × `ALL`/`SCOPED`, cùng dạng với V3) và hai dòng `role_permissions`, cấp `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` cho HR_MANAGER. Không có dữ liệu cũ nào bị xóa; tài khoản HR_MANAGER đang đăng nhập nhận quyền mới ở yêu cầu kế tiếp. Sau V7_1 có 47 mã quyền và 104 dòng cấp quyền. Ẩn dải lương với vai trò khác do `PositionService` thực hiện ở API; dữ liệu trong database vẫn đầy đủ.
 
+Task 206 không thêm migration. `SalaryBandService` chỉ đọc `active`, `salary_min`, `salary_max` của bảng `positions` bằng `SELECT ... FOR SHARE` (khi được gọi trong transaction ghi) để cung cấp dải lương chuẩn cho kiểm tra hạn mức offer; chức danh `active = FALSE` không có dải lương chuẩn. Xem [API chức danh](../api/positions.md).
+
 Nếu cần phục hồi schema/dữ liệu, dùng bản sao lưu đã kiểm tra; không xóa dòng flyway_schema_history hoặc sửa nội dung migration cũ. Các cột nullable cho phép giữ dữ liệu cũ trong quá trình chuyển đổi; rollback phiên bản ứng dụng không đồng nghĩa rollback schema.
 
 Test dùng PostgreSQL tạm thời thật để kiểm transaction, khóa hàng và constraint; không dùng H2 thay thế. Test nâng cấp cố định `target` của Flyway tới phiên bản mà nó kiểm (ví dụ V4→V6), nên thêm migration mới không làm đổi số migration được chạy trong các test cũ.
