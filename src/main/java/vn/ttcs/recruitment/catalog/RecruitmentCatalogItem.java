@@ -47,14 +47,27 @@ public class RecruitmentCatalogItem {
 
     public RecruitmentCatalogItem(RecruitmentCatalogType catalogType, String code, String name, int sortOrder,
                                   Instant createdAt) {
+        this(catalogType, code, name, sortOrder, true, createdAt);
+    }
+
+    public RecruitmentCatalogItem(RecruitmentCatalogType catalogType, String code, String name, int sortOrder,
+                                  boolean active, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.catalogType = catalogType;
         this.code = code;
         this.name = name;
         this.sortOrder = sortOrder;
-        this.active = true;
+        this.active = active;
         this.createdAt = createdAt;
         this.updatedAt = createdAt;
+    }
+
+    // The catalog type never changes: it comes from the URL. The display order is not edited here either.
+    public void update(String code, String name, boolean active, Instant updatedAt) {
+        this.code = code;
+        this.name = name;
+        this.active = active;
+        this.updatedAt = updatedAt;
     }
 
     public UUID getId() { return id; }

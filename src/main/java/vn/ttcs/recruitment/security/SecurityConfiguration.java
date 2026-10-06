@@ -162,6 +162,12 @@ public class SecurityConfiguration {
                         // Task 197: deleting a department is a department write like POST and PUT.
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/departments/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/recruitment-catalogs/*/items",
+                                "/api/v1/recruitment-catalogs/*/items/*").hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/recruitment-catalogs/*/items")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/recruitment-catalogs/*/items/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

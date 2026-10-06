@@ -69,6 +69,9 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final Instant START = Instant.parse("2026-10-06T00:00:00Z");
     private static final UUID UNKNOWN_ID = UUID.randomUUID();
     private static final String INVALID_BODY = "{}";
+    // A real catalog type, so permitted calls reach the item lookup or body validation.
+    private static final String CATALOG_TYPE = "CANDIDATE_SOURCE";
+    private static final String CATALOG_ITEMS = "/api/v1/recruitment-catalogs/" + CATALOG_TYPE + "/items";
     private static final ApiError FORBIDDEN_ERROR = ApiError.of("FORBIDDEN", "Bạn không có quyền thực hiện thao tác này.");
 
     private static final String SELF_PROFILE_READ = "SELF_PROFILE_READ";
@@ -138,11 +141,15 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
-            endpoint("DELETE", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404));
+            endpoint("DELETE", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404),
+            endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
-            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions");
+            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -177,6 +184,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         jdbc.update("DELETE FROM departments");
         jdbc.update("DELETE FROM positions");
         jdbc.update("DELETE FROM competency_frameworks");
+        jdbc.update("DELETE FROM recruitment_catalog_items");
         jdbc.update("DELETE FROM user_accounts");
         bootstrap.run(new DefaultApplicationArguments());
         fixturePasswordHash = jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE email = ?",
@@ -302,6 +310,8 @@ class ApiAuthorizationMatrixIntegrationTest {
         UUID unused = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
                 "code", "UNUSED", "name", "Unused", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+        UUID catalogItem = UUID.fromString(expect(request("POST", CATALOG_ITEMS, json.writeValueAsString(
+                catalogItemBody("TARGET", "Target")), actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -347,7 +357,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions", requisitionBody),
                 // Task 197: ORGANIZATION_READ_ALL alone cannot delete a department, not even the one the caller manages.
                 new Attack(Identity.INTERVIEWER, "DELETE", "/api/v1/departments/" + unused, null),
-                new Attack(Identity.RECRUITER, "DELETE", "/api/v1/departments/" + unused, null));
+                new Attack(Identity.RECRUITER, "DELETE", "/api/v1/departments/" + unused, null),
+                new Attack(Identity.RECRUITER, "POST", CATALOG_ITEMS, catalogItemBody("SHADOW", "Shadow")),
+                new Attack(Identity.APPROVER, "PUT", CATALOG_ITEMS + "/" + catalogItem,
+                        catalogItemBody("TARGET", "Taken over")));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -470,6 +483,10 @@ class ApiAuthorizationMatrixIntegrationTest {
         return Map.of("code", code, "name", name, "criteria", List.of(Map.of("name", "Kỹ năng chuyên môn", "weight", 100)));
     }
 
+    private static Map<String, Object> catalogItemBody(String code, String name) {
+        return Map.of("code", code, "name", name, "active", true);
+    }
+
     private HttpResponse<String> call(Endpoint endpoint, Identity identity) throws Exception {
         String token = endpoint.endsSession() ? login(identity).token() : actors.get(identity).token();
         return request(endpoint.method(), endpoint.samplePath(), endpoint.body(), token);
@@ -567,7 +584,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private record Endpoint(String method, String template, Rule rule, String body, int allowedStatus, boolean endsSession) {
         String key() { return method + " " + template; }
 
-        String samplePath() { return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER"); }
+        String samplePath() {
+            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+                    .replace("{type}", CATALOG_TYPE);
+        }
 
         @Override
         public String toString() { return key() + " [" + rule + "]"; }
