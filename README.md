@@ -28,4 +28,6 @@ Team K3S4_N3. Java21, Spring Boot4.1.1, Maven Wrapper và PostgreSQL. Đây là 
 - [password-reset](docs/api/password-reset.md)
 - [profile](docs/api/profile.md)
 
+Phân quyền: [thiết kế](docs/architecture/authorization.md) và [ma trận vai trò và quyền](docs/architecture/role-permission-matrix.md) (đề xuất chờ BA/PO xác nhận).
+
 Xem [cách chạy](docs/getting-started.md), [database](docs/database/README.md) và [Git flow](docs/scrum/git-workflow.md). Nhánh chứa Subtask ID ngay sau dấu /; commit và tiêu đề PR type: description không có ID. Chỉ push nhánh cá nhân và PR vào develop, chờ ít nhất một teammate review cùng CI/Test; không push trực tiếp main/develop hoặc tự merge.
