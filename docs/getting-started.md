@@ -86,7 +86,7 @@ Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; kh
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tới V8 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính, chức danh/dải lương, quyền xem dải lương, khung năng lực); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tới V9 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính, chức danh/dải lương, quyền xem dải lương, khung năng lực, ngân hàng câu hỏi phỏng vấn); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
 
 [Khóa/mở khóa tài khoản](api/account-locking.md) dùng Bearer Admin và không cần SMTP. Sau khi mở khóa, người dùng phải đăng nhập lại vì phiên cũ đã thu hồi. Không hạ về backend cũ bỏ qua trạng thái khóaV6 khi còn tài khoản bị khóa; cần xử lý kế hoạch tương thích trước rollback.
 

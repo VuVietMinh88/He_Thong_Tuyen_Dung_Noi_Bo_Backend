@@ -86,6 +86,8 @@ class CompetencyFrameworkManagementIntegrationTest {
     void resetFixture() throws Exception {
         clock.set(START);
         jdbc.update("DELETE FROM positions");
+        // V9: a criterion that still has interview questions cannot be deleted, so the questions go first.
+        jdbc.update("DELETE FROM interview_questions");
         // ON DELETE CASCADE removes the criteria too.
         jdbc.update("DELETE FROM competency_frameworks");
         jdbc.update("DELETE FROM auth_sessions");
@@ -305,6 +307,65 @@ class CompetencyFrameworkManagementIntegrationTest {
         var before = competencyRows();
         error(update(id, payload("KEEP", "Changed", null, repeated), hrToken), 409, "COMPETENCY_CRITERION_NAME_DUPLICATE");
         assertThat(competencyRows()).isEqualTo(before);
+    }
+
+    @Test
+    void anEditMustKeepEveryCriterionThatHasInterviewQuestionsButMayStillChangeIt() throws Exception {
+        JsonNode created = framework("QUESTIONS", "Questions", criterion(null, "Giao tiếp", null, 40),
+                criterion(null, "Tư duy", null, 30), criterion(null, "Làm việc nhóm", null, 30));
+        UUID id = UUID.fromString(created.path("id").asText());
+        UUID communication = UUID.fromString(ids(created.path("criteria")).get(0));
+        UUID thinking = UUID.fromString(ids(created.path("criteria")).get(1));
+        UUID teamwork = UUID.fromString(ids(created.path("criteria")).get(2));
+        UUID communicationQuestion = question(communication, "Giới thiệu bản thân trong một phút.");
+        UUID thinkingQuestion = question(thinking, "Ước lượng số quán cà phê ở Hà Nội.");
+        // An inactive question is kept as history, so it still holds its criterion.
+        jdbc.update("UPDATE interview_questions SET active = FALSE WHERE id = ?", thinkingQuestion);
+        var before = competencyRows();
+
+        // Dropping two criteria that have questions is refused and names both, in the framework's order.
+        var response = update(id, payload("QUESTIONS", "Changed", null, List.of(
+                criterion(teamwork, "Làm việc nhóm", null, 100))), hrToken);
+        JsonNode body = expect(response, 409);
+        noStore(response);
+        assertThat(body.path("code").asText()).isEqualTo("COMPETENCY_CRITERION_IN_USE");
+        assertThat(body.path("message").asText())
+                .isEqualTo("Không thể xóa tiêu chí đang có câu hỏi phỏng vấn khỏi khung năng lực.");
+        assertThat(body.path("fieldErrors").size()).isEqualTo(1);
+        assertThat(body.path("fieldErrors").path("criteria").asText())
+                .isEqualTo("Hãy giữ lại (gửi kèm id) các tiêu chí đang có câu hỏi phỏng vấn: Giao tiếp, Tư duy.");
+        assertThat(competencyRows()).isEqualTo(before);
+
+        // The same name without the id would delete the old row and create a new one, so it is refused too.
+        JsonNode sameNameWithoutId = expect(update(id, payload("QUESTIONS", "Changed", null, List.of(
+                criterion(null, "Giao tiếp", null, 40), criterion(thinking, "Tư duy", null, 30),
+                criterion(teamwork, "Làm việc nhóm", null, 30))), hrToken), 409);
+        assertThat(sameNameWithoutId.path("code").asText()).isEqualTo("COMPETENCY_CRITERION_IN_USE");
+        assertThat(sameNameWithoutId.path("fieldErrors").path("criteria").asText())
+                .isEqualTo("Hãy giữ lại (gửi kèm id) các tiêu chí đang có câu hỏi phỏng vấn: Giao tiếp.");
+        assertThat(competencyRows()).isEqualTo(before);
+
+        // Sent back by id, the criteria may be renamed, reweighted and reordered, and the questions follow them.
+        // "Làm việc nhóm" has no question, so it may be dropped.
+        JsonNode edited = expect(update(id, payload("QUESTIONS", "Changed", null, List.of(
+                criterion(thinking, "Tư duy phản biện", null, 55), criterion(communication, "Giao tiếp", null, 45))),
+                hrToken), 200);
+        assertThat(ids(edited.path("criteria"))).containsExactly(thinking.toString(), communication.toString());
+        assertThat(names(edited.path("criteria"))).containsExactly("Tư duy phản biện", "Giao tiếp");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM competency_criteria WHERE id = ?", Integer.class,
+                teamwork)).isZero();
+        assertThat(jdbc.queryForObject("SELECT criterion_id FROM interview_questions WHERE id = ?", UUID.class,
+                thinkingQuestion)).isEqualTo(thinking);
+        assertThat(jdbc.queryForObject("SELECT criterion_id FROM interview_questions WHERE id = ?", UUID.class,
+                communicationQuestion)).isEqualTo(communication);
+
+        // Once its last question is gone, the criterion may be dropped like any other.
+        jdbc.update("DELETE FROM interview_questions WHERE id = ?", communicationQuestion);
+        JsonNode dropped = expect(update(id, payload("QUESTIONS", "Changed", null, List.of(
+                criterion(thinking, "Tư duy phản biện", null, 55))), hrToken), 200);
+        assertThat(ids(dropped.path("criteria"))).containsExactly(thinking.toString());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM competency_criteria WHERE id = ?", Integer.class,
+                communication)).isZero();
     }
 
     @Test
@@ -850,6 +911,50 @@ class CompetencyFrameworkManagementIntegrationTest {
                 BigDecimal.class, id)).containsExactly(new BigDecimal("50.00"), new BigDecimal("50.00"));
     }
 
+    @Test
+    void aQuestionCommittedWhileTheEditDeletesItsCriterionMakesTheEditFailWithConflict() throws Exception {
+        JsonNode created = framework("QUESTION_RACE", "Race", criterion(null, "Giao tiếp", null, 50),
+                criterion(null, "Tư duy", null, 50));
+        UUID id = UUID.fromString(created.path("id").asText());
+        UUID communication = UUID.fromString(ids(created.path("criteria")).get(0));
+        UUID thinking = UUID.fromString(ids(created.path("criteria")).get(1));
+        var before = competencyRows();
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // Plays the question API (task 221) adding a question to "Tư duy" without committing yet. The edit's
+            // own check cannot see this row, and the foreign key check keeps a lock on the criterion row.
+            execute(connection, """
+                    INSERT INTO interview_questions (id, criterion_id, content, difficulty, created_at, updated_at)
+                    VALUES (?, ?, 'Câu hỏi mới', 'EASY', ?, ?)
+                    """, UUID.randomUUID(), thinking, Timestamp.from(START), Timestamp.from(START));
+            int blockerPid = backendPid(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> update(id, payload("QUESTION_RACE", "Changed", null, List.of(
+                        criterion(communication, "Giao tiếp", null, 100))), hrToken));
+                try {
+                    // Deleting "Tư duy" waits for the question's transaction.
+                    awaitWaiters(blockerPid);
+                    assertThat(response.isDone()).isFalse();
+                    connection.commit();
+                    // The foreign key refuses the deletion; the service answers 409 instead of a 500. PostgreSQL
+                    // does not give the criterion name, so the field error lists none.
+                    var result = response.get(10, TimeUnit.SECONDS);
+                    JsonNode body = expect(result, 409);
+                    noStore(result);
+                    assertThat(body.path("code").asText()).isEqualTo("COMPETENCY_CRITERION_IN_USE");
+                    assertThat(body.path("fieldErrors").path("criteria").asText())
+                            .isEqualTo("Hãy giữ lại (gửi kèm id) các tiêu chí đang có câu hỏi phỏng vấn.");
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        // The whole edit was rolled back, and the question committed by the other transaction stays.
+        assertThat(competencyRows()).isEqualTo(before);
+        assertThat(jdbc.queryForList("SELECT criterion_id FROM interview_questions", UUID.class))
+                .containsExactly(thinking);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"lost-organization-permission", "expired-jwt", "locked-actor", "revoked-session"})
     void rechecksAccessAfterWaitingForTheActorAccountLock(String change) throws Exception {
@@ -902,6 +1007,16 @@ class CompetencyFrameworkManagementIntegrationTest {
     @SafeVarargs
     private JsonNode framework(String code, String name, Map<String, Object>... criteria) throws Exception {
         return expect(create(payload(code, name, null, List.of(criteria)), hrToken), 201);
+    }
+
+    // Interview questions have no API yet (task 221), so the tests add them with SQL.
+    private UUID question(UUID criterionId, String content) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO interview_questions (id, criterion_id, content, difficulty, created_at, updated_at)
+                VALUES (?, ?, ?, 'MEDIUM', ?, ?)
+                """, id, criterionId, content, Timestamp.from(START), Timestamp.from(START));
+        return id;
     }
 
     private static Map<String, Object> payload(String code, String name, String description,

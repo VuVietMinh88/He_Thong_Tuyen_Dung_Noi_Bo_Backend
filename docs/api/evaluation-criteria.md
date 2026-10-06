@@ -116,4 +116,4 @@ Quy tắc:
 
 ## Database và phạm vi
 
-Task 215 không thêm migration, mã quyền hay dòng cấp quyền: chỉ đọc bảng `positions` (V7, cột `competency_framework_id` của V8), `competency_frameworks` và `competency_criteria` (V8), dùng quyền ORGANIZATION của V3. Không cần sửa `.env`. Chưa có: bảng và API phiếu đánh giá (Sprint 6), câu hỏi phỏng vấn theo tiêu chí (task 220–223).
+Task 215 không thêm migration, mã quyền hay dòng cấp quyền: chỉ đọc bảng `positions` (V7, cột `competency_framework_id` của V8), `competency_frameworks` và `competency_criteria` (V8), dùng quyền ORGANIZATION của V3. Không cần sửa `.env`. Chưa có: bảng và API phiếu đánh giá (Sprint 6), API câu hỏi phỏng vấn theo tiêu chí (task 221–223; task 220 mới tạo bảng `interview_questions`, xem [tài liệu database](../database/README.md)).
