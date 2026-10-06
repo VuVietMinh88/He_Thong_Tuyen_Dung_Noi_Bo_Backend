@@ -2,9 +2,21 @@
 
 Team K3S4_N3. Java21, Spring Boot4.1.1, Maven Wrapper và PostgreSQL. Đây là repo Backend riêng, Maven chạy ngay từ thư mục gốc. Giữ kết nối Frontend của task584 và bổ sung các task backend theo từng commit/nhánh.
 
+## Môi trường thống nhất của nhóm
+
+Frontend và Backend nằm trong hai repo riêng. Backend dùng **PostgreSQL 16**, database và user `recruitment`, cổng `5432`, container `recruitment-postgres`. Cài và mở [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), rồi làm theo [hướng dẫn Docker của nhóm](devops/docker/README.md).
+
+Sao chép `.env.example` thành `.env` nếu chưa có; đặt `DB_PASSWORD` theo container local của nhóm, điền JWT secret và thông tin bootstrap admin riêng. Nếu đã chạy container bằng lệnh `docker run` của nhóm, dùng luôn container đó. Nếu chưa tạo container, chạy từ root Backend:
+
+```powershell
+docker compose --env-file .env -f devops/docker/compose.yaml up -d postgres
+```
+
+Frontend kết nối `http://localhost:8080/api/v1`. Backend giữ mã Java trong `src/`, SQL trong `database/migrations/`; Maven chạy ở root, không `cd backend`. Các commit đã chuyển từ repo cũ đã được điều chỉnh cấu trúc này. Thay đổi cấu hình tiếp theo được bổ sung bằng commit mới, giữ lịch sử đã chia sẻ.
+
 ## Chạy và kiểm thử
 
-- Chọn JDK21 trở lên; từ thư mục gốc chạy ./mvnw.cmd clean verify (Windows) hoặc sh ./mvnw clean verify. Test dùng PostgreSQL tạm, không dùng database trong .env.
+- Chọn JDK21 trở lên; từ thư mục gốc chạy ./mvnw.cmd clean verify (Windows) hoặc sh ./mvnw clean verify. Test dùng PostgreSQL 16 tạm qua embedded-postgres, không cần Docker và không dùng database trong .env.
 - Sao chép .env.example thành .env nếu chưa có; điền DB_URL/DB_USERNAME/DB_PASSWORD, AUTH_JWT_SECRET và cấu hình riêng. Không commit secret hoặc chép đè cấu hình đang dùng. Flyway áp dụng migration; Hibernate chỉ validate schema.
 - Chạy ./mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC' trên Windows; Linux/macOS dùng sh ./mvnw spring-boot:run -Dspring-boot.run.jvmArguments='-Duser.timezone=UTC'. Main class RecruitmentApplication; working directory là repo root.
 - GET /api/health vẫn trả JSON {"status":"UP"} không cần token để Frontend kiểm tra kết nối. GET /api/v1/health giữ contract backend có message. Đây là kiểm tra HTTP, không chứng minh database healthy.

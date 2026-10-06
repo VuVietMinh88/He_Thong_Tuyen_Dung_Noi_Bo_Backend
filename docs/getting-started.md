@@ -66,15 +66,15 @@ Tài khoản PostgreSQL để ứng dụng kết nối database; tài khoản Ad
 
 ## 4. Chuẩn bị PostgreSQL
 
-Nếu đã cài PostgreSQL, dùng pgAdmin tạo database rỗng `recruitment`, owner là `DB_USERNAME`.
+Nhóm thống nhất PostgreSQL 16, database/user `recruitment`, container `recruitment-postgres`, cổng 5432. Xem [hướng dẫn Docker của nhóm](../devops/docker/README.md) để cài Docker Desktop và cấu hình `.env`. Nếu dùng PostgreSQL cài trực tiếp, chọn phiên bản 16 và tạo database rỗng `recruitment`, owner là `DB_USERNAME`.
 
-Nếu Docker đã cài và đang chạy, từ thư mục gốc repo Backend sau khi điền `.env`:
+Nếu đã tạo container bằng lệnh `docker run` của nhóm, dùng luôn container đó và đặt `DB_USERNAME`/`DB_PASSWORD` khớp với `POSTGRES_USER`/`POSTGRES_PASSWORD`; không tạo thêm container cùng tên hoặc cổng. Nếu chưa có container, từ thư mục gốc repo Backend sau khi điền `.env` và mở Docker:
 
 ```powershell
 docker compose --env-file .env -f devops/docker/compose.yaml up -d postgres
 ```
 
-Compose chạy PostgreSQL 17 ở localhost cổng 5432 và lưu dữ liệu vào volume. Nếu cổng đã dùng, chọn PostgreSQL đang có hoặc sửa port và `DB_URL` cho khớp. Username/password trong compose chỉ tạo khi volume rỗng; sửa `.env` không đổi mật khẩu database đã tạo.
+Compose chạy PostgreSQL 16 ở localhost cổng 5432 và lưu dữ liệu vào volume `postgres16_data`. Volume PostgreSQL 17 cũ được giữ riêng; không gắn dữ liệu 17 vào image 16. Nếu cổng đã dùng, kiểm tra dịch vụ đang chiếm cổng trước. Username/password trong Compose chỉ tạo khi volume rỗng; sửa `.env` không đổi mật khẩu database đã tạo.
 
 Dừng container, giữ dữ liệu:
 
