@@ -172,6 +172,14 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/recruitment-catalogs/*/order")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/company-profile")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/company-profile")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/company-profile/preview")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        // Candidates read the recruitment portal without an account.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/company-profile").permitAll()
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
