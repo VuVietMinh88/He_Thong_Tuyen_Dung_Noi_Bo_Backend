@@ -6,8 +6,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mail.MailException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.auth.AuthSessionRepository;
+import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.security.PermissionService;
 
@@ -18,6 +21,7 @@ import java.util.UUID;
 @Service
 public class AccountProvisioningService {
     private final AccountRepository accounts;
+    private final AuthSessionRepository sessions;
     private final AccountActivationRepository activationTokens;
     private final AccountInvitationMailSender mailSender;
     private final PasswordEncoder passwordEncoder;
@@ -26,7 +30,8 @@ public class AccountProvisioningService {
     private final Clock clock;
     private final Duration activationTtl;
 
-    public AccountProvisioningService(AccountRepository accounts, AccountActivationRepository activationTokens,
+    public AccountProvisioningService(AccountRepository accounts, AuthSessionRepository sessions,
+                                      AccountActivationRepository activationTokens,
                                       AccountInvitationMailSender mailSender, PasswordEncoder passwordEncoder,
                                       ResetTokenGenerator generator, PermissionService permissions, Clock clock,
                                       @Value("${app.account-activation.ttl}") Duration activationTtl) {
@@ -35,6 +40,7 @@ public class AccountProvisioningService {
             throw new IllegalStateException("Account activation TTL must be between 1 hour and 7 days.");
         }
         this.accounts = accounts;
+        this.sessions = sessions;
         this.activationTokens = activationTokens;
         this.mailSender = mailSender;
         this.passwordEncoder = passwordEncoder;
@@ -45,9 +51,25 @@ public class AccountProvisioningService {
     }
 
     @Transactional
-    public AccountController.CreatedAccount create(UUID actorId, CreateAccountRequest request) {
+    public AccountController.CreatedAccount create(Jwt jwt, CreateAccountRequest request) {
+        UUID actorId;
+        UUID sessionId;
+        try {
+            actorId = UUID.fromString(jwt.getSubject());
+            sessionId = UUID.fromString(jwt.getId());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
         Account actor = accounts.findByIdForUpdate(actorId)
-                .filter(Account::isEnabled).orElseThrow(() -> new AccessDeniedException("Inactive admin"));
+                .filter(Account::isAccessAllowed).orElseThrow(AuthenticationFailureException::sessionInvalid);
+        // A request may have waited through an account lock and unlock since the security filter ran.
+        var session = sessions.findByIdForUpdate(sessionId)
+                .orElseThrow(AuthenticationFailureException::sessionInvalid);
+        var now = clock.instant();
+        if (!session.getUserId().equals(actorId) || !session.isActive(now)
+                || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
         if (!actor.getRoles().contains(Role.ADMIN)
                 || !permissions.forUser(actorId).contains("USER_ADMIN_WRITE_ALL")) {
             throw new AccessDeniedException("Account administration requires ADMIN");
@@ -57,7 +79,6 @@ public class AccountProvisioningService {
         }
         // Generated credentials meet the existing password policy; only BCrypt is persisted.
         String temporaryPassword = "A7" + generator.create().substring(0, 22);
-        var now = clock.instant();
         Account account = Account.pendingActivation(request.email(), request.fullName(),
                 passwordEncoder.encode(temporaryPassword), request.roles(), now);
         try {
@@ -90,7 +111,8 @@ public class AccountProvisioningService {
         String hash = generator.hash(token);
         UUID userId = activationTokens.findUser(hash).orElseThrow(InvalidActivationTokenException::new);
         Account account = accounts.findByIdForUpdate(userId)
-                .filter(value -> !value.isEnabled()).orElseThrow(InvalidActivationTokenException::new);
+                .filter(value -> !value.isEnabled() && !value.isAdministrativelyLocked())
+                .orElseThrow(InvalidActivationTokenException::new);
         if (!activationTokens.consume(hash, clock.instant())) {
             throw new InvalidActivationTokenException();
         }

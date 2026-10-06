@@ -14,9 +14,11 @@ import java.util.UUID;
 
 @Repository
 public class AccountSearchRepository {
-    // An expired invitation is still pending; temporary login locks are separate from disabled accounts.
+    // An administrative lock takes precedence without changing activation or temporary login locks.
+    // An expired invitation is still pending until it has been consumed.
     private static final String STATUS = """
-            CASE WHEN NOT u.enabled THEN
+            CASE WHEN u.admin_locked_at IS NOT NULL THEN 'ADMINISTRATIVELY_LOCKED'
+                 WHEN NOT u.enabled THEN
                 CASE WHEN EXISTS (SELECT 1 FROM account_activation_tokens t
                                   WHERE t.user_id = u.id AND t.consumed_at IS NULL)
                      THEN 'PENDING_ACTIVATION' ELSE 'DISABLED' END

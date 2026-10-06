@@ -68,7 +68,8 @@ public class AccountManagementService {
         ids.add(actorId);
         ids.add(id);
         var locked = accounts.findAllByIdForUpdate(ids);
-        Account actor = locked.stream().filter(account -> account.getId().equals(actorId) && account.isEnabled())
+        Account actor = locked.stream()
+                .filter(account -> account.getId().equals(actorId) && account.isAccessAllowed())
                 .findFirst().orElseThrow(AuthenticationFailureException::sessionInvalid);
         var session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);

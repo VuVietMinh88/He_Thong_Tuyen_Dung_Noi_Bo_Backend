@@ -1,6 +1,6 @@
 # Quản trị tài khoản nội bộ
 
-Jira TKNHTTDNB1-145–149, story17; dữ liệu phòng ban dùng schema194. Backend dùng `/api/v1`. Tạo/sửa yêu cầu `ADMIN` và `USER_ADMIN_WRITE_ALL`; đọc yêu cầu `USER_ADMIN_READ_ALL` (hiện Admin và HR_MANAGER). Quyền được kiểm trên server mỗi yêu cầu. Gán/thu hồi vai trò dùng [API riêng](account-roles.md); khóa quản trị thuộc nhóm task162–166.
+Jira TKNHTTDNB1-145–149, story17; dữ liệu phòng ban dùng schema194. Backend dùng `/api/v1`. Tạo/sửa yêu cầu `ADMIN` và `USER_ADMIN_WRITE_ALL`; đọc yêu cầu `USER_ADMIN_READ_ALL` (hiện Admin và HR_MANAGER). Quyền được kiểm trên server mỗi yêu cầu. Gán/thu hồi vai trò dùng [API riêng](account-roles.md); khóa quản trị dùng [API khóa tài khoản](account-locking.md).
 
 ## GET /accounts
 
@@ -10,7 +10,7 @@ Gửi Bearer của tài khoản có quyền đọc. Các tham số có thể k�
 |---|---|
 | `q` | Tối đa255 ký tự; tìm chứa tên, email hoặc tên phòng ban, không phân biệt hoa/thường; không bỏ dấu tiếng Việt |
 | `role` | Một vai trò nội bộ, ví dụ `INTERVIEWER` |
-| `status` | Một trong bốn trạng thái bên dưới |
+| `status` | Một trong năm trạng thái bên dưới |
 | `departmentId` | UUID phòng ban; chỉ phòng ban đó, không tự gồm các phòng con |
 | `page` | Bắt đầu từ0, mặc định0 |
 | `size` | Từ1–100, mặc định20 |
@@ -39,10 +39,11 @@ Trả **200**, `Cache-Control: no-store`:
 
 Trạng thái là dữ liệu suy ra tại thời điểm đọc:
 
-- `ACTIVE`: tài khoản enabled và không đang bị khóa đăng nhập tạm.
+- `ADMINISTRATIVELY_LOCKED`: đang bị Admin khóa; ưu tiên hơn các trạng thái còn lại.
+- `ACTIVE`: tài khoản enabled, không bị Admin khóa và không đang bị khóa đăng nhập tạm.
 - `TEMPORARILY_LOCKED`: enabled nhưng `locked_until` còn trong tương lai do đăng nhập sai.
 - `PENDING_ACTIVATION`: disabled và có token kích hoạt chưa tiêu thụ; token hết hạn vẫn thuộc trạng thái chờ kích hoạt.
-- `DISABLED`: disabled và không có token kích hoạt chưa tiêu thụ. Đây là trạng thái có thể đọc từ dữ liệu, chưa phải API khóa/mở tài khoản quản trị.
+- `DISABLED`: disabled và không có token kích hoạt chưa tiêu thụ; khác khóa hành chính do Admin.
 
 Không trả mật khẩu, hash, token, thông tin phiên. Bộ lọc sai/UUID sai/page-size sai trả **400 `VALIDATION_ERROR`**; thiếu/phiên không hợp lệ **401**; thiếu quyền **403**. Không tìm thấy trả trang rỗng, `totalPages=0`. Trang vượt cuối cũng rỗng nhưng giữ tổng số phù hợp bộ lọc.
 
@@ -124,4 +125,4 @@ ACCOUNT_ACTIVATION_TTL=24h
 
 URL cố định do server cấu hình, HTTPS ngoại trừ localhost; không có credentials/query/fragment. Không lấy Host header từ request.24h là chính sách khởi tạo, Jira chưa quy định; cấu hình cho phép1h–7d. Tại đúng thời điểm hết hạn token bị từ chối. Chưa có API gửi lại email kích hoạt; hết hạn cần xử lý quản trị ở bước tiếp theo.
 
-V4 thêm `account_activation_tokens`, giữ nguyênV1/V2/V3 và dữ liệu tài khoản/phiên hiện tại. Sao lưu DB trước khi nâng cấp. SMTP và commitSQL không phải một transaction phân tán: nếu SMTP đã nhận nhưng DB commit sau đó thất bại thì email có thể chứa liên kết không dùng được. SMTP gửi đồng bộ, timeout hiện có5s; chưa có hàng đợi bền vững/retry tự động. Khi bổ sung API khóa tài khoản, cần vô hiệu hóa cả liên kết kích hoạt còn hiệu lực để khóa không bị đảo ngược bởi kích hoạt.
+V4 thêm `account_activation_tokens`, giữ nguyênV1/V2/V3 và dữ liệu tài khoản/phiên hiện tại. Sao lưu DB trước khi nâng cấp. SMTP và commitSQL không phải một transaction phân tán: nếu SMTP đã nhận nhưng DB commit sau đó thất bại thì email có thể chứa liên kết không dùng được. SMTP gửi đồng bộ, timeout hiện có5s; chưa có hàng đợi bền vững/retry tự động. TừV6, khóa hành chính có trạng thái riêng: activate luôn từ chối khi đang bị Admin khóa, không tiêu thụ link. Sau khi Admin mở khóa, tài khoản pending có thể dùng link còn hạn; mở khóa không tự kích hoạt.

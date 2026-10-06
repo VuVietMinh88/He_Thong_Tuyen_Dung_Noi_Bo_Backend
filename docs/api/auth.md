@@ -2,6 +2,8 @@
 
 Luồng quên mật khẩu của các task106–110: [API đặt lại mật khẩu](password-reset.md).
 
+[Khóa hành chính](account-locking.md) của162–166 chặn login/refresh/JWT và thu hồi các phiên tài khoản đích. Mở khóa không khôi phục token cũ; người dùng đăng nhập lại. Khóa hành chính độc lập với khóa15phút do nhập sai và trạng thái chờ kích hoạt.
+
 TKNHTTDNB1-90 đăng nhập nhân sự nội bộ bằng email/mật khẩu. Backend trả vai trò; frontend dùng vai trò mở trang phù hợp trong subtask giao diện riêng. Ứng viên bên ngoài không có tài khoản nội bộ.
 
 TKNHTTDNB1-93 hoàn thiện kiểm tra Access Token trên luồng đăng nhập này. API và cấu trúc JSON giữ tương thích với phần giao diện.

@@ -56,7 +56,7 @@ public class AccountController {
     public ResponseEntity<CreatedAccount> create(@AuthenticationPrincipal Jwt jwt,
                                                   @Valid @RequestBody CreateAccountRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(service.create(UUID.fromString(jwt.getSubject()), request));
+                .body(service.create(jwt, request));
     }
 
     public record CreatedAccount(UUID id, String email, String fullName, Set<Role> roles, String status) { }

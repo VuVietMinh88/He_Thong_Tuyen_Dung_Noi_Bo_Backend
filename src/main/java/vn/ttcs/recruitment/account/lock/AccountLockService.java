@@ -1,4 +1,4 @@
-package vn.ttcs.recruitment.account.role;
+package vn.ttcs.recruitment.account.lock;
 
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -7,9 +7,11 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountNotFoundException;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.account.AccountSearchRepository;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.auth.passwordreset.PasswordResetTokenRepository;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.time.Clock;
@@ -17,35 +19,57 @@ import java.util.HashSet;
 import java.util.UUID;
 
 @Service
-public class AccountRoleService {
+public class AccountLockService {
+    private static final String HANDOVER_WARNING =
+            "Vui lòng rà soát và bàn giao các vị trí tuyển dụng do tài khoản này phụ trách (nếu có).";
+
     private final AccountRepository accounts;
+    private final AccountSearchRepository search;
     private final AuthSessionRepository sessions;
+    private final PasswordResetTokenRepository resetTokens;
     private final PermissionService permissions;
     private final Clock clock;
 
-    public AccountRoleService(AccountRepository accounts, AuthSessionRepository sessions,
+    public AccountLockService(AccountRepository accounts, AccountSearchRepository search,
+                              AuthSessionRepository sessions, PasswordResetTokenRepository resetTokens,
                               PermissionService permissions, Clock clock) {
         this.accounts = accounts;
+        this.search = search;
         this.sessions = sessions;
+        this.resetTokens = resetTokens;
         this.permissions = permissions;
         this.clock = clock;
     }
 
     @Transactional
-    public AccountRolesResponse assign(Jwt jwt, UUID id, Role role) {
+    public AccountLockResponse lock(Jwt jwt, UUID id, AccountLockRequest request) {
         Account target = requireTargetForAdministration(jwt, id);
-        target.addRole(role);
-        return AccountRolesResponse.from(target);
+        UUID actorId = UUID.fromString(jwt.getSubject());
+        if (actorId.equals(id)) {
+            throw new SelfAccountLockException();
+        }
+        var now = clock.instant();
+        target.lockByAdministrator(request.reason(), actorId, now);
+        // Login/reset also lock the account first, so they cannot create a session past this revocation.
+        sessions.revokeForUser(id, now);
+        resetTokens.invalidateForUser(id, now);
+        return response(target);
     }
 
     @Transactional
-    public AccountRolesResponse revoke(Jwt jwt, UUID id, Role role) {
+    public AccountLockResponse unlock(Jwt jwt, UUID id) {
         Account target = requireTargetForAdministration(jwt, id);
-        if (role == Role.ADMIN && id.equals(UUID.fromString(jwt.getSubject()))) {
-            throw new SelfAdminRevocationException();
-        }
-        target.removeRole(role);
-        return AccountRolesResponse.from(target);
+        target.unlockByAdministrator();
+        return response(target);
+    }
+
+    private AccountLockResponse response(Account target) {
+        // JDBC status calculation must see the JPA update from this transaction.
+        accounts.flush();
+        var view = search.findById(target.getId(), clock.instant()).orElseThrow(AccountNotFoundException::new);
+        return new AccountLockResponse(target.getId(), view.status(), target.getAdminLockReason(),
+                target.getAdminLockedAt(), target.getAdminLockedBy(),
+                target.isAdministrativelyLocked() ? HANDOVER_WARNING : null);
     }
 
     private Account requireTargetForAdministration(Jwt jwt, UUID id) {
@@ -57,14 +81,11 @@ public class AccountRoleService {
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-
-        // Serialize changes to both users in UUID order, then lock the caller's session.
         var ids = new HashSet<UUID>();
         ids.add(actorId);
         ids.add(id);
         var locked = accounts.findAllByIdForUpdate(ids);
-        Account actor = locked.stream()
-                .filter(account -> account.getId().equals(actorId) && account.isAccessAllowed())
+        Account actor = locked.stream().filter(account -> account.getId().equals(actorId) && account.isAccessAllowed())
                 .findFirst().orElseThrow(AuthenticationFailureException::sessionInvalid);
         var session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
@@ -73,10 +94,9 @@ public class AccountRoleService {
                 || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        // The security filter ran before these locks; another request may have removed ADMIN meanwhile.
         if (!actor.getRoles().contains(Role.ADMIN)
                 || !permissions.forUser(actorId).contains("USER_ADMIN_WRITE_ALL")) {
-            throw new AccessDeniedException("Account role administration requires ADMIN");
+            throw new AccessDeniedException("Account locking requires ADMIN");
         }
         return locked.stream().filter(account -> account.getId().equals(id))
                 .findFirst().orElseThrow(AccountNotFoundException::new);

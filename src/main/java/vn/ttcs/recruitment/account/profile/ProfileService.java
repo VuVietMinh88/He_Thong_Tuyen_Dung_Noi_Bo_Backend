@@ -57,7 +57,7 @@ public class ProfileService {
 
         // Use the same lock order as password changes: account first, then the caller's session.
         Account account = accounts.findByIdForUpdate(userId)
-                .filter(Account::isEnabled).orElseThrow(AuthenticationFailureException::sessionInvalid);
+                .filter(Account::isAccessAllowed).orElseThrow(AuthenticationFailureException::sessionInvalid);
         AuthSession caller = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
         Instant now = clock.instant();

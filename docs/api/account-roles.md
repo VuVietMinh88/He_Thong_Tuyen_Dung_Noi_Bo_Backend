@@ -60,7 +60,7 @@ Frontend nên dựa vào HTTP/mã lỗi thay vì so khớp nội dung tiếng Vi
 
 Sau khi request thay đổi thành công, lần gọi API kế tiếp dùng **cùng access token** sẽ được kiểm bằng vai trò/quyền mới trong DB. Không cần đăng nhập lại, chờ JWT hết hạn hoặc cấp JWT mới. Nếu người đó giữ nhiều vai trò, quyền là hợp các quyền của những vai trò còn lại. Frontend cần gọi lại `/auth/permissions` để cập nhật menu và xử lý403 của API.
 
-Cho phép thu hồi vai trò cuối của người khác. Khi danh sách rỗng, người đó vẫn có thể đăng nhập/refresh nhưng không gọi được API cần quyền, kể cả `/auth/me`, `/auth/permissions`, `/auth/logout` hiện dùng SELF_* theo vai trò. Admin có thể gán lại vai trò. Đây không phải thao tác khóa tài khoản; khóa quản trị thuộc162–166.
+Cho phép thu hồi vai trò cuối của người khác. Khi danh sách rỗng và tài khoản còn được truy cập, người đó vẫn có thể đăng nhập/refresh nhưng không gọi được API cần quyền, kể cả `/auth/me`, `/auth/permissions`, `/auth/logout` hiện dùng SELF_* theo vai trò. Admin có thể gán lại vai trò. Để chặn cả đăng nhập và thu hồi phiên, dùng [API khóa tài khoản](account-locking.md).
 
 ## Dữ liệu và chạy local
 

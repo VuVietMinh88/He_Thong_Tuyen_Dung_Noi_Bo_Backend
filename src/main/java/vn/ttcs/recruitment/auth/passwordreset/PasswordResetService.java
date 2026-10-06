@@ -39,7 +39,7 @@ public class PasswordResetService {
     @Transactional
     public void sendResetEmail(String email) {
         Account account = accounts.findByEmailForUpdate(email).orElse(null);
-        if (account == null || !account.isEnabled()) {
+        if (account == null || !account.isAccessAllowed()) {
             return;
         }
         Instant now = clock.instant();
@@ -60,7 +60,7 @@ public class PasswordResetService {
                 .orElseThrow(InvalidResetTokenException::new);
         // Login uses the same account lock. New sessions cannot slip past password change/revocation.
         Account account = accounts.findByIdForUpdate(resetToken.getUserId())
-                .filter(Account::isEnabled).orElseThrow(InvalidResetTokenException::new);
+                .filter(Account::isAccessAllowed).orElseThrow(InvalidResetTokenException::new);
         Instant now = clock.instant();
         if (resetTokens.consume(hash, now) != 1) {
             throw new InvalidResetTokenException();

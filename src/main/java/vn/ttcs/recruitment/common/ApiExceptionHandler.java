@@ -17,6 +17,7 @@ import vn.ttcs.recruitment.account.AccountNotFoundException;
 import vn.ttcs.recruitment.account.InvalidDepartmentException;
 import vn.ttcs.recruitment.account.InvalidAccountQueryException;
 import vn.ttcs.recruitment.account.role.SelfAdminRevocationException;
+import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
@@ -24,6 +25,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(SelfAccountLockException.class)
+    public ResponseEntity<ApiError> selfAccountLock(SelfAccountLockException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())
+                .body(ApiError.of("SELF_ACCOUNT_LOCK", exception.getMessage()));
+    }
+
     @ExceptionHandler(SelfAdminRevocationException.class)
     public ResponseEntity<ApiError> selfAdminRevocation(SelfAdminRevocationException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())

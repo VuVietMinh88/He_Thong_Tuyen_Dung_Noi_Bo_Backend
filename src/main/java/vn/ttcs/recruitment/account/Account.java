@@ -53,6 +53,13 @@ public class Account {
 
     private Instant lockedUntil;
 
+    private Instant adminLockedAt;
+
+    @Column(length = 500)
+    private String adminLockReason;
+
+    private UUID adminLockedBy;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -83,8 +90,34 @@ public class Account {
     }
 
     public void activate() {
+        if (isAdministrativelyLocked()) {
+            throw new InvalidActivationTokenException();
+        }
         enabled = true;
         clearLoginFailures();
+    }
+
+    public boolean isAdministrativelyLocked() {
+        return adminLockedAt != null;
+    }
+
+    public boolean isAccessAllowed() {
+        return enabled && !isAdministrativelyLocked();
+    }
+
+    public void lockByAdministrator(String reason, UUID actorId, Instant now) {
+        // Repeating a lock keeps the original administrator, time and reason.
+        if (!isAdministrativelyLocked()) {
+            adminLockReason = reason;
+            adminLockedBy = actorId;
+            adminLockedAt = now;
+        }
+    }
+
+    public void unlockByAdministrator() {
+        adminLockedAt = null;
+        adminLockReason = null;
+        adminLockedBy = null;
     }
 
     public boolean isLoginLocked(Instant now) {
@@ -141,5 +174,8 @@ public class Account {
     public Instant getCreatedAt() { return createdAt; }
     public String getPasswordHash() { return passwordHash; }
     public boolean isEnabled() { return enabled; }
+    public Instant getAdminLockedAt() { return adminLockedAt; }
+    public String getAdminLockReason() { return adminLockReason; }
+    public UUID getAdminLockedBy() { return adminLockedBy; }
     public Set<Role> getRoles() { return Set.copyOf(roles); }
 }

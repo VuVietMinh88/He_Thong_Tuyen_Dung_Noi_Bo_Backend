@@ -2,6 +2,8 @@
 
 Story TKNHTTDNB1-12: gửi liên kết qua email, hiệu lực **30 phút**, **dùng một lần**, cùng thông báo cho email có thật và không có thật. API thuộc backend Java; frontend dùng trang `/reset-password?token=...`.
 
+Tài khoản bị [Admin khóa](account-locking.md) không được gửi email reset hoặc dùng link để vượt khóa. Endpoint forgot vẫn trả thông báo202 chung; khóa vô hiệu hóa các reset link chưa dùng. Sau khi mở khóa, cần yêu cầu link mới nếu quên mật khẩu; link cũ không hồi phục.
+
 ## 1. Yêu cầu liên kết
 
 `POST /api/v1/auth/forgot-password`, `Content-Type: application/json`:
