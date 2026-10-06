@@ -170,6 +170,8 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/recruitment-catalogs/*/items/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/recruitment-catalogs/*/order")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

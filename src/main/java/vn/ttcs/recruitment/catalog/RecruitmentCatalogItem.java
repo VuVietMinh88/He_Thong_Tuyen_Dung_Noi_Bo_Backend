@@ -62,12 +62,20 @@ public class RecruitmentCatalogItem {
         this.updatedAt = createdAt;
     }
 
-    // The catalog type never changes: it comes from the URL. The display order is not edited here either.
+    // The catalog type never changes: it comes from the URL. The display order changes only through moveTo.
     public void update(String code, String name, boolean active, Instant updatedAt) {
         this.code = code;
         this.name = name;
         this.active = active;
         this.updatedAt = updatedAt;
+    }
+
+    // Used when HR saves a new display order. A value that keeps its number keeps its updatedAt too.
+    public void moveTo(int sortOrder, Instant updatedAt) {
+        if (this.sortOrder != sortOrder) {
+            this.sortOrder = sortOrder;
+            this.updatedAt = updatedAt;
+        }
     }
 
     public UUID getId() { return id; }

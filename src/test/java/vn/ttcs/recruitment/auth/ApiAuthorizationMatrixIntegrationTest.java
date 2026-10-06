@@ -146,7 +146,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("DELETE", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404));
+            endpoint("DELETE", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404),
+            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/order", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
