@@ -140,6 +140,10 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/positions/*/competency-framework")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // The evaluation criteria of a position carry no salary data, so every internal role reads
+                        // them: interviewers score candidates with these criteria.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/positions/*/evaluation-criteria")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

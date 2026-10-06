@@ -260,4 +260,6 @@ Mọi lỗi đều không thay đổi dữ liệu: cả khung lẫn danh sách t
 
 Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Task 214 cũng không thêm migration hay mã quyền: chi tiết khung đọc thêm cột `positions.competency_framework_id` của V8, còn hai endpoint gán/bỏ khung nằm ở [API chức danh](positions.md#khung-năng-lực-của-chức-danh-task-214). Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
 
-Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, dữ liệu cho phiếu đánh giá (task 215) và câu hỏi phỏng vấn (task 220–223).
+Tiêu chí và trọng số theo từng chức danh cho phiếu đánh giá phỏng vấn (task 215) đọc qua `GET /positions/{id}/evaluation-criteria`, xem [API tiêu chí đánh giá theo chức danh](evaluation-criteria.md).
+
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và câu hỏi phỏng vấn (task 220–223).
