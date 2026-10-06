@@ -3,16 +3,54 @@
 Team K3S4_N3. Java 21, Spring Boot 4.1.1, Maven Wrapper 3.9.16, Spring Data JPA, PostgreSQL.
 Subtask [TKNHTTDNB1-584](https://ttcs-k3s4-n3.atlassian.net/browse/TKNHTTDNB1-584): kết nối Backend/Frontend bằng REST API. Chưa có nghiệp vụ, authentication hoặc migration.
 
-## Chạy cùng Frontend
+## Chạy Backend cùng Frontend
 
-1. Cài JDK 21 trở lên, chạy PostgreSQL và tạo database `recruitment`.
-2. Sao chép `.env.example` thành `.env`, điền `DB_USERNAME`, `DB_PASSWORD` và kiểm tra `DB_URL`. Không commit `.env`.
-3. Giữ `SERVER_PORT=8080`, `CORS_ALLOWED_ORIGINS=http://localhost:5173`.
-4. Từ thư mục Backend chạy Windows: `./mvnw.cmd spring-boot:run`; Linux/macOS: `sh ./mvnw spring-boot:run`.
-5. Ở repository Frontend, chạy `npm ci`, sao chép `.env.example` thành `.env` với `VITE_API_BASE_URL=http://localhost:8080/api`, rồi `npm run dev`.
-6. Mở `http://localhost:5173`, bấm **Kiểm tra kết nối Backend**. Thành công hiển thị `UP`.
+### 1. Khởi động PostgreSQL
+
+Cài JDK 21 trở lên, chạy PostgreSQL tại `localhost:5432` và tạo database `recruitment`.
+Sao chép `.env.example` thành `.env`, điền `DB_USERNAME`, `DB_PASSWORD` và kiểm tra `DB_URL`. Đây là cấu hình local; không commit `.env` hoặc thông tin bí mật.
+Giữ `SERVER_PORT=8080`, `CORS_ALLOWED_ORIGINS=http://localhost:5173`.
 
 Hibernate không tự tạo bảng (`ddl-auto=none`). Backend vẫn cần PostgreSQL để khởi động do cấu hình JPA hiện tại.
+
+### 2. Khởi động Spring Boot
+
+Từ thư mục Backend, chạy với timezone UTC để tránh lỗi kết nối đã được xác nhận trên môi trường Windows/JDK:
+
+Windows PowerShell:
+
+```powershell
+./mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC'
+```
+
+Linux/macOS hoặc shell hỗ trợ `mvnw`:
+
+```sh
+./mvnw spring-boot:run -Dspring-boot.run.jvmArguments='-Duser.timezone=UTC'
+```
+
+Trên một số môi trường Windows/JDK, JVM sử dụng timezone `Asia/Saigon`. Trong môi trường đã kiểm chứng, PostgreSQL không chấp nhận identifier này khi JDBC mở kết nối và báo `FATAL: invalid value for parameter "TimeZone": "Asia/Saigon"`. Chạy JVM với `-Duser.timezone=UTC` tránh lỗi đó cho lần chạy ứng dụng; không cần đổi database configuration. Đây là vấn đề timezone của môi trường JVM khi kết nối PostgreSQL, không phải lỗi chung của Java 24 hoặc PostgreSQL.
+
+Dấu hiệu khởi động thành công: `Tomcat started on port 8080` và `Started RecruitmentApplication`.
+
+### 3. Kiểm tra Backend
+
+```sh
+curl http://localhost:8080/api/health
+```
+
+Expected response: `{"status":"UP"}`. Chi tiết API contract và CORS ở phần dưới.
+
+### 4. Khởi động Frontend
+
+Ở repository Frontend, sao chép `.env.example` thành `.env` với `VITE_API_BASE_URL=http://localhost:8080/api`, rồi chạy:
+
+```sh
+npm ci
+npm run dev
+```
+
+Mở `http://localhost:5173`, bấm **Kiểm tra kết nối Backend**. Thành công hiển thị `UP`.
 
 ## API contract và CORS
 
