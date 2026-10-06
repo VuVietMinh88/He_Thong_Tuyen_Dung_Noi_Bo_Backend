@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -822,6 +824,176 @@ class RecruitmentCatalogManagementIntegrationTest {
             assertThat(ids(listed)).containsExactlyElementsOf(strings(third, second, first));
             assertThat(sortOrders(listed)).containsExactly(0, 1, 2);
         }
+    }
+
+    @ParameterizedTest(name = "{0} after {1}")
+    @CsvSource({
+            "update, lost-permission", "update, expired-jwt",
+            "delete, lost-permission", "delete, expired-jwt",
+            "reorder, lost-permission", "reorder, expired-jwt"})
+    void rechecksAccessAfterWaitingForTheCatalogValueLock(String operation, String change) throws Exception {
+        UUID target = item(SOURCES, "TARGET", "Target", true);
+        UUID other = item(SOURCES, "OTHER", "Other", true);
+        List<Map<String, Object>> before = catalogRows();
+        try {
+            // Another write holds the value: the request passes the account and session checks, then waits here.
+            var response = sendWhileLocked(connection -> lockItem(connection, target),
+                    () -> write(operation, target, other, adminToken), () -> {
+                        if (change.equals("lost-permission")) {
+                            revokeWriteGrant("ADMIN");
+                        } else {
+                            clock.set(START.plus(Duration.ofMinutes(15)));
+                        }
+                    });
+            if (change.equals("lost-permission")) {
+                error(response, 403, "FORBIDDEN");
+            } else {
+                error(response, 401, "SESSION_INVALID");
+            }
+        } finally {
+            restoreDefaultWriteGrants();
+        }
+        assertThat(catalogRows()).isEqualTo(before);
+    }
+
+    @Test
+    void updateRechecksThePermissionAfterWaitingForTheActorAccountLock() throws Exception {
+        UUID target = item(SOURCES, "KEEP", "Keep", true);
+        Map<String, Object> before = row(target);
+        try {
+            // The request passed the URL rule already; the permission disappears while it waits.
+            var response = sendWhileLocked(connection -> lockAccount(connection, adminId),
+                    () -> update(SOURCES, target, payload("KEEP", "Changed", false), adminToken),
+                    () -> revokeWriteGrant("ADMIN"));
+            error(response, 403, "FORBIDDEN");
+        } finally {
+            restoreDefaultWriteGrants();
+        }
+        assertThat(row(target)).isEqualTo(before);
+    }
+
+    @Test
+    void managementFollowsTheWriteGrantInTheDatabaseNotTheRoleName() throws Exception {
+        account("recruiter@example.test", Set.of(Role.RECRUITER));
+        account("hr@example.test", Set.of(Role.HR_MANAGER));
+        String recruiterToken = login("recruiter@example.test").path("accessToken").asText();
+        String hrToken = login("hr@example.test").path("accessToken").asText();
+        UUID kept = item(SOURCES, "KEEP", "Keep", true);
+        try {
+            error(create(SOURCES, payload("BY_RECRUITER", "By recruiter", true), recruiterToken), 403, "FORBIDDEN");
+
+            // Granting the permission to RECRUITER opens every catalog write to recruiters, with the token they have.
+            jdbc.update("INSERT INTO role_permissions (role_code, permission_code) "
+                    + "VALUES ('RECRUITER', 'ORGANIZATION_WRITE_ALL')");
+            UUID created = UUID.fromString(expect(create(SOURCES, payload("BY_RECRUITER", "By recruiter", true),
+                    recruiterToken), 201).path("id").asText());
+            assertThat(expect(update(SOURCES, created, payload("BY_RECRUITER", "Renamed", true), recruiterToken), 200)
+                    .path("name").asText()).isEqualTo("Renamed");
+            assertThat(ids(expect(reorder(SOURCES_ORDER, List.of(created, kept), recruiterToken), 200)))
+                    .containsExactlyElementsOf(strings(created, kept));
+            assertThat(delete(SOURCES, created, recruiterToken).statusCode()).isEqualTo(204);
+
+            // Taking it away from HR_MANAGER closes every write to HR managers, again without a new login.
+            revokeWriteGrant("HR_MANAGER");
+            List<Map<String, Object>> before = catalogRows();
+            error(create(SOURCES, payload("BY_HR", "By HR", true), hrToken), 403, "FORBIDDEN");
+            error(update(SOURCES, kept, payload("KEEP", "By HR", false), hrToken), 403, "FORBIDDEN");
+            error(reorder(SOURCES_ORDER, List.of(kept), hrToken), 403, "FORBIDDEN");
+            error(delete(SOURCES, kept, hrToken), 403, "FORBIDDEN");
+            assertThat(catalogRows()).isEqualTo(before);
+            // Reading needs only ORGANIZATION_READ_ALL, which HR_MANAGER keeps.
+            assertThat(ids(expect(get(SOURCES, hrToken), 200))).containsExactly(kept.toString());
+        } finally {
+            restoreDefaultWriteGrants();
+        }
+    }
+
+    @Test
+    void roleRemovedWhileACatalogWriteRunsWaitsForItAndAppliesFromTheNextRequest() throws Exception {
+        UUID hrId = account("hr@example.test", Set.of(Role.HR_MANAGER, Role.RECRUITER));
+        String hrToken = login("hr@example.test").path("accessToken").asText();
+        UUID target = item(SOURCES, "TARGET", "Target", true);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // The HR manager's update passes every check, keeps the HR account locked, then waits for this value.
+            int blockerPid = lockItem(connection, target);
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                var write = executor.submit(() -> update(SOURCES, target, payload("TARGET", "By HR", true), hrToken));
+                awaitWaiters(blockerPid, 1);
+                // The account role API locks the HR account too, so the role change queues behind the running write.
+                var removal = executor.submit(() -> request("DELETE",
+                        "/api/v1/accounts/" + hrId + "/roles/HR_MANAGER", null, adminToken));
+                try {
+                    awaitWaiters(blockerPid, 2);
+                    connection.commit();
+                    assertThat(expect(write.get(10, TimeUnit.SECONDS), 200).path("name").asText()).isEqualTo("By HR");
+                    JsonNode roles = expect(removal.get(10, TimeUnit.SECONDS), 200).path("roles");
+                    assertThat(roles.size()).isEqualTo(1);
+                    assertThat(roles.get(0).asText()).isEqualTo("RECRUITER");
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        // Same token, next requests: as a recruiter the account still reads the catalog but cannot change it.
+        Map<String, Object> before = row(target);
+        error(update(SOURCES, target, payload("TARGET", "Too late", true), hrToken), 403, "FORBIDDEN");
+        error(create(SOURCES, payload("NEW", "New", true), hrToken), 403, "FORBIDDEN");
+        assertThat(row(target)).isEqualTo(before);
+        assertThat(count()).isEqualTo(1);
+        assertThat(expect(get(SOURCES + "/" + target, hrToken), 200).path("name").asText()).isEqualTo("By HR");
+    }
+
+    // One write of each kind; if it were allowed, it would change the target value.
+    private HttpResponse<String> write(String operation, UUID target, UUID other, String token) throws Exception {
+        return switch (operation) {
+            case "update" -> update(SOURCES, target, payload("TARGET", "Changed", false), token);
+            case "delete" -> delete(SOURCES, target, token);
+            default -> reorder(SOURCES_ORDER, List.of(other, target), token);
+        };
+    }
+
+    private void revokeWriteGrant(String role) {
+        jdbc.update("DELETE FROM role_permissions WHERE role_code = ? AND permission_code = 'ORGANIZATION_WRITE_ALL'",
+                role);
+    }
+
+    // Puts ORGANIZATION_WRITE_ALL back to the V3 grants (ADMIN and HR_MANAGER only) after a test changed them.
+    private void restoreDefaultWriteGrants() {
+        jdbc.update("DELETE FROM role_permissions WHERE permission_code = 'ORGANIZATION_WRITE_ALL' "
+                + "AND role_code NOT IN ('ADMIN', 'HR_MANAGER')");
+        jdbc.update("""
+                INSERT INTO role_permissions (role_code, permission_code)
+                VALUES ('ADMIN', 'ORGANIZATION_WRITE_ALL'), ('HR_MANAGER', 'ORGANIZATION_WRITE_ALL')
+                ON CONFLICT DO NOTHING
+                """);
+    }
+
+    // Another transaction takes a row lock, the request is sent and waits for it, whileWaiting runs, then the lock
+    // is released and the request's response is returned.
+    private HttpResponse<String> sendWhileLocked(RowLock lock, Callable<HttpResponse<String>> request,
+                                                 Runnable whileWaiting) throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blockerPid = lock.acquire(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(request);
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    whileWaiting.run();
+                    connection.commit();
+                    return response.get(10, TimeUnit.SECONDS);
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+    }
+
+    // Locks one row in the given transaction and returns that transaction's backend pid.
+    @FunctionalInterface
+    private interface RowLock {
+        int acquire(Connection connection) throws Exception;
     }
 
     // No real table stores catalog values yet, so these tests create a small referencing table of their own.
