@@ -36,6 +36,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [account-roles](docs/api/account-roles.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
+- [avatars](docs/api/avatars.md)
 - [company-profile](docs/api/company-profile.md)
 - [competency-frameworks](docs/api/competency-frameworks.md)
 - [departments](docs/api/departments.md)

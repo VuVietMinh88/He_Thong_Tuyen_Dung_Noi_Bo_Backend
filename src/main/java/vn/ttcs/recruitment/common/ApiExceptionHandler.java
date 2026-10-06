@@ -21,6 +21,7 @@ import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import vn.ttcs.recruitment.department.DepartmentException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -67,6 +68,13 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> invalidQuery(InvalidAccountQueryException exception) {
         return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
                 .body(ApiError.of("VALIDATION_ERROR", exception.getMessage()));
+    }
+
+    // A damaged multipart/form-data body that the server cannot split into fields and files.
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ApiError> invalidUpload() {
+        return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                .body(ApiError.of("INVALID_MULTIPART", "Không đọc được dữ liệu tải lên. Vui lòng chọn lại tệp."));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

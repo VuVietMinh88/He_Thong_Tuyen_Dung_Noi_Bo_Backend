@@ -32,6 +32,8 @@ Task 237 bổ sung [API trang giới thiệu công ty](../api/company-profile.md
 
 Task 238 bổ sung [API tải và xem ảnh, logo](../api/company-profile.md#ảnh-và-logo) của trang này. `POST /api/v1/company-profile/media` và `GET /api/v1/company-profile/media/{id}` cần `JOB_POSTINGS_WRITE_ALL`; khi tải ảnh, service kiểm tệp trước rồi khóa và kiểm lại giống khi lưu trang. `GET /api/v1/public/company-media/{id}` là `permitAll` chỉ cho phương thức GET, nhưng service chỉ trả ảnh mà trang đã lưu đang dùng (logo hoặc ảnh giới thiệu); ảnh chưa lưu vào trang hoặc đã bị bỏ khỏi trang trả 404 như ảnh không tồn tại.
 
+Task 188 bổ sung [API ảnh đại diện](../api/avatars.md) dùng lại quyền tự phục vụ: xem ảnh của mình hoặc của đồng nghiệp cần SELF_PROFILE_READ, tải lên/xóa ảnh của chính mình cần SELF_PROFILE_WRITE. Chủ ảnh luôn lấy từ JWT. Service xử lý ảnh trước, sau đó khóa tài khoản người gọi rồi phiên, kiểm lại trạng thái, phiên, hạn JWT và quyền trước khi ghi. `GET /accounts/{id}/avatar` chỉ trả ảnh, nên không cần USER_ADMIN_READ_ALL như `GET /accounts/{id}`.
+
 ## Phạm vi dữ liệu: `AccessScope`
 
 Matcher URL trong `SecurityConfiguration` chỉ trả lời câu hỏi "có quyền vào module này không". Để biết được xem/sửa **bao nhiêu** dữ liệu, service dùng `AccessScope` cùng enum `PermissionModule` (mười module nghiệp vụ của V3 và `SALARY_RANGES` của V7_1, gói `vn.ttcs.recruitment.security`). Các quyền `SELF_PROFILE_*`/`SELF_SECURITY_WRITE` không theo mẫu `<MODULE>_<READ|WRITE>_<ALL|SCOPED>` nên vẫn kiểm tra trực tiếp bằng `hasAuthority` trong `SecurityConfiguration`, không qua `AccessScope`. `AccessScope.read(..., module)` và `AccessScope.write(..., module)` trả về:
