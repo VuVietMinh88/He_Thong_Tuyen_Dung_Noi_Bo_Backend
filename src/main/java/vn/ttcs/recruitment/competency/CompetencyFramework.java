@@ -52,6 +52,14 @@ public class CompetencyFramework {
         this.updatedAt = createdAt;
     }
 
+    // Edits the framework itself; its criteria are separate rows. The status is not changed by an edit.
+    public void update(String code, String name, String description, Instant updatedAt) {
+        this.code = code;
+        this.name = name;
+        this.description = description;
+        this.updatedAt = updatedAt;
+    }
+
     public UUID getId() { return id; }
     public String getCode() { return code; }
     public String getName() { return name; }

@@ -46,6 +46,15 @@ public class CompetencyCriterion {
         this.sortOrder = sortOrder;
     }
 
+    // Changes the criterion in place, so its id stays the same for anything that refers to it.
+    // The framework never changes: a criterion belongs to the framework it was created in.
+    public void update(String name, String description, BigDecimal weight, int sortOrder) {
+        this.name = name;
+        this.description = description;
+        this.weight = weight;
+        this.sortOrder = sortOrder;
+    }
+
     public UUID getId() { return id; }
     public UUID getFrameworkId() { return frameworkId; }
     public String getName() { return name; }
