@@ -145,7 +145,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -360,7 +361,8 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "DELETE", "/api/v1/departments/" + unused, null),
                 new Attack(Identity.RECRUITER, "POST", CATALOG_ITEMS, catalogItemBody("SHADOW", "Shadow")),
                 new Attack(Identity.APPROVER, "PUT", CATALOG_ITEMS + "/" + catalogItem,
-                        catalogItemBody("TARGET", "Taken over")));
+                        catalogItemBody("TARGET", "Taken over")),
+                new Attack(Identity.HIRING_MANAGER, "DELETE", CATALOG_ITEMS + "/" + catalogItem, null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

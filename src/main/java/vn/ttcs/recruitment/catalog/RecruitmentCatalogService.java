@@ -95,6 +95,23 @@ public class RecruitmentCatalogService {
         return RecruitmentCatalogItemView.from(item);
     }
 
+    // Only a value that no other row uses can be deleted. Each table that stores a catalog value must point to it
+    // with an ordinary foreign key (NO ACTION or RESTRICT, see docs/database/README.md), so PostgreSQL itself
+    // refuses the DELETE while a reference exists. That also covers a reference saved by another request at the
+    // same moment, which a "count the references first" check could miss.
+    @Transactional
+    public void delete(Jwt jwt, String type, UUID id) {
+        requireWriteAccess(jwt);
+        RecruitmentCatalogItem item = items.findByIdAndCatalogTypeForUpdate(id, catalogType(type))
+                .orElseThrow(RecruitmentCatalogService::itemNotFound);
+        try {
+            items.delete(item);
+            items.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateItemInUse(exception);
+        }
+    }
+
     private void requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
@@ -173,6 +190,16 @@ public class RecruitmentCatalogService {
         return exception;
     }
 
+    // SQLState 23503 is PostgreSQL's foreign_key_violation: some row still references the value being deleted.
+    private RuntimeException translateItemInUse(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql && "23503".equals(sql.getSQLState())) {
+                return itemInUse();
+            }
+        }
+        return exception;
+    }
+
     private static ApiException itemNotFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND",
                 "Không tìm thấy giá trị danh mục.");
@@ -181,5 +208,11 @@ public class RecruitmentCatalogService {
     private static ApiException duplicateCode() {
         return new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_CATALOG_CODE_EXISTS",
                 "Mã giá trị đã được sử dụng trong danh mục này.");
+    }
+
+    private static ApiException itemInUse() {
+        return new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_CATALOG_ITEM_IN_USE",
+                "Giá trị danh mục đang được dữ liệu khác sử dụng nên không thể xóa. "
+                        + "Hãy chuyển giá trị sang ngừng sử dụng (active = false).");
     }
 }

@@ -170,6 +170,41 @@ class RecruitmentCatalogMigrationTest {
         }
     }
 
+    @Test
+    void everyForeignKeyToACatalogValueBlocksDeletingThatValue() throws Exception {
+        try (var postgres = startPostgres()) {
+            var jdbc = migrateAll(postgres);
+            // The delete API relies on PostgreSQL refusing to delete a value that is still referenced (task 229).
+            // ON DELETE CASCADE / SET NULL / SET DEFAULT would silently delete or blank the referencing rows
+            // instead, and a DEFERRABLE key could fail only at commit. No migration references catalog values yet;
+            // this guard fails as soon as one adds such a foreign key.
+            assertThat(unsafeCatalogReferences(jdbc)).isEmpty();
+
+            // The guard really finds those keys, and accepts the default NO ACTION and RESTRICT.
+            jdbc.execute("CREATE TABLE cascading_usage (item_id UUID REFERENCES recruitment_catalog_items (id) "
+                    + "ON DELETE CASCADE)");
+            jdbc.execute("CREATE TABLE clearing_usage (item_id UUID REFERENCES recruitment_catalog_items (id) "
+                    + "ON DELETE SET NULL)");
+            jdbc.execute("CREATE TABLE deferred_usage (item_id UUID REFERENCES recruitment_catalog_items (id) "
+                    + "DEFERRABLE INITIALLY DEFERRED)");
+            jdbc.execute("CREATE TABLE default_usage (item_id UUID REFERENCES recruitment_catalog_items (id))");
+            jdbc.execute("CREATE TABLE restricted_usage (item_id UUID REFERENCES recruitment_catalog_items (id) "
+                    + "ON DELETE RESTRICT)");
+            assertThat(unsafeCatalogReferences(jdbc)).containsExactly("cascading_usage_item_id_fkey",
+                    "clearing_usage_item_id_fkey", "deferred_usage_item_id_fkey");
+        }
+    }
+
+    // confdeltype 'a' is NO ACTION and 'r' is RESTRICT: only these two make the DELETE itself fail.
+    private static List<String> unsafeCatalogReferences(JdbcTemplate jdbc) {
+        return jdbc.queryForList("""
+                SELECT conname FROM pg_constraint
+                WHERE contype = 'f' AND confrelid = 'recruitment_catalog_items'::regclass
+                  AND (confdeltype NOT IN ('a', 'r') OR condeferrable)
+                ORDER BY conname
+                """, String.class);
+    }
+
     private static EmbeddedPostgres startPostgres() throws Exception {
         return EmbeddedPostgres.builder().setPort(0)
                 .setServerConfig("listen_addresses", "127.0.0.1").start();
