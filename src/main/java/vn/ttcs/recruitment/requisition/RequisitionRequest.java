@@ -14,7 +14,8 @@ import vn.ttcs.recruitment.position.WholeVndDeserializer;
 import java.time.LocalDate;
 import java.util.UUID;
 
-// Task 244: what a department head types into a draft requisition. Only the checks a draft needs to be stored are
+// Task 244: what a department head types into a draft requisition. The same body creates a draft (POST) and,
+// from task 245, saves it again (PUT replaces every field). Only the checks a draft needs to be stored are
 // here: the four fields V13 always requires, a positive whole headcount, whole non-negative salaries and a size
 // limit on each text. Rules that need other data (salary justification, needed-by date, department scope) come in
 // later tasks of story S2-10. Every other field may stay empty while the draft is being written.
