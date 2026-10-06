@@ -118,7 +118,7 @@ class CompetencyFrameworkManagementIntegrationTest {
         assertThat(result.path("code").asText()).isEqualTo("DEV_CORE");
         assertThat(result.path("name").asText()).isEqualTo("Năng lực lập trình viên");
         assertThat(result.path("description").asText()).isEqualTo("Dùng cho mọi cấp lập trình viên");
-        // A new framework is always DRAFT; the request has no status field.
+        // Without a status in the request, a new framework is a DRAFT.
         assertThat(result.path("status").asText()).isEqualTo("DRAFT");
         assertThat(Instant.parse(result.path("createdAt").asText())).isEqualTo(START);
         assertThat(Instant.parse(result.path("updatedAt").asText())).isEqualTo(START);
@@ -330,10 +330,10 @@ class CompetencyFrameworkManagementIntegrationTest {
         // Several broken fields are reported together, so a form can mark all of them in one round trip.
         fieldErrors(create(payload(" ", "", "d".repeat(1001), List.of()), hrToken), "code", "name", "description");
 
-        // status comes with the activation rule, so for now it is a field outside the contract, like id.
-        for (String field : List.of("status", "id", "createdAt")) {
+        // The id and timestamps of a framework are set by the server, so they are fields outside the contract.
+        for (String field : List.of("id", "createdAt")) {
             Map<String, Object> unknown = new LinkedHashMap<>(valid);
-            unknown.put(field, field.equals("status") ? "ACTIVE" : "x");
+            unknown.put(field, "x");
             error(create(unknown, hrToken), 400, "INVALID_JSON");
         }
         Map<String, Object> notAList = new LinkedHashMap<>(valid);
@@ -429,6 +429,155 @@ class CompetencyFrameworkManagementIntegrationTest {
     }
 
     @Test
+    void completeFrameworkNeedsWeightsThatTotalExactlyOneHundredWhileADraftMayBeIncomplete() throws Exception {
+        // Three weights rounded to two decimals that add up to exactly 100.00 with BigDecimal.
+        var thirds = create(withStatus(payload("THIRDS", "Ba tiêu chí", null, List.of(
+                criterion(null, "Kỹ năng", null, new BigDecimal("33.33")),
+                criterion(null, "Thái độ", null, new BigDecimal("33.33")),
+                criterion(null, "Kinh nghiệm", null, new BigDecimal("33.34")))), "ACTIVE"), hrToken);
+        JsonNode active = expect(thirds, 201);
+        noStore(thirds);
+        UUID id = UUID.fromString(active.path("id").asText());
+        assertThat(active.path("status").asText()).isEqualTo("ACTIVE");
+        assertThat(thirds.body()).contains("\"weight\":33.33", "\"weight\":33.34");
+        assertThat(jdbc.queryForObject("SELECT status FROM competency_frameworks WHERE id = ?", String.class, id))
+                .isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT sum(weight) FROM competency_criteria WHERE framework_id = ?",
+                BigDecimal.class, id)).isEqualTo(new BigDecimal("100.00"));
+        assertThat(expect(get(BASE + "/" + id, hrToken), 200)).isEqualTo(active);
+        // A single criterion of 100% is a complete framework too.
+        assertThat(expect(create(withStatus(payload("SINGLE", "Single", null,
+                List.of(criterion(null, "Giao tiếp", null, 100))), "ACTIVE"), hrToken), 201).path("status").asText())
+                .isEqualTo("ACTIVE");
+
+        var before = competencyRows();
+        // One hundredth short, one hundredth over, and no criteria at all: each is refused and nothing is saved.
+        weightTotalError(create(withStatus(payload("SHORT", "Short", null, List.of(
+                criterion(null, "Kỹ năng", null, new BigDecimal("33.33")),
+                criterion(null, "Thái độ", null, new BigDecimal("33.33")),
+                criterion(null, "Kinh nghiệm", null, new BigDecimal("33.33")))), "ACTIVE"), hrToken), "99.99");
+        weightTotalError(create(withStatus(payload("OVER", "Over", null, List.of(
+                criterion(null, "Kỹ năng", null, 60), criterion(null, "Thái độ", null, new BigDecimal("40.01")))),
+                "ACTIVE"), hrToken), "100.01");
+        weightTotalError(create(withStatus(payload("EMPTY", "Empty", null, List.of()), "ACTIVE"), hrToken), "0.00");
+        // Exponent and extra zeros count with their real value: 1e1 + 50.000 is 60.
+        weightTotalError(request("POST", BASE, """
+                {"code":"RAW","name":"Raw","status":"ACTIVE","criteria":[
+                  {"name":"A","weight":1e1},{"name":"B","weight":50.000}]}
+                """, hrToken), "60.00");
+        // A third decimal is refused on its own row first, so 33.335 + 66.665 is never rounded into 100.
+        fieldErrors(request("POST", BASE, """
+                {"code":"ROUND","name":"Round","status":"ACTIVE","criteria":[
+                  {"name":"A","weight":33.335},{"name":"B","weight":66.665}]}
+                """, hrToken), "criteria[0].weight", "criteria[1].weight");
+        assertThat(competencyRows()).isEqualTo(before);
+        expect(request("POST", BASE, """
+                {"code":"RAW","name":"Raw","status":"ACTIVE","criteria":[
+                  {"name":"A","weight":5e1},{"name":"B","weight":50.000}]}
+                """, hrToken), 201);
+
+        // A DRAFT may be incomplete or over 100%, whether the status is sent or left out.
+        JsonNode draft = expect(create(withStatus(payload("DRAFT_SHORT", "Draft short", null, List.of(
+                criterion(null, "Kỹ năng", null, new BigDecimal("33.33")))), "DRAFT"), hrToken), 201);
+        assertThat(draft.path("status").asText()).isEqualTo("DRAFT");
+        JsonNode nullStatus = expect(create(withStatus(payload("DRAFT_OVER", "Draft over", null, List.of(
+                criterion(null, "Kỹ năng", null, 80), criterion(null, "Thái độ", null, 70))), null), hrToken), 201);
+        assertThat(nullStatus.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(expect(create(payload("DRAFT_EMPTY", "Draft empty", null, List.of()), hrToken), 201)
+                .path("status").asText()).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void draftBecomesActiveOnlyWithCompleteWeightsAndAnActiveFrameworkMustStayComplete() throws Exception {
+        JsonNode created = framework("DEV_CORE", "Năng lực lập trình viên", criterion(null, "Giao tiếp", null, 30),
+                criterion(null, "Tư duy", null, 30));
+        UUID id = UUID.fromString(created.path("id").asText());
+        UUID communication = UUID.fromString(ids(created.path("criteria")).get(0));
+        UUID thinking = UUID.fromString(ids(created.path("criteria")).get(1));
+        clock.set(START.plusSeconds(60));
+
+        // Activating with the current 60% is refused, and the whole edit (here the new name) is left out.
+        var before = competencyRows();
+        weightTotalError(update(id, withStatus(payload("DEV_CORE", "Đổi tên", null, List.of(
+                criterion(communication, "Giao tiếp", null, 30), criterion(thinking, "Tư duy", null, 30))),
+                "ACTIVE"), hrToken), "60.00");
+        assertThat(competencyRows()).isEqualTo(before);
+
+        // The same edit with weights that total 100 activates the framework and keeps both criterion ids.
+        var activation = update(id, withStatus(payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                criterion(communication, "Giao tiếp", null, new BigDecimal("50.5")),
+                criterion(thinking, "Tư duy", null, new BigDecimal("49.5")))), "ACTIVE"), hrToken);
+        JsonNode activated = expect(activation, 200);
+        noStore(activation);
+        assertThat(activated.path("status").asText()).isEqualTo("ACTIVE");
+        assertThat(ids(activated.path("criteria"))).containsExactly(communication.toString(), thinking.toString());
+        assertThat(Instant.parse(activated.path("updatedAt").asText())).isEqualTo(START.plusSeconds(60));
+        assertThat(expect(get(BASE + "/" + id, hrToken), 200)).isEqualTo(activated);
+        assertThat(ids(expect(get(BASE + "?status=ACTIVE", hrToken), 200).path("items")))
+                .containsExactly(id.toString());
+
+        // Without a status an edit keeps ACTIVE, so it must keep the total at 100 as well.
+        before = competencyRows();
+        weightTotalError(update(id, payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                criterion(communication, "Giao tiếp", null, 50), criterion(thinking, "Tư duy", null, 40))),
+                hrToken), "90.00");
+        weightTotalError(update(id, payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                criterion(communication, "Giao tiếp", null, 50), criterion(thinking, "Tư duy", null, 50),
+                criterion(null, "Học hỏi", null, 10))), hrToken), "110.00");
+        weightTotalError(update(id, payload("DEV_CORE", "Năng lực lập trình viên", null, List.of()), hrToken), "0.00");
+        // ACTIVE never goes back to DRAFT, even with weights that total 100.
+        for (int weight : List.of(50, 40)) {
+            var demotion = update(id, withStatus(payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                    criterion(communication, "Giao tiếp", null, 50), criterion(thinking, "Tư duy", null, weight))),
+                    "DRAFT"), hrToken);
+            JsonNode body = expect(demotion, 409);
+            noStore(demotion);
+            assertThat(body.path("code").asText()).isEqualTo("COMPETENCY_FRAMEWORK_ALREADY_ACTIVE");
+            assertThat(body.path("message").asText())
+                    .isEqualTo("Khung năng lực đã hoàn chỉnh (ACTIVE) không thể chuyển lại thành bản nháp (DRAFT).");
+            assertThat(body.path("fieldErrors").path("status").asText()).isNotBlank();
+        }
+        assertThat(competencyRows()).isEqualTo(before);
+
+        // Rebalancing in one edit (a new criterion, a removed one) is fine while the total stays 100.
+        JsonNode rebalanced = expect(update(id, payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                criterion(thinking, "Tư duy", null, new BigDecimal("33.34")),
+                criterion(null, "Học hỏi", null, new BigDecimal("33.33")),
+                criterion(null, "Làm việc nhóm", null, new BigDecimal("33.33")))), hrToken), 200);
+        assertThat(rebalanced.path("status").asText()).isEqualTo("ACTIVE");
+        assertThat(names(rebalanced.path("criteria"))).containsExactly("Tư duy", "Học hỏi", "Làm việc nhóm");
+        // Sending ACTIVE again is the same as leaving the status out.
+        assertThat(expect(update(id, withStatus(payload("DEV_CORE", "Năng lực lập trình viên", null, List.of(
+                criterion(thinking, "Tư duy", null, 100))), "ACTIVE"), hrToken), 200).path("status").asText())
+                .isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForMap("SELECT status, (SELECT sum(weight) FROM competency_criteria "
+                + "WHERE framework_id = ?) AS total FROM competency_frameworks WHERE id = ?", id, id))
+                .isEqualTo(Map.of("status", "ACTIVE", "total", new BigDecimal("100.00")));
+    }
+
+    @Test
+    void acceptsOnlyTheExactStatusNamesAndTreatsNullStatusAsLeftOut() throws Exception {
+        Map<String, Object> valid = payload("STATUS", "Status", null, List.of(criterion(null, "Giao tiếp", null, 40)));
+        // Only the exact names are read. A number is refused too: Jackson alone would read 1 as ACTIVE.
+        for (Object status : List.of("active", "Draft", " ACTIVE", "UNKNOWN", "", 1, 0, true, List.of("ACTIVE"),
+                Map.of())) {
+            assertThat(expect(create(withStatus(valid, status), hrToken), 400).path("code").asText())
+                    .as(String.valueOf(status)).isEqualTo("INVALID_JSON");
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM competency_frameworks", Integer.class)).isZero();
+
+        // JSON null means "no status": DRAFT for a new framework, the current status for an edit.
+        UUID id = UUID.fromString(expect(create(withStatus(valid, null), hrToken), 201).path("id").asText());
+        assertThat(expect(update(id, withStatus(payload("STATUS", "Status", null, List.of(
+                criterion(null, "Giao tiếp", null, 100))), "ACTIVE"), hrToken), 200).path("status").asText())
+                .isEqualTo("ACTIVE");
+        JsonNode kept = expect(update(id, withStatus(payload("STATUS", "Renamed", null, List.of(
+                criterion(null, "Tư duy", null, 100))), null), hrToken), 200);
+        assertThat(kept.path("status").asText()).isEqualTo("ACTIVE");
+        assertThat(kept.path("name").asText()).isEqualTo("Renamed");
+    }
+
+    @Test
     void codesAreCaseSensitiveUniqueAndADuplicateUpdateLeavesTheRowsUnchanged() throws Exception {
         UUID upper = UUID.fromString(framework("HR", "HR", criterion(null, "Giao tiếp", null, 100)).path("id").asText());
         UUID lower = UUID.fromString(framework("hr", "Lowercase", criterion(null, "Giao tiếp", null, 100))
@@ -467,8 +616,9 @@ class CompetencyFrameworkManagementIntegrationTest {
         assertThat(expect(get(BASE + "?q=" + encode("' OR 1=1 --"), hrToken), 200).path("totalElements").asInt()).isZero();
         assertThat(expect(get(BASE + "?q=" + encode("   "), hrToken), 200).path("totalElements").asInt()).isEqualTo(3);
 
-        // ACTIVE is set with SQL: activation is not part of this API.
-        jdbc.update("UPDATE competency_frameworks SET status = 'ACTIVE' WHERE id = ?", UUID.fromString(decoy));
+        // The decoy is activated through the API, which needs a criteria list that totals 100%.
+        expect(update(decoy, withStatus(payload("PCTAB", "Decoy", null, List.of(criterion(null, "Giao tiếp", null, 100))),
+                "ACTIVE"), hrToken), 200);
         JsonNode active = expect(get(BASE + "?status=ACTIVE", hrToken), 200);
         assertThat(ids(active.path("items"))).containsExactly(decoy);
         assertThat(active.path("items").path(0).path("status").asText()).isEqualTo("ACTIVE");
@@ -549,16 +699,20 @@ class CompetencyFrameworkManagementIntegrationTest {
         // Without write permission the data rules are never reached: the answer is 403, not 400 or 409.
         var invalid = update(id, payload("READ", "Invalid", null, List.of(criterion(UUID.randomUUID(), "X", null, 1))),
                 token);
+        var incomplete = create(withStatus(payload("INCOMPLETE", "Incomplete", null,
+                List.of(criterion(null, "Tư duy", null, 50))), "ACTIVE"), token);
         if (writer) {
             assertThat(expect(created, 201).path("code").asText()).isEqualTo("NEW");
             JsonNode result = expect(updated, 200);
             assertThat(result.path("name").asText()).isEqualTo("Updated");
             assertThat(ids(result.path("criteria"))).containsExactly(kept.toString());
             error(invalid, 400, "INVALID_COMPETENCY_CRITERION");
+            weightTotalError(incomplete, "50.00");
         } else {
             error(created, 403, "FORBIDDEN");
             error(updated, 403, "FORBIDDEN");
             error(invalid, 403, "FORBIDDEN");
+            error(incomplete, 403, "FORBIDDEN");
             assertThat(competencyRows()).isEqualTo(before);
         }
     }
@@ -654,6 +808,45 @@ class CompetencyFrameworkManagementIntegrationTest {
                 .containsExactly(communication);
     }
 
+    @Test
+    void anEditThatWaitsForTheFrameworkLockSeesAnActivationCommittedMeanwhileAndMustKeepOneHundred() throws Exception {
+        JsonNode created = framework("RACE", "Race", criterion(null, "Giao tiếp", null, 50),
+                criterion(null, "Tư duy", null, 50));
+        UUID id = UUID.fromString(created.path("id").asText());
+        UUID communication = UUID.fromString(ids(created.path("criteria")).get(0));
+        UUID thinking = UUID.fromString(ids(created.path("criteria")).get(1));
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // Plays another edit that holds the framework lock and activates the framework.
+            try (var statement = connection.prepareStatement(
+                    "SELECT id FROM competency_frameworks WHERE id = ? FOR UPDATE")) {
+                statement.setObject(1, id);
+                try (var row = statement.executeQuery()) { assertThat(row.next()).isTrue(); }
+            }
+            execute(connection, "UPDATE competency_frameworks SET status = 'ACTIVE' WHERE id = ?", id);
+            int blockerPid = backendPid(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                // This edit was prepared while the framework was a DRAFT: no status and only 90% in total.
+                var response = executor.submit(() -> update(id, payload("RACE", "Changed", null, List.of(
+                        criterion(communication, "Giao tiếp", null, 50), criterion(thinking, "Tư duy", null, 40))),
+                        hrToken));
+                try {
+                    awaitWaiters(blockerPid);
+                    assertThat(response.isDone()).isFalse();
+                    connection.commit();
+                    // The status is read after the lock, so the edit now keeps ACTIVE and needs 100%.
+                    weightTotalError(response.get(10, TimeUnit.SECONDS), "90.00");
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        assertThat(jdbc.queryForMap("SELECT name, status FROM competency_frameworks WHERE id = ?", id))
+                .isEqualTo(Map.of("name", "Race", "status", "ACTIVE"));
+        assertThat(jdbc.queryForList("SELECT weight FROM competency_criteria WHERE framework_id = ? ORDER BY sort_order",
+                BigDecimal.class, id)).containsExactly(new BigDecimal("50.00"), new BigDecimal("50.00"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"lost-organization-permission", "expired-jwt", "locked-actor", "revoked-session"})
     void rechecksAccessAfterWaitingForTheActorAccountLock(String change) throws Exception {
@@ -715,6 +908,13 @@ class CompetencyFrameworkManagementIntegrationTest {
         result.put("name", name);
         result.put("description", description);
         result.put("criteria", criteria);
+        return result;
+    }
+
+    // payload(...) leaves the status out; this copy sends one, which may also be null or a wrong JSON value.
+    private static Map<String, Object> withStatus(Map<String, Object> payload, Object status) {
+        Map<String, Object> result = new LinkedHashMap<>(payload);
+        result.put("status", status);
         return result;
     }
 
@@ -782,6 +982,18 @@ class CompetencyFrameworkManagementIntegrationTest {
             assertThat(body.path("fieldErrors").path(field).asText()).as(field).isNotBlank();
         }
         return body.path("fieldErrors");
+    }
+
+    // Jira 213: the refusal of a complete framework whose weights do not total 100; total is shown like "99.99".
+    private void weightTotalError(HttpResponse<String> response, String total) {
+        JsonNode body = expect(response, 400);
+        noStore(response);
+        assertThat(body.path("code").asText()).isEqualTo("COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID");
+        assertThat(body.path("message").asText()).isEqualTo("Khung năng lực hoàn chỉnh (ACTIVE) cần tổng trọng số "
+                + "các tiêu chí đúng 100%; tổng hiện tại là " + total + "%.");
+        assertThat(body.path("fieldErrors").size()).isEqualTo(1);
+        assertThat(body.path("fieldErrors").path("criteria").asText())
+                .isEqualTo("Tổng trọng số hiện tại là " + total + "%, cần đúng 100%.");
     }
 
     private void noStore(HttpResponse<String> response) {

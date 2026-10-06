@@ -41,7 +41,8 @@ public class CompetencyFramework {
     protected CompetencyFramework() {
     }
 
-    // A new framework always starts as DRAFT, because its criteria are added afterwards.
+    // A new framework starts as DRAFT. CompetencyFrameworkService calls activate() before saving it when the
+    // request asks for ACTIVE.
     public CompetencyFramework(String code, String name, String description, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.code = code;
@@ -52,12 +53,19 @@ public class CompetencyFramework {
         this.updatedAt = createdAt;
     }
 
-    // Edits the framework itself; its criteria are separate rows. The status is not changed by an edit.
+    // Edits the framework itself; its criteria are separate rows. The status only changes through activate().
     public void update(String code, String name, String description, Instant updatedAt) {
         this.code = code;
         this.name = name;
         this.description = description;
         this.updatedAt = updatedAt;
+    }
+
+    // Marks the framework complete (Jira 213). The caller must first check that the criteria weights total
+    // exactly 100%. There is no way back to DRAFT: positions and interview forms rely on an ACTIVE framework
+    // staying complete.
+    public void activate() {
+        this.status = CompetencyFrameworkStatus.ACTIVE;
     }
 
     public UUID getId() { return id; }
