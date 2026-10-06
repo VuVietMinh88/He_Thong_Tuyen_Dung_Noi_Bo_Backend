@@ -15,6 +15,7 @@ import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.department.DepartmentRepository;
 import vn.ttcs.recruitment.position.PositionRepository;
 import vn.ttcs.recruitment.position.SalaryBandComparison;
@@ -25,6 +26,7 @@ import vn.ttcs.recruitment.security.PermissionService;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -50,12 +52,13 @@ public class RequisitionService {
     private final AuthService auth;
     private final PermissionService permissions;
     private final SalaryBandService salaryBands;
+    private final BusinessCalendar calendar;
     private final Clock clock;
 
     public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
                               DepartmentRepository departments, AccountRepository accounts,
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              SalaryBandService salaryBands, Clock clock) {
+                              SalaryBandService salaryBands, BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
         this.departments = departments;
@@ -64,6 +67,7 @@ public class RequisitionService {
         this.auth = auth;
         this.permissions = permissions;
         this.salaryBands = salaryBands;
+        this.calendar = calendar;
         this.clock = clock;
     }
 
@@ -72,12 +76,13 @@ public class RequisitionService {
 
     // Task 244: saves a new DRAFT owned by the caller, so the manager can come back and finish it later.
     // Task 246 adds: the position and the department must still be active. Task 247 adds: a proposal outside the
-    // position's standard salary band needs a justification. Other business rules on the content (needed-by date,
-    // department scope) come in the later tasks of story S2-10.
+    // position's standard salary band needs a justification. Task 248 adds: the needed-by date is not in the past.
+    // The department scope of the body comes in task 249.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
         requireValidSalaryRange(request);
+        requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
         requireJustificationOutsideStandardBand(request);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
@@ -135,6 +140,7 @@ public class RequisitionService {
         requireInScope(caller, requisition);
         requireDraft(requisition);
         requireValidSalaryRange(request);
+        requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
         requireJustificationOutsideStandardBand(request);
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
@@ -216,6 +222,22 @@ public class RequisitionService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "REQUISITION_SALARY_RANGE_INVALID",
                     "Lương đề xuất tối thiểu không được lớn hơn lương đề xuất tối đa.",
                     Map.of("proposedSalaryMax", "Lương đề xuất tối đa phải lớn hơn hoặc bằng lương đề xuất tối thiểu."));
+        }
+    }
+
+    // Task 248: the people cannot be needed before today. "Today" is the date in the business time zone
+    // (BusinessCalendar, Vietnam by default), not in UTC: at 2026-10-06T17:30Z it is already 2026-10-07 in Vietnam,
+    // so 2026-10-06 is refused although UTC is still on that day. Today itself is allowed, and a draft may leave the
+    // date empty. The date is compared on every save, after the account and session locks (and the requisition lock
+    // for an update), so a request that waited for those locks past midnight is compared with the new day. It runs
+    // before the FOR SHARE locks on the position and department, because NEEDED_BY_IN_PAST is reported before their
+    // errors on purpose. So a wait on those two locks past midnight, or midnight passing before the commit, can still
+    // save a date that is one day in the past at commit time. A draft whose date has passed is saved again only with
+    // a new date or none.
+    private void requireNeededByNotInPast(RequisitionRequest request) {
+        LocalDate neededBy = request.neededBy();
+        if (neededBy != null && neededBy.isBefore(calendar.today())) {
+            throw invalidField("NEEDED_BY_IN_PAST", "neededBy", "Ngày cần người không được trước ngày hôm nay.");
         }
     }
 

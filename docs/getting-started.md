@@ -98,6 +98,8 @@ Từ thư mục gốc repo Backend:
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC'
 ```
 
+Thời điểm (`createdAt`, hạn token...) luôn tính theo UTC. Các quy tắc theo **ngày** nghiệp vụ, ví dụ ngày cần người của [yêu cầu tuyển dụng](api/requisitions.md) không được trước hôm nay, dùng múi giờ `app.business-zone` trong `src/main/resources/application.properties` (mặc định `Asia/Ho_Chi_Minh`), không phụ thuộc múi giờ của JVM hay máy chủ.
+
 Khi khởi động xong:
 
 ```powershell
