@@ -8,6 +8,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import vn.ttcs.recruitment.account.Account;
+import vn.ttcs.recruitment.account.AccountInvitationException;
+import vn.ttcs.recruitment.account.AccountProvisioningService;
+import vn.ttcs.recruitment.account.CreateAccountRequest;
+import vn.ttcs.recruitment.account.DuplicateEmailException;
+import vn.ttcs.recruitment.account.InvalidDepartmentException;
+import vn.ttcs.recruitment.account.NewAccountProfile;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
@@ -17,10 +23,12 @@ import vn.ttcs.recruitment.security.PermissionService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,17 +41,19 @@ public class StaffImportService {
     private final StaffImportTemplate template;
     private final StaffImportReader reader;
     private final StaffImportValidator validator;
+    private final AccountProvisioningService provisioning;
     private final Clock clock;
 
     public StaffImportService(AuthService auth, PermissionService permissions, JdbcTemplate jdbc,
                               StaffImportTemplate template, StaffImportReader reader,
-                              StaffImportValidator validator, Clock clock) {
+                              StaffImportValidator validator, AccountProvisioningService provisioning, Clock clock) {
         this.auth = auth;
         this.permissions = permissions;
         this.jdbc = jdbc;
         this.template = template;
         this.reader = reader;
         this.validator = validator;
+        this.provisioning = provisioning;
         this.clock = clock;
     }
 
@@ -60,6 +70,55 @@ public class StaffImportService {
         requireImportAccess(jwt);
         List<StaffImportRow> rows = reader.read(uploadedXlsx(file));
         return StaffImportPreview.of(validator.check(rows));
+    }
+
+    // Creates an account for every row that is valid now and skips the others. The file is read and checked again
+    // instead of trusting an earlier preview, because accounts and departments may have changed since.
+    // This method deliberately has no transaction. AccountProvisioningService.create then runs every row in its own
+    // transaction, so a row that fails rolls back alone and the accounts created before it stay. With @Transactional
+    // here, one failing row would undo the whole file.
+    public StaffImportResult importStaff(Jwt jwt, MultipartFile file) {
+        requireImportAccess(jwt);
+        List<StaffImportCheckedRow> rows = validator.check(reader.read(uploadedXlsx(file)));
+        List<StaffImportRowResult> results = new ArrayList<>();
+        Integer stoppedAtRow = null;
+        for (StaffImportCheckedRow row : rows) {
+            if (!row.valid()) {
+                results.add(StaffImportRowResult.skipped(row));
+                continue;
+            }
+            if (stoppedAtRow != null) {
+                results.add(StaffImportRowResult.notAttempted(row));
+                continue;
+            }
+            // A lost session or permission is not caught: create checks them again for every row, and the request
+            // then stops with 401/403. Accounts created before that stay.
+            try {
+                var created = provisioning.create(jwt, accountRequest(row),
+                        new NewAccountProfile(row.departmentCode(), row.phone(), row.displayTitle()));
+                results.add(StaffImportRowResult.created(row, created.id()));
+            } catch (DuplicateEmailException | InvalidDepartmentException exception) {
+                // Since the rows were checked, someone created an account with this email or stopped the department.
+                results.add(StaffImportRowResult.skipped(row));
+            } catch (AccountInvitationException exception) {
+                // The invitation was not sent, so this account was rolled back as in POST /accounts.
+                results.add(StaffImportRowResult.skipped(row));
+                if (!exception.isAddressRefused()) {
+                    // The mail server itself is not working, so every next row would fail the same way, and each
+                    // try may wait for a timeout. The valid rows after this one are therefore not tried. Importing
+                    // the same file again later creates them: accounts already created are skipped then, because
+                    // their emails exist. When the server only refused this address, the next rows are tried.
+                    stoppedAtRow = row.rowNumber();
+                }
+            }
+        }
+        return new StaffImportResult(results, stoppedAtRow);
+    }
+
+    // A valid row has an email, a name and only known role codes.
+    private static CreateAccountRequest accountRequest(StaffImportCheckedRow row) {
+        Set<Role> roles = row.roles().stream().map(Role::valueOf).collect(Collectors.toSet());
+        return new CreateAccountRequest(row.email(), row.fullName(), roles);
     }
 
     // Importing creates accounts, so it needs the same rule as POST /accounts: the ADMIN role and
