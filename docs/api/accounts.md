@@ -66,7 +66,7 @@ Admin gửi đầy đủ trạng thái mới của các trường được phép
 
 `fullName` bắt buộc, trim/tối đa255; `phone` và `displayTitle` là tùy chọn (chuỗi trắng/null/bỏ trường sẽ xóa dữ liệu đó), chức danh tối đa120. Điện thoại theo quy tắc ở [hồ sơ cá nhân](profile.md); `+84` được lưu thành số bắt đầu bằng0. `departmentId=null` hoặc bỏ trường sẽ gỡ phòng ban, nên frontend cần gửi lại phòng ban hiện tại nếu muốn giữ nguyên. Đây là PUT thay thế các trường được phép, không phải PATCH.
 
-Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. API quản lý danh mục phòng ban thuộc195, chưa có trong nhóm này;194 chỉ cung cấp schema. Không tự tạo phòng ban từ tên do người dùng nhập.
+Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. [API phòng ban 195–196](departments.md) cung cấp danh sách/cây, tạo/sửa và ngừng áp dụng trên schema của 194. Không tự tạo phòng ban từ tên do người dùng nhập.
 
 Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md).
 

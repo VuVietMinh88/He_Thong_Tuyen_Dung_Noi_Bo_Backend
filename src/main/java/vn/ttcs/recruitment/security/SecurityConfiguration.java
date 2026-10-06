@@ -105,6 +105,12 @@ public class SecurityConfiguration {
                                 AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts", "/api/v1/accounts/*")
                                 .hasAuthority("PERM_USER_ADMIN_READ_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/departments", "/api/v1/departments/*")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/departments")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/departments/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",

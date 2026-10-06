@@ -25,7 +25,7 @@ V6 giữ nguyên dữ liệu cũ và thêm ba cột mặc địnhNULL. `admin_lo
 
 V5 giữ dữ liệu hiện tại; ba cột mới của tài khoản cũ làNULL, không tự gán phòng ban hoặc tạo dữ liệu mẫu. Không cần tạo lại DB/copy lại.env. Phòng ban dùng `parent_id` tham chiếu chính bảng để lưu nhiều cấp; mỗi phòng bắt buộc có `manager_user_id` là tài khoản tồn tại. Mã/tên không trống, mã duy nhất. FK RESTRICT giữ phòng cha, người phụ trách và phòng đang có thành viên khỏi bị xóa tùy tiện; FK không tự cascade xóa tài khoản.
 
-Đây là schema của194, chưa phải toàn bộ story23: API phòng ban195, kiểm chu kỳ nhiều cấp/người phụ trách196 và chặn xóa khi có yêu cầu tuyển dụng mở197 còn riêng. CHECK hiện chặn phòng tự làm cha của mình; chưa chặn chu trình dài qua thao tác SQL thủ công. Chưa có bảng yêu cầu tuyển dụng để áp dụng ràng buộc197. V5 không tạo endpoint sửa phòng ban.
+[API phòng ban 195–196](../api/departments.md) dùng lại schema của 194: tạo/sửa, danh sách/cây, kiểm người phụ trách và chu trình nhiều cấp. Mọi API ghi cây phối hợp bằng transaction advisory lock trước khi kiểm tra/ghi, tránh hai yêu cầu đồng thời tạo chu trình. CHECK của V5 chỉ chặn tự làm cha; SQL thủ công vẫn có thể tạo chu trình dài vì không đi qua service. Ngừng áp dụng giữ các phòng con và liên kết nhân sự. Task 197 về xóa khi có yêu cầu tuyển dụng mở còn phụ thuộc bảng/module chưa có; chưa có endpoint DELETE hoặc nghiệm thu toàn bộ story 23. Nhóm 195–196 không thêm migration mới.
 
 Nếu cần phục hồi schema/dữ liệu, dùng bản sao lưu đã kiểm tra; không xóa dòng flyway_schema_history hoặc sửa nội dung migration cũ. Các cột nullable cho phép giữ dữ liệu cũ trong quá trình chuyển đổi; rollback phiên bản ứng dụng không đồng nghĩa rollback schema.
 
