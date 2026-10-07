@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -134,6 +135,41 @@ public class DepartmentService {
         return departments.findById(id).orElseThrow(DepartmentService::notFound);
     }
 
+    // Task 197: hard delete, for a department nobody uses (for example one created by mistake). A department that
+    // is still used can only be deactivated with PUT active=false, which keeps its history.
+    // Order of checks: write access (401/403), exists (404), then 409 for the first reason that matches:
+    // open requisitions, child departments, member accounts.
+    // Lock order: the actor's account, the session and the tree (like create and update), then the department row.
+    // The tree lock makes a parallel PUT that moves a department under this one wait; the row lock makes
+    // requisition saves and account assignments of this department wait (see DepartmentRepository.lockForDelete).
+    @Transactional
+    public void delete(Jwt jwt, UUID id) {
+        requireWriter(jwt, Set.of());
+        if (!departments.lockForDelete(id)) {
+            throw notFound();
+        }
+        if (departments.hasOpenRequisitions(id)) {
+            throw new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_HAS_OPEN_REQUISITIONS",
+                    "Phòng ban đang có yêu cầu tuyển dụng chưa đóng nên không thể xóa. "
+                            + "Hãy chuyển phòng ban sang ngừng áp dụng thay vì xóa.");
+        }
+        if (departments.hasChildren(id)) {
+            throw new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_HAS_CHILDREN",
+                    "Phòng ban còn phòng ban con nên không thể xóa. "
+                            + "Hãy chuyển hoặc xóa các phòng ban con trước, hoặc ngừng áp dụng phòng ban.");
+        }
+        if (departments.hasMembers(id)) {
+            throw new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_HAS_MEMBERS",
+                    "Phòng ban còn tài khoản thuộc phòng ban nên không thể xóa. "
+                            + "Hãy chuyển các tài khoản sang phòng ban khác trước, hoặc ngừng áp dụng phòng ban.");
+        }
+        try {
+            departments.delete(id);
+        } catch (DataIntegrityViolationException exception) {
+            throw translateStillReferenced(exception);
+        }
+    }
+
     private void requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
@@ -143,6 +179,13 @@ public class DepartmentService {
     }
 
     private Account requireWriteAccess(Jwt jwt, UUID managerId) {
+        return requireWriter(jwt, Set.of(managerId)).stream().filter(account -> account.getId().equals(managerId))
+                .findFirst().orElseThrow(DepartmentService::invalidManager);
+    }
+
+    // Every department write starts here. Locks the actor's account and the other accounts the write needs, the
+    // actor's session and the tree, then rechecks access. Returns the locked accounts.
+    private List<Account> requireWriter(Jwt jwt, Set<UUID> otherAccountIds) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -151,9 +194,8 @@ public class DepartmentService {
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        var accountIds = new HashSet<UUID>();
+        var accountIds = new HashSet<UUID>(otherAccountIds);
         accountIds.add(actorId);
-        accountIds.add(managerId);
         // Match account administration: all required accounts in UUID order, then the actor's session.
         var lockedAccounts = accounts.findAllByIdForUpdate(accountIds);
         var session = sessions.findByIdForUpdate(sessionId)
@@ -172,8 +214,7 @@ public class DepartmentService {
         if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
             throw new AccessDeniedException("Department management requires ORGANIZATION_WRITE_ALL");
         }
-        return lockedAccounts.stream().filter(account -> account.getId().equals(managerId))
-                .findFirst().orElseThrow(DepartmentService::invalidManager);
+        return lockedAccounts;
     }
 
     private void requireUnexpiredToken(Jwt jwt, Instant now) {
@@ -216,6 +257,20 @@ public class DepartmentService {
             if (cause instanceof SQLException sql && "23505".equals(sql.getSQLState())
                     && sql.getMessage() != null && sql.getMessage().contains("departments_code_key")) {
                 return duplicateCode();
+            }
+        }
+        return exception;
+    }
+
+    // delete() checks every table that references departments today. A foreign key violation (23503) means that
+    // another row still points at the department, for example a closed requisition once the approval workflow adds
+    // closed statuses (V13 keeps that history with ON DELETE RESTRICT), or a table added later. Still a 409, not a 500.
+    private static RuntimeException translateStillReferenced(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql && "23503".equals(sql.getSQLState())) {
+                return new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_IN_USE",
+                        "Phòng ban vẫn đang được dữ liệu khác sử dụng nên không thể xóa. "
+                                + "Hãy chuyển phòng ban sang ngừng áp dụng thay vì xóa.");
             }
         }
         return exception;

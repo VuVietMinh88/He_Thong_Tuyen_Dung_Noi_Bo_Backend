@@ -1,6 +1,6 @@
 # API phòng ban và sơ đồ tổ chức
 
-Phạm vi TKNHTTDNB1-195–196. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-195–197. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công dùng `Cache-Control: no-store`.
 
 Đọc cần `ORGANIZATION_READ_ALL`; ghi cần `ORGANIZATION_WRITE_ALL`. Ma trận hiện tại cấp quyền đọc cho cả sáu vai trò nội bộ, ghi cho ADMIN và HR_MANAGER. Backend kiểm quyền hiện tại trong database và kiểm lại phiên/quyền khi thao tác ghi phải chờ khóa.
 
@@ -70,6 +70,35 @@ Cây chứa cả node active và inactive, không phân trang hoặc lọc để
 
 Ngừng áp dụng một phòng không xóa phòng, không tự ngừng phòng con hoặc gỡ thành viên. API quản trị tài khoản hiện có từ chối gán mới vào phòng inactive nhưng cho giữ liên kết cũ. [API yêu cầu tuyển dụng](requisitions.md) (task 246) không cho tạo hoặc lưu lại bản nháp với phòng inactive (`REQUISITION_DEPARTMENT_INACTIVE`); nháp đã có vẫn xem được. Trong lúc một yêu cầu tuyển dụng đang được lưu, PUT sửa phòng đó (kể cả ngừng áp dụng) phải chờ yêu cầu lưu xong.
 
+## Xóa (task 197)
+
+`DELETE /departments/{id}` xóa hẳn một phòng ban **không còn được dùng**, ví dụ phòng tạo nhầm. Cần `ORGANIZATION_WRITE_ALL` như tạo/sửa (ADMIN, HR_MANAGER); người phụ trách phòng ban không vì thế mà được xóa. Không có body. Thành công trả **204**, body rỗng, `Cache-Control: no-store`.
+
+Phòng ban còn được dùng thì **không xóa được, chỉ ngừng áp dụng** bằng PUT `active=false` (giữ lại lịch sử). Backend kiểm theo thứ tự sau và trả 409 cho lý do đầu tiên gặp phải:
+
+| Thứ tự | Điều kiện | HTTP | Mã | Cách xử lý gợi ý |
+|---|---|---|---|---|
+|1|Phòng ban có yêu cầu tuyển dụng **chưa đóng** của chính nó|409|DEPARTMENT_HAS_OPEN_REQUISITIONS|Ngừng áp dụng phòng ban thay vì xóa|
+|2|Còn phòng ban con (`parentId` trỏ tới phòng này)|409|DEPARTMENT_HAS_CHILDREN|Chuyển hoặc xóa phòng con trước, hoặc ngừng áp dụng|
+|3|Còn tài khoản thuộc phòng ban (kể cả tài khoản chưa kích hoạt hoặc bị khóa)|409|DEPARTMENT_HAS_MEMBERS|Chuyển tài khoản sang phòng khác qua `PUT /accounts/{id}`, hoặc ngừng áp dụng|
+|4|Một dòng dữ liệu khác vẫn tham chiếu phòng ban (khóa ngoại)|409|DEPARTMENT_IN_USE|Ngừng áp dụng phòng ban thay vì xóa|
+
+- "Chưa đóng": V13 chỉ có trạng thái `DRAFT` và bản nháp được coi là chưa đóng, nên **hiện nay mọi yêu cầu tuyển dụng của phòng ban đều chặn việc xóa**. Khi luồng duyệt thêm trạng thái mới, trạng thái nào chưa đóng/chưa hủy phải được thêm vào danh sách `OPEN_REQUISITION_STATUSES` của `DepartmentRepository`. Yêu cầu đã đóng vẫn tham chiếu phòng ban (khóa ngoại V13 `ON DELETE RESTRICT` giữ lịch sử), nên vẫn chặn xóa nhưng với mã 4 `DEPARTMENT_IN_USE`.
+- Chỉ tính yêu cầu tuyển dụng của chính phòng ban: yêu cầu của phòng con chặn xóa phòng con, còn phòng cha bị chặn vì còn phòng con (mã 2).
+- Phòng ban đã ngừng áp dụng vẫn bị kiểm như trên; ngừng áp dụng không làm phòng "xóa được".
+- Mã 4 là lớp chặn cuối khi các bước 1–3 không biết tới dòng tham chiếu (ví dụ yêu cầu đã đóng sau này hoặc bảng mới), để không trả 500.
+- Lỗi 409 có `fieldErrors` rỗng; frontend nên dựa vào `code`, có thể hiện `message` tiếng Việt.
+
+Thứ tự lỗi đầy đủ: 401 (token/phiên), 403 (thiếu quyền, kể cả với UUID không tồn tại), 404 `DEPARTMENT_NOT_FOUND`, rồi 409 như bảng trên. UUID sai định dạng trả 400 `VALIDATION_ERROR`. Gọi lại DELETE cho phòng đã xóa trả 404.
+
+**Đồng thời:** service khóa tài khoản người gọi, phiên, advisory lock của cây (giống tạo/sửa), kiểm lại quyền, rồi khóa dòng phòng ban (`SELECT ... FOR UPDATE`) trước khi kiểm các điều kiện trên. Lưu yêu cầu tuyển dụng và gán tài khoản vào phòng ban đọc dòng này bằng `FOR SHARE`, nên:
+
+- yêu cầu tuyển dụng hoặc việc gán tài khoản đang lưu dở: DELETE chờ; nếu bên kia commit thì DELETE thấy dữ liệu mới và trả 409 tương ứng, nếu bên kia hủy thì DELETE xóa bình thường;
+- DELETE đang chạy: việc lưu yêu cầu tuyển dụng/gán tài khoản vào phòng đó chờ, rồi nhận lỗi phòng ban không tồn tại (`INVALID_REQUISITION_DEPARTMENT`, `INVALID_DEPARTMENT`);
+- PUT đổi phòng cha sang phòng đang bị xóa chờ advisory lock của cây, rồi nhận `INVALID_DEPARTMENT_PARENT`.
+
+Xóa không đổi tài khoản người phụ trách, phòng cha hay dữ liệu nào khác.
+
 ## Lỗi
 
 | HTTP | Mã | Trường hợp |
@@ -84,9 +113,13 @@ Ngừng áp dụng một phòng không xóa phòng, không tự ngừng phòng c
 |409|DEPARTMENT_CODE_EXISTS|Mã đã dùng|
 |409|DEPARTMENT_CYCLE|Quan hệ cha mới tạo chu trình|
 |409|DEPARTMENT_TREE_INVALID|Cây đã lưu có dữ liệu không hợp lệ|
+|409|DEPARTMENT_HAS_OPEN_REQUISITIONS|DELETE: phòng ban có yêu cầu tuyển dụng chưa đóng (task 197)|
+|409|DEPARTMENT_HAS_CHILDREN|DELETE: phòng ban còn phòng ban con|
+|409|DEPARTMENT_HAS_MEMBERS|DELETE: phòng ban còn tài khoản thuộc phòng ban|
+|409|DEPARTMENT_IN_USE|DELETE: dữ liệu khác vẫn tham chiếu phòng ban (khóa ngoại)|
 
 ## Database và phạm vi
 
-Dùng bảng departments của V5 và quyền ORGANIZATION của V3, không thêm migration hoặc thay .env. Không có DELETE trong nhóm này. Task 197 cần kiểm yêu cầu tuyển dụng mở, còn phụ thuộc module yêu cầu tuyển dụng; chưa nghiệm thu toàn bộ story 23.
+Dùng bảng departments của V5 và quyền ORGANIZATION của V3, không thêm migration hoặc thay .env. Task 197 thêm DELETE, đọc thêm bảng `recruitment_requisitions` của V13 và `user_accounts.department_id` của V5; cũng không thêm migration hay quyền mới. Chưa nghiệm thu toàn bộ story 23 qua giao diện.
 
 Service kiểm chu trình và phối hợp khóa trong PostgreSQL cho các API ghi. V5 chỉ có CHECK chống tự làm cha và các FK, không có ràng buộc chống mọi chu trình khi sửa SQL thủ công. Không tự cascade trạng thái hoặc chuyển giao người phụ trách.

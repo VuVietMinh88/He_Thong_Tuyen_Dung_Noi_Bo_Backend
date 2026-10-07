@@ -24,6 +24,10 @@ public class DepartmentRepository {
                    manager.full_name AS manager_full_name, d.active, d.created_at
             """ + FROM;
     private static final String ORDER = " ORDER BY d.code, d.id ";
+    // Task 197: requisition statuses that still need their department, so the department cannot be deleted.
+    // V13 only allows DRAFT, and a draft is still open. When the approval workflow adds statuses, list here every
+    // status that is not closed or cancelled (RequisitionStatus says so too).
+    private static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT");
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -91,6 +95,38 @@ public class DepartmentRepository {
     public Optional<Boolean> findActiveForShare(UUID id) {
         return jdbc.query("SELECT active FROM departments WHERE id = :id FOR SHARE",
                 new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
+    }
+
+    // Task 197: locks the department row until the delete commits; false when the department does not exist.
+    // Requisition writes and account assignments read this row FOR SHARE while they save, so the delete waits for
+    // them, and each later statement of the delete (READ COMMITTED) sees what they committed. A save that starts
+    // after this lock waits for the delete and then finds no department.
+    public boolean lockForDelete(UUID id) {
+        return !jdbc.query("SELECT id FROM departments WHERE id = :id FOR UPDATE",
+                new MapSqlParameterSource("id", id), (row, number) -> row.getObject("id", UUID.class)).isEmpty();
+    }
+
+    // Only requisitions of this department itself; a requisition of a child department belongs to that child.
+    public boolean hasOpenRequisitions(UUID id) {
+        return exists("SELECT 1 FROM recruitment_requisitions WHERE department_id = :id AND status IN (:statuses)",
+                new MapSqlParameterSource("id", id).addValue("statuses", OPEN_REQUISITION_STATUSES));
+    }
+
+    public boolean hasChildren(UUID id) {
+        return exists("SELECT 1 FROM departments WHERE parent_id = :id", new MapSqlParameterSource("id", id));
+    }
+
+    // Every account counts, also disabled or locked ones: user_accounts.department_id still points here.
+    public boolean hasMembers(UUID id) {
+        return exists("SELECT 1 FROM user_accounts WHERE department_id = :id", new MapSqlParameterSource("id", id));
+    }
+
+    public void delete(UUID id) {
+        jdbc.update("DELETE FROM departments WHERE id = :id", new MapSqlParameterSource("id", id));
+    }
+
+    private boolean exists(String query, MapSqlParameterSource parameters) {
+        return jdbc.queryForObject("SELECT EXISTS (" + query + ")", parameters, Boolean.class);
     }
 
     public void acquireTreeWriteLock() {

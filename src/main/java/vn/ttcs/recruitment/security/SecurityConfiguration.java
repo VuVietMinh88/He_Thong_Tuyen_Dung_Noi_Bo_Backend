@@ -159,6 +159,9 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/requisitions/*")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 197: deleting a department is a department write like POST and PUT.
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/departments/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
