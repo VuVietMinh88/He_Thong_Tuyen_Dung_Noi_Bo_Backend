@@ -1,6 +1,8 @@
 package vn.ttcs.recruitment.competency;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -16,10 +18,18 @@ public interface CompetencyCriterionRepository extends JpaRepository<CompetencyC
 
     List<CompetencyCriterion> findByFrameworkIdOrderBySortOrderAsc(UUID frameworkId);
 
-    // Only the framework id of one criterion (Jira 221). It does not load the criterion entity, so a findById after
-    // locking the framework still reads the criterion row from the database instead of an older copy.
+    // Only the framework id of one criterion (Jira 221). It does not load the criterion entity, so a read after
+    // locking the framework (findByIdForUpdate) still reads the criterion row from the database instead of an older
+    // copy.
     @Query("select c.frameworkId from CompetencyCriterion c where c.id = :id")
     Optional<UUID> findFrameworkIdById(@Param("id") UUID id);
+
+    // SELECT ... FOR UPDATE on one criterion (Jira 222). InterviewQuestionService takes it after the framework lock,
+    // so two question writes on the same criterion run one after the other and the second one sees the question the
+    // first one saved. Question writes on other criteria do not wait. Empty when the criterion has been deleted.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from CompetencyCriterion c where c.id = :id")
+    Optional<CompetencyCriterion> findByIdForUpdate(@Param("id") UUID id);
 
     // Number of criteria of each listed framework, in one query instead of one query per framework.
     // A framework without criteria has no row in the result.
