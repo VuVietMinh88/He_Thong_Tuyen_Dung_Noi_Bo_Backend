@@ -144,6 +144,14 @@ public class SecurityConfiguration {
                         // them: interviewers score candidates with these criteria.
                         .requestMatchers(HttpMethod.GET, "/api/v1/positions/*/evaluation-criteria")
                                 .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        // The interview question bank belongs to the competency frameworks: every internal role reads
+                        // the questions (interviewers ask them), and only organization writers create or edit them.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interview-questions/*")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/interview-questions")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/interview-questions/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

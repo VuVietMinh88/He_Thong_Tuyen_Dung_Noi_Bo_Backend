@@ -129,7 +129,7 @@ PUT làm cho danh sách tiêu chí đã lưu **giống hệt** mảng `criteria`
 
 Vì câu hỏi phỏng vấn (bảng `interview_questions` của V9) và phiếu đánh giá sau này trỏ tới tiêu chí theo `id`, frontend phải gửi lại `id` của mọi tiêu chí muốn giữ. Gửi lại cùng tên nhưng không kèm `id` nghĩa là xóa tiêu chí cũ và tạo tiêu chí mới có `id` khác.
 
-**Tiêu chí đang có câu hỏi phỏng vấn không được xóa (task 220).** Task 212 ban đầu chưa chặn việc này; từ task 220, khóa ngoại V9 `ON DELETE RESTRICT` cấm xóa tiêu chí còn câu hỏi, kể cả câu hỏi đã ngừng dùng (`active = false`). Vì vậy PUT bỏ một tiêu chí như thế khỏi mảng, hoặc gửi lại cùng tên nhưng không kèm `id`, bị từ chối với 409 `COMPETENCY_CRITERION_IN_USE` và không có gì thay đổi. Gửi kèm `id` thì vẫn đổi được tên, mô tả, trọng số và thứ tự của tiêu chí đó; câu hỏi đi theo tiêu chí. Muốn bỏ hẳn tiêu chí thì trước hết không được còn câu hỏi nào trỏ tới nó; cách xóa hoặc chuyển câu hỏi sang tiêu chí khác do API câu hỏi (task 221) quyết định.
+**Tiêu chí đang có câu hỏi phỏng vấn không được xóa (task 220).** Task 212 ban đầu chưa chặn việc này; từ task 220, khóa ngoại V9 `ON DELETE RESTRICT` cấm xóa tiêu chí còn câu hỏi, kể cả câu hỏi đã ngừng dùng (`active = false`). Vì vậy PUT bỏ một tiêu chí như thế khỏi mảng, hoặc gửi lại cùng tên nhưng không kèm `id`, bị từ chối với 409 `COMPETENCY_CRITERION_IN_USE` và không có gì thay đổi. Gửi kèm `id` thì vẫn đổi được tên, mô tả, trọng số và thứ tự của tiêu chí đó; câu hỏi đi theo tiêu chí. Muốn bỏ hẳn tiêu chí thì trước hết không được còn câu hỏi nào trỏ tới nó: chuyển từng câu hỏi sang tiêu chí khác bằng `PUT /interview-questions/{id}` ([API câu hỏi phỏng vấn](interview-questions.md), task 221). Chưa có API xóa câu hỏi; câu hỏi ngừng dùng (`active = false`) vẫn giữ tiêu chí của nó.
 
 ```json
 {
@@ -278,4 +278,4 @@ Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) 
 
 Tiêu chí và trọng số theo từng chức danh cho phiếu đánh giá phỏng vấn (task 215) đọc qua `GET /positions/{id}/evaluation-criteria`, xem [API tiêu chí đánh giá theo chức danh](evaluation-criteria.md).
 
-Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và API câu hỏi phỏng vấn (task 221–223; task 220 mới có bảng `interview_questions`).
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và tìm kiếm/lọc câu hỏi phỏng vấn (task 223). Tạo, sửa và đọc từng câu hỏi theo tiêu chí xem [API câu hỏi phỏng vấn](interview-questions.md) (task 221).
