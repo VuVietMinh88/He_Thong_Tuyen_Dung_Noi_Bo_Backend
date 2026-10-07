@@ -97,11 +97,12 @@ public class DepartmentRepository {
                 new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
     }
 
-    // Task 197: locks the department row until the delete commits; false when the department does not exist.
-    // Requisition writes and account assignments read this row FOR SHARE while they save, so the delete waits for
-    // them, and each later statement of the delete (READ COMMITTED) sees what they committed. A save that starts
-    // after this lock waits for the delete and then finds no department.
-    public boolean lockForDelete(UUID id) {
+    // Task 197 (DELETE), task 198 (also PUT): locks the department row until the write commits; false when the
+    // department does not exist. Requisition writes and account assignments read this row FOR SHARE while they save,
+    // so the write waits for them, and each later statement (READ COMMITTED) sees what they committed. A save that
+    // starts after this lock waits for the write. FOR UPDATE is the strongest row lock, so once it is held the UPDATE
+    // or DELETE statement does not wait for this row again (DepartmentService checks the caller right after the lock).
+    public boolean lockForWrite(UUID id) {
         return !jdbc.query("SELECT id FROM departments WHERE id = :id FOR UPDATE",
                 new MapSqlParameterSource("id", id), (row, number) -> row.getObject("id", UUID.class)).isEmpty();
     }

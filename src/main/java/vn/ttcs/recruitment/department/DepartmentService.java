@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.security.PermissionService;
@@ -99,7 +100,8 @@ public class DepartmentService {
 
     @Transactional
     public DepartmentView create(Jwt jwt, DepartmentRequest request) {
-        Account manager = requireWriteAccess(jwt, request.managerUserId());
+        Writer writer = requireWriter(jwt, Set.of(request.managerUserId()));
+        Account manager = writer.manager(request.managerUserId());
         requireAccessibleManager(manager);
         UUID id = UUID.randomUUID();
         validateParent(id, request.parentId());
@@ -114,9 +116,13 @@ public class DepartmentService {
         return departments.findById(id).orElseThrow(DepartmentService::notFound);
     }
 
+    // Lock order: the actor's and the new manager's accounts, the session and the tree, then the department row
+    // (lockDepartment, task 198), which is read only after that lock.
     @Transactional
     public DepartmentView update(Jwt jwt, UUID id, DepartmentRequest request) {
-        Account manager = requireWriteAccess(jwt, request.managerUserId());
+        Writer writer = requireWriter(jwt, Set.of(request.managerUserId()));
+        Account manager = writer.manager(request.managerUserId());
+        lockDepartment(jwt, writer, id);
         DepartmentView previous = departments.findById(id).orElseThrow(DepartmentService::notFound);
         boolean changingManager = !Objects.equals(previous.managerUserId(), request.managerUserId());
         boolean reactivating = !previous.active() && request.active();
@@ -139,15 +145,12 @@ public class DepartmentService {
     // is still used can only be deactivated with PUT active=false, which keeps its history.
     // Order of checks: write access (401/403), exists (404), then 409 for the first reason that matches:
     // open requisitions, child departments, member accounts.
-    // Lock order: the actor's account, the session and the tree (like create and update), then the department row.
-    // The tree lock makes a parallel PUT that moves a department under this one wait; the row lock makes
-    // requisition saves and account assignments of this department wait (see DepartmentRepository.lockForDelete).
+    // Lock order: the actor's account, the session and the tree (like create and update), then the department row
+    // (lockDepartment). The tree lock makes a parallel PUT that moves a department under this one wait; the row lock
+    // makes requisition saves and account assignments of this department wait (see DepartmentRepository.lockForWrite).
     @Transactional
     public void delete(Jwt jwt, UUID id) {
-        requireWriter(jwt, Set.of());
-        if (!departments.lockForDelete(id)) {
-            throw notFound();
-        }
+        lockDepartment(jwt, requireWriter(jwt, Set.of()), id);
         if (departments.hasOpenRequisitions(id)) {
             throw new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_HAS_OPEN_REQUISITIONS",
                     "Phòng ban đang có yêu cầu tuyển dụng chưa đóng nên không thể xóa. "
@@ -178,14 +181,18 @@ public class DepartmentService {
         }
     }
 
-    private Account requireWriteAccess(Jwt jwt, UUID managerId) {
-        return requireWriter(jwt, Set.of(managerId)).stream().filter(account -> account.getId().equals(managerId))
-                .findFirst().orElseThrow(DepartmentService::invalidManager);
+    // The caller of a department write, after requireWriter: the accounts and the session this transaction has locked.
+    private record Writer(UUID actorId, AuthSession session, List<Account> lockedAccounts) {
+        // The manager chosen in the request; 400 when that account does not exist.
+        Account manager(UUID managerId) {
+            return lockedAccounts.stream().filter(account -> account.getId().equals(managerId))
+                    .findFirst().orElseThrow(DepartmentService::invalidManager);
+        }
     }
 
     // Every department write starts here. Locks the actor's account and the other accounts the write needs, the
-    // actor's session and the tree, then rechecks access. Returns the locked accounts.
-    private List<Account> requireWriter(Jwt jwt, Set<UUID> otherAccountIds) {
+    // actor's session and the tree, then rechecks access.
+    private Writer requireWriter(Jwt jwt, Set<UUID> otherAccountIds) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -203,18 +210,39 @@ public class DepartmentService {
         departments.acquireTreeWriteLock();
 
         // A request may have waited for account, session or tree locks. Recheck authorization now.
-        var now = clock.instant();
-        Account actor = lockedAccounts.stream()
-                .filter(account -> account.getId().equals(actorId) && account.isAccessAllowed())
+        lockedAccounts.stream().filter(account -> account.getId().equals(actorId) && account.isAccessAllowed())
                 .findFirst().orElseThrow(AuthenticationFailureException::sessionInvalid);
+        var writer = new Writer(actorId, session, lockedAccounts);
+        requireStillWriter(jwt, writer);
+        return writer;
+    }
+
+    // Task 198: PUT and DELETE also lock the department row, and that can wait: an account assignment or a
+    // requisition save of this department holds the row FOR SHARE until it commits. Meanwhile the access token may
+    // expire or the caller's roles may lose ORGANIZATION_WRITE_ALL, so the caller is checked again after this lock.
+    // The check comes before the 404, so a caller who may no longer write does not learn whether the department exists.
+    private void lockDepartment(Jwt jwt, Writer writer, UUID id) {
+        boolean exists = departments.lockForWrite(id);
+        requireStillWriter(jwt, writer);
+        if (!exists) {
+            throw notFound();
+        }
+    }
+
+    // May the caller still write departments? Called once the account, session and tree locks are held, and again
+    // after the department row lock. From the first call on, this transaction holds the caller's account and session
+    // rows, so an admin lock, a logout or a role change through the account API waits for it. Time still passes
+    // (token or session expiry) and the grants in role_permissions can still change, so both are checked every time,
+    // with the permissions read again from the database.
+    private void requireStillWriter(Jwt jwt, Writer writer) {
+        var now = clock.instant();
         requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!writer.session().getUserId().equals(writer.actorId()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
+        if (!permissions.forUser(writer.actorId()).contains("ORGANIZATION_WRITE_ALL")) {
             throw new AccessDeniedException("Department management requires ORGANIZATION_WRITE_ALL");
         }
-        return lockedAccounts;
     }
 
     private void requireUnexpiredToken(Jwt jwt, Instant now) {
