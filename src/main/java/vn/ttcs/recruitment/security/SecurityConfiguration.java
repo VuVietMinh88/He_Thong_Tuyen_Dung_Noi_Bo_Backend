@@ -146,8 +146,8 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_READ_ALL")
                         // The interview question bank belongs to the competency frameworks: every internal role reads
                         // the questions (interviewers ask them), and only organization writers create or edit them.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/interview-questions/*")
-                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interview-questions",
+                                "/api/v1/interview-questions/*").hasAuthority("PERM_ORGANIZATION_READ_ALL")
                         .requestMatchers(HttpMethod.POST, "/api/v1/interview-questions")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/interview-questions/*")
