@@ -111,6 +111,22 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/departments/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/approval-flows", "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows/preview")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",

@@ -19,6 +19,7 @@ import vn.ttcs.recruitment.account.InvalidAccountQueryException;
 import vn.ttcs.recruitment.account.role.SelfAdminRevocationException;
 import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import vn.ttcs.recruitment.department.DepartmentException;
+import vn.ttcs.recruitment.approval.ApprovalFlowException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.LinkedHashMap;
@@ -26,6 +27,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(ApprovalFlowException.class)
+    public ResponseEntity<ApiError> approvalFlowFailure(ApprovalFlowException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
+    }
+
     @ExceptionHandler(DepartmentException.class)
     public ResponseEntity<ApiError> departmentFailure(DepartmentException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
