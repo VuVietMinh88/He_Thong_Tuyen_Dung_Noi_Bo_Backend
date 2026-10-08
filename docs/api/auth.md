@@ -119,6 +119,14 @@ $authHeaders = @{ Authorization = "Bearer $($login.accessToken)" }
 
 Refresh token cũ dùng một lần; thay cả hai token bằng response mới. Logout hủy phiên hiện tại ngay trên server, kể cả access token chưa hết hạn; phiên trên thiết bị khác còn hoạt động. Access token đã hết hạn thì gia hạn trước logout. Refresh token hết hạn thì đăng nhập lại.
 
+### Hợp đồng Refresh Token — TKNHTTDNB1-98
+
+`POST /api/v1/auth/refresh` xác thực bằng `refreshToken` trong JSON. Không cần gửi access token; nếu interceptor vẫn gắn header `Authorization` cũ/hết hạn thì endpoint bỏ qua header này và kiểm tra refresh token. JWT gắn kèm không thể thay thế refresh token bị thiếu hoặc không hợp lệ.
+
+Token đúng định dạng gồm43ký tự Base64URL. Thiếu/null/sai định dạng trả400 (`VALIDATION_ERROR`; JSON sai trả `INVALID_JSON`). Token đúng định dạng nhưng không tồn tại, bị thay thế, thu hồi, hết hạn hoặc tài khoản bị vô hiệu hóa trả401 `SESSION_INVALID`, không gia hạn phiên. Lỗi không trả lại giá trị token.
+
+Thành công trả200 cùng cấu trúc JSON như login, có `Cache-Control: no-store`, không tạo cookie. Database lưu hash của refresh mới và thời hạn7ngày tính từ lần gia hạn. Hai request đồng thời dùng cùng token chỉ một request thành công; frontend cần điều phối một request refresh tại một thời điểm và cập nhật đồng thời cả hai token. Xem [thiết kế phiên](../architecture/auth-sessions.md).
+
 ```powershell
 Invoke-RestMethod -Method Post `
     -Uri 'http://localhost:8080/api/v1/auth/logout' -Headers $authHeaders

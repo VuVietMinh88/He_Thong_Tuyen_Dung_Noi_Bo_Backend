@@ -10,6 +10,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -23,6 +25,19 @@ import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration(proxyBeanMethods = false)
 public class SecurityConfiguration {
+
+    @Bean
+    public BearerTokenResolver bearerTokenResolver() {
+        DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
+        return request -> {
+            // Refresh authenticates its body token; a stale bearer must not block recovery.
+            if ("POST".equals(request.getMethod())
+                    && "/api/v1/auth/refresh".equals(request.getServletPath())) {
+                return null;
+            }
+            return resolver.resolve(request);
+        };
+    }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource(
@@ -46,7 +61,8 @@ public class SecurityConfiguration {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, AuthService authService,
-                                                  JsonSecurityErrors errors) throws Exception {
+                                                  JsonSecurityErrors errors,
+                                                  BearerTokenResolver bearerTokenResolver) throws Exception {
         return http
                 .cors(withDefaults())
                 // These APIs accept bearer headers/body tokens only, never browser authentication cookies.
@@ -67,6 +83,7 @@ public class SecurityConfiguration {
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
                         .accessDeniedHandler((request, response, exception) -> errors.forbidden(response)))
                 .oauth2ResourceServer(resourceServer -> resourceServer
+                        .bearerTokenResolver(bearerTokenResolver)
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
                         .accessDeniedHandler((request, response, exception) -> errors.forbidden(response))
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(token -> {
