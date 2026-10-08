@@ -37,7 +37,7 @@ class AccountProfileMigrationTest {
             var previousActivation = jdbc.queryForMap("SELECT * FROM account_activation_tokens WHERE user_id=?", userId);
 
             var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(3);
             flyway.validate();
 
             var upgradedAccount = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id=?", userId);

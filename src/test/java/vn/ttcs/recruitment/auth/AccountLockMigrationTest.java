@@ -48,7 +48,7 @@ class AccountLockMigrationTest {
             var previousInvitations = jdbc.queryForList("SELECT * FROM account_activation_tokens ORDER BY user_id");
 
             var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
             flyway.validate();
 
             var upgradedAccounts = jdbc.queryForList("SELECT * FROM user_accounts ORDER BY id");
