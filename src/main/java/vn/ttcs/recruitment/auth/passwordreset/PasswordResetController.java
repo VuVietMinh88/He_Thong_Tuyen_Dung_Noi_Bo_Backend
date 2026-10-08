@@ -15,9 +15,11 @@ import vn.ttcs.recruitment.common.ApiError;
 public class PasswordResetController {
 
     private final PasswordResetDispatcher dispatcher;
+    private final PasswordResetService service;
 
-    public PasswordResetController(PasswordResetDispatcher dispatcher) {
+    public PasswordResetController(PasswordResetDispatcher dispatcher, PasswordResetService service) {
         this.dispatcher = dispatcher;
+        this.service = service;
     }
 
     @PostMapping("/forgot-password")
@@ -30,6 +32,13 @@ public class PasswordResetController {
         }
         return ResponseEntity.accepted().cacheControl(CacheControl.noStore()).body(new Message(
                 "Nếu email thuộc tài khoản đang hoạt động, bạn sẽ nhận được liên kết đặt lại mật khẩu."));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Message> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        service.resetPassword(request);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(new Message("Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới."));
     }
 
     public record Message(String message) { }

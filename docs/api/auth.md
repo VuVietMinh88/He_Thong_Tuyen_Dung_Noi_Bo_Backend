@@ -1,5 +1,7 @@
 # API đăng nhập và cách đọc code
 
+Luồng quên mật khẩu của các task106–110: [API đặt lại mật khẩu](password-reset.md).
+
 TKNHTTDNB1-90 đăng nhập nhân sự nội bộ bằng email/mật khẩu. Backend trả vai trò; frontend dùng vai trò mở trang phù hợp trong subtask giao diện riêng. Ứng viên bên ngoài không có tài khoản nội bộ.
 
 TKNHTTDNB1-93 hoàn thiện kiểm tra Access Token trên luồng đăng nhập này. API và cấu trúc JSON giữ tương thích với phần giao diện.

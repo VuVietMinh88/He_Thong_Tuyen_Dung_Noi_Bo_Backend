@@ -14,4 +14,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.email = :email")
     Optional<Account> findByEmailForUpdate(@Param("email") String email);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select account from Account account where account.id = :id")
+    Optional<Account> findByIdForUpdate(@Param("id") UUID id);
 }

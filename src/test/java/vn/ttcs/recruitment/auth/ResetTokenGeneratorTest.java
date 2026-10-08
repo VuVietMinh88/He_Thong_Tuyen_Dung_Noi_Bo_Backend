@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mail.javamail.JavaMailSender;
+import vn.ttcs.recruitment.auth.passwordreset.ForgotPasswordRequest;
 import vn.ttcs.recruitment.auth.passwordreset.PasswordResetMailSender;
+import vn.ttcs.recruitment.auth.passwordreset.ResetPasswordRequest;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 
 import java.net.URI;
@@ -31,6 +33,13 @@ class ResetTokenGeneratorTest {
         }
         assertThat(generator.hash("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
+    @Test
+    void requestDebugStringsNeverIncludeCredentials() {
+        assertThat(new ForgotPasswordRequest("private@example.test").toString()).doesNotContain("private");
+        assertThat(new ResetPasswordRequest("sensitive-token", "SensitivePassword1").toString())
+                .doesNotContain("sensitive-token", "SensitivePassword1");
     }
 
     @ParameterizedTest
