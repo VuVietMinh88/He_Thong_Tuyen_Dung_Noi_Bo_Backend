@@ -43,7 +43,7 @@ public class AuthService {
                 account == null ? dummyPasswordHash : account.getPasswordHash());
         Instant now = clock.instant();
 
-        if (account == null || !account.isEnabled() || account.isLoginLocked(now)) {
+        if (account == null || !account.isAccessAllowed() || account.isLoginLocked(now)) {
             throw AuthenticationFailureException.loginFailed();
         }
         account.resetExpiredLock(now);
@@ -69,7 +69,7 @@ public class AuthService {
             throw AuthenticationFailureException.sessionInvalid();
         }
         Account account = accounts.findById(session.getUserId())
-                .filter(Account::isEnabled)
+                .filter(Account::isAccessAllowed)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
         String refreshToken = tokens.createRefreshToken();
         session.rotateRefreshToken(tokens.hashRefreshToken(refreshToken), now.plus(TokenService.REFRESH_TOKEN_TTL));
@@ -103,7 +103,7 @@ public class AuthService {
             AuthSession session = sessions.findById(UUID.fromString(jwt.getId()))
                     .filter(value -> value.getUserId().equals(userId) && value.isActive(clock.instant()))
                     .orElseThrow(() -> new BadCredentialsException("Inactive session"));
-            return accounts.findById(session.getUserId()).filter(Account::isEnabled)
+            return accounts.findById(session.getUserId()).filter(Account::isAccessAllowed)
                     .orElseThrow(() -> new BadCredentialsException("Inactive account"));
         } catch (IllegalArgumentException | NullPointerException exception) {
             throw new BadCredentialsException("Invalid token claims");

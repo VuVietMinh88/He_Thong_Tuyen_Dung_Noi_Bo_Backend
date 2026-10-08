@@ -43,7 +43,7 @@ public class ChangePasswordService {
 
         // Login and reset use this account lock, so their password/session changes cannot race ours.
         Account account = accounts.findByIdForUpdate(userId)
-                .filter(Account::isEnabled).orElseThrow(AuthenticationFailureException::sessionInvalid);
+                .filter(Account::isAccessAllowed).orElseThrow(AuthenticationFailureException::sessionInvalid);
         AuthSession caller = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
         Instant now = clock.instant();

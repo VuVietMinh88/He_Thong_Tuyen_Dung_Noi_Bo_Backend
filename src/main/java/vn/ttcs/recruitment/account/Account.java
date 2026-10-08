@@ -34,6 +34,14 @@ public class Account {
     @Column(nullable = false)
     private String fullName;
 
+    @Column(length = 20)
+    private String phone;
+
+    @Column(length = 120)
+    private String displayTitle;
+
+    private UUID departmentId;
+
     @Column(nullable = false, length = 100)
     private String passwordHash;
 
@@ -44,6 +52,13 @@ public class Account {
     private int failedLoginAttempts;
 
     private Instant lockedUntil;
+
+    private Instant adminLockedAt;
+
+    @Column(length = 500)
+    private String adminLockReason;
+
+    private UUID adminLockedBy;
 
     @Column(nullable = false)
     private Instant createdAt;
@@ -65,6 +80,44 @@ public class Account {
         this.roles = new HashSet<>(roles);
         this.createdAt = createdAt;
         this.enabled = true;
+    }
+
+    public static Account pendingActivation(String email, String fullName, String passwordHash,
+                                             Set<Role> roles, Instant createdAt) {
+        Account account = new Account(email, fullName, passwordHash, roles, createdAt);
+        account.enabled = false;
+        return account;
+    }
+
+    public void activate() {
+        if (isAdministrativelyLocked()) {
+            throw new InvalidActivationTokenException();
+        }
+        enabled = true;
+        clearLoginFailures();
+    }
+
+    public boolean isAdministrativelyLocked() {
+        return adminLockedAt != null;
+    }
+
+    public boolean isAccessAllowed() {
+        return enabled && !isAdministrativelyLocked();
+    }
+
+    public void lockByAdministrator(String reason, UUID actorId, Instant now) {
+        // Repeating a lock keeps the original administrator, time and reason.
+        if (!isAdministrativelyLocked()) {
+            adminLockReason = reason;
+            adminLockedBy = actorId;
+            adminLockedAt = now;
+        }
+    }
+
+    public void unlockByAdministrator() {
+        adminLockedAt = null;
+        adminLockReason = null;
+        adminLockedBy = null;
     }
 
     public boolean isLoginLocked(Instant now) {
@@ -94,10 +147,35 @@ public class Account {
         clearLoginFailures();
     }
 
+    public void updateProfile(String fullName, String phone, String displayTitle) {
+        this.fullName = fullName;
+        this.phone = phone;
+        this.displayTitle = displayTitle;
+    }
+
+    public void assignDepartment(UUID departmentId) {
+        this.departmentId = departmentId;
+    }
+
+    public void addRole(Role role) {
+        roles.add(role);
+    }
+
+    public void removeRole(Role role) {
+        roles.remove(role);
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getFullName() { return fullName; }
+    public String getPhone() { return phone; }
+    public String getDisplayTitle() { return displayTitle; }
+    public UUID getDepartmentId() { return departmentId; }
+    public Instant getCreatedAt() { return createdAt; }
     public String getPasswordHash() { return passwordHash; }
     public boolean isEnabled() { return enabled; }
+    public Instant getAdminLockedAt() { return adminLockedAt; }
+    public String getAdminLockReason() { return adminLockReason; }
+    public UUID getAdminLockedBy() { return adminLockedBy; }
     public Set<Role> getRoles() { return Set.copyOf(roles); }
 }

@@ -86,7 +86,11 @@ Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; kh
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu dùng SMTP: xem [cấu hình mail và API](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp bản này, Flyway sẽ thêm bảng reset token bằng migrationV2; giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tớiV6 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+
+[Khóa/mở khóa tài khoản](api/account-locking.md) dùng Bearer Admin và không cần SMTP. Sau khi mở khóa, người dùng phải đăng nhập lại vì phiên cũ đã thu hồi. Không hạ về backend cũ bỏ qua trạng thái khóaV6 khi còn tài khoản bị khóa; cần xử lý kế hoạch tương thích trước rollback.
+
+[Tìm kiếm/sửa tài khoản](api/accounts.md) và [xem/sửa hồ sơ cá nhân](api/profile.md) dùng Bearer token từ đăng nhập, không cần SMTP. Các API này đọc dữ liệu người dùng hiện tại; V5 không tự tạo phòng ban mẫu. CORS đã cho phépPUT từ các origin được cấu hình.
 
 Từ thư mục gốc repo Backend:
 
@@ -130,7 +134,7 @@ Import **Existing Maven Projects**, chọn `pom.xml`, compiler/JRE là JDK 21, w
 | PostgreSQL `Connection refused` | Database đang chạy, port, `DB_URL` |
 | JWT secret không hợp lệ | Base64 của ít nhất 32 byte ngẫu nhiên |
 | Không đọc `.env` | Working directory thư mục gốc repo Backend |
-| Đúng password vẫn 401 | Có thể đang khóa 15 phút hoặc tài khoản bị vô hiệu hóa |
+| Đúng password vẫn 401 | Có thể đang khóa 15 phút, bị Admin khóa, hoặc tài khoản chưa kích hoạt/bị vô hiệu hóa |
 | Browser chặn CORS | Frontend URL, gồm scheme và port, phải khớp cấu hình |
 
 Mở/debug trực tiếp trong từng IDE và chạy Docker cần xác nhận trên môi trường của bạn. Test HTTP + PostgreSQL kiểm chứng backend; không thay thế kiểm tra giao diện IDE.

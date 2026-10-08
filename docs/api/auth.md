@@ -2,6 +2,8 @@
 
 Luồng quên mật khẩu của các task106–110: [API đặt lại mật khẩu](password-reset.md).
 
+[Khóa hành chính](account-locking.md) của162–166 chặn login/refresh/JWT và thu hồi các phiên tài khoản đích. Mở khóa không khôi phục token cũ; người dùng đăng nhập lại. Khóa hành chính độc lập với khóa15phút do nhập sai và trạng thái chờ kích hoạt.
+
 TKNHTTDNB1-90 đăng nhập nhân sự nội bộ bằng email/mật khẩu. Backend trả vai trò; frontend dùng vai trò mở trang phù hợp trong subtask giao diện riêng. Ứng viên bên ngoài không có tài khoản nội bộ.
 
 TKNHTTDNB1-93 hoàn thiện kiểm tra Access Token trên luồng đăng nhập này. API và cấu trúc JSON giữ tương thích với phần giao diện.
@@ -102,6 +104,7 @@ Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình
 | `POST /api/v1/auth/refresh` | Body `{"refreshToken":"<token>"}` | 200, token mới |
 | `POST /api/v1/auth/logout` | `Authorization: Bearer <accessToken>` | 204, không body |
 | `POST /api/v1/auth/change-password` | Bearer token; body `currentPassword`, `newPassword` | 200, giữ phiên hiện tại và thu hồi phiên khác |
+| `GET /api/v1/auth/permissions` | Bearer token | 200, danh sách quyền hiện hành |
 
 Đổi mật khẩu khi đang đăng nhập:
 
@@ -111,6 +114,7 @@ Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình
 
 Mật khẩu mới cần ít nhất 8 ký tự, có chữ và số, tối đa 72 byte UTF-8 để BCrypt xử lý đầy đủ. Mật khẩu hiện tại sai trả 400 `CURRENT_PASSWORD_INCORRECT`; dữ liệu không đạt yêu cầu trả 400 `VALIDATION_ERROR`; thiếu/hết hạn Access Token trả 401. Thành công trả `{"message":"Đổi mật khẩu thành công. Các phiên đăng nhập khác đã được thu hồi."}` với `Cache-Control: no-store`. Refresh token của phiên hiện tại tiếp tục dùng được; các phiên khác bị từ chối ngay. Liên kết đặt lại mật khẩu đang còn hiệu lực của tài khoản cũng bị vô hiệu hóa.
 
+`GET /api/v1/auth/permissions` trả `{"permissions":["..."]}` với `Cache-Control: no-store`. Mỗi quyền có mã gồm module, thao tác `READ`/`WRITE` và phạm vi `ALL`/`SCOPED`, ví dụ `CANDIDATES_READ_SCOPED`. Quyền được đọc lại từ PostgreSQL ở mỗi yêu cầu đã xác thực; frontend dùng danh sách này để hiển thị, còn backend quyết định quyền truy cập thực tế. Xem [thiết kế phân quyền](../architecture/authorization.md).
 
 Xem người vừa đăng nhập:
 
