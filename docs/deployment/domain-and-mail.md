@@ -19,8 +19,8 @@ Máy dev vẫn chạy như cũ: Backend `http://localhost:8080`, Frontend `http:
 | `CORS_ALLOWED_ORIGINS` | `https://internal-hire.com,https://www.internal-hire.com` | Chỉ các origin Frontend được gọi API từ trình duyệt |
 | `RESET_PASSWORD_PAGE_URL` | `https://internal-hire.com/reset-password` | Link trong email đặt lại mật khẩu |
 | `ACCOUNT_ACTIVATION_PAGE_URL` | `https://internal-hire.com/activate-account` | Link trong email mời kích hoạt |
-| `MAIL_HOST` | `mail.internal-hire.com` | **Đối chiếu trong trang quản trị ServerPoint** (mục cấu hình mail client của hộp thư) |
-| `MAIL_PORT` | `587` | Hoặc `465`, xem bảng bên dưới |
+| `MAIL_HOST` | `emailserver4-186.serverpoint.com` | Tên máy chủ thật của ServerPoint, khớp chứng chỉ TLS (xem bên dưới) |
+| `MAIL_PORT` | `587` | Hoặc `465`; cả hai đã kiểm ngày 08/10/2026 |
 | `MAIL_SMTP_AUTH` | `true` | ServerPoint yêu cầu đăng nhập khi gửi |
 | `MAIL_SMTP_STARTTLS` / `MAIL_SMTP_SSL` | `true` / `false` | Với cổng 587 |
 | `MAIL_USERNAME` | `support@internal-hire.com` | Thường là địa chỉ email đầy đủ |
@@ -34,7 +34,11 @@ Chọn một trong hai cách kết nối SMTP, theo thông số ServerPoint cung
 | 587 | `true` | `false` | Kết nối thường rồi nâng cấp lên TLS (STARTTLS) |
 | 465 | `false` | `true` | Mã hóa TLS ngay từ đầu (SSL/TLS) |
 
-Không bật cả hai cùng lúc. Tên máy chủ trong `MAIL_HOST` phải khớp chứng chỉ TLS của ServerPoint. Nếu trang quản trị đưa một tên máy chủ khác (ví dụ tên server của nhà cung cấp) thì dùng đúng tên đó, đừng tắt kiểm tra chứng chỉ.
+Không bật cả hai cùng lúc.
+
+**Vì sao không dùng `mail.internal-hire.com`?** DNS có bản ghi `mail` và `smtp` trỏ tới `72.18.207.186`, nhưng chứng chỉ TLS của máy chủ đó cấp cho `*.serverpoint.com` (Sectigo, hạn đến 03/02/2027). Kết nối bằng `mail.internal-hire.com` sẽ bị Java từ chối vì sai tên chứng chỉ ("No subject alternative DNS name matching mail.internal-hire.com"). Máy chủ tự giới thiệu là `emailserver4-186.serverpoint.com`, cùng IP `72.18.207.186`, và chứng chỉ xác thực đúng với tên này. Ngày 08/10/2026 đã kiểm bằng OpenSSL và JDK của dự án: cổng 465 (SSL/TLS) và 587 (STARTTLS) đều hợp lệ, TLS 1.2, máy chủ hỗ trợ đăng nhập `AUTH PLAIN LOGIN`. Nếu ServerPoint chuyển hộp thư sang máy chủ khác, lấy lại tên máy chủ trong trang quản trị email.
+
+Backend luôn kiểm tên chứng chỉ (`mail.smtp.ssl.checkserveridentity=true`). Đừng tắt kiểm tra này để "chữa" lỗi sai tên; hãy dùng đúng tên máy chủ.
 
 Backend kiểm tra hai URL trang Frontend khi khởi động: phải là HTTPS cố định (chỉ `localhost` được dùng HTTP), không chứa thông tin đăng nhập, query hay fragment. Sai định dạng thì ứng dụng dừng ngay lúc chạy, để không gửi link hỏng cho người dùng.
 
@@ -46,7 +50,20 @@ Frontend nằm ở repo riêng. Khi build bản chạy thật, đặt `VITE_API_
 
 ## 3. DNS cho tên miền
 
-Khai báo tại nơi quản lý DNS của `internal-hire.com`. Giá trị cụ thể (địa chỉ IP, bản ghi MX, chuỗi SPF/DKIM) lấy từ ServerPoint và từ nơi đặt máy chủ ứng dụng; tài liệu này không tự đặt ra các giá trị đó.
+DNS của `internal-hire.com` do ServerPoint quản lý (nameserver `ns.serverpoint-dns1/2/3.com`). Tình trạng ngày 08/10/2026:
+
+| Bản ghi | Hiện có | Cần làm |
+|---|---|---|
+| A `internal-hire.com` | `64.235.39.224` (hosting ServerPoint) | Giữ nếu Frontend đặt ở hosting ServerPoint; nếu Frontend chạy nơi khác thì đổi sang IP nơi đó |
+| CNAME `www` | → `internal-hire.com` | Đã đúng |
+| A `api` | **Chưa có** | Thêm khi có máy chủ chạy Backend (trỏ tới IP của reverse proxy) |
+| A `mail`, `smtp`, `imap`, `pop`, `email-mx`, `email-mx2` | `72.18.207.186` / `72.18.207.143` | Do ServerPoint tạo, giữ nguyên |
+| MX | `email-mx` và `email-mx2.internal-hire.com` (ưu tiên 10) | Đã đúng, hộp thư `support@` nhận được thư |
+| TXT SPF | `v=spf1 a mx ip4:72.18.207.143 ip4:72.18.207.186 ~all` | Đã cho phép máy chủ gửi `72.18.207.186`, giữ nguyên |
+| TXT DKIM | **Chưa có** | Bật DKIM trong phần quản lý email của ServerPoint; ServerPoint sẽ đưa bản ghi TXT cần thêm |
+| TXT DMARC `_dmarc` | **Chưa có** | Thêm `v=DMARC1; p=none; rua=mailto:support@internal-hire.com`, sau khi DKIM ổn định có thể đổi sang `p=quarantine` |
+
+Bảng dưới là mục đích của từng loại bản ghi, để tham khảo khi đổi nhà cung cấp.
 
 | Bản ghi | Tên | Mục đích |
 |---|---|---|

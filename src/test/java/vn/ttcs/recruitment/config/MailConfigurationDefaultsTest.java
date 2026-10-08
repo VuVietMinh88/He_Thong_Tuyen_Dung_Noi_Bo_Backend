@@ -22,6 +22,7 @@ class MailConfigurationDefaultsTest {
         assertThat(environment.getProperty("app.password-reset.mail-from")).isEqualTo("support@internal-hire.com");
         assertThat(environment.getProperty("spring.mail.properties.mail.smtp.starttls.enable")).isEqualTo("false");
         assertThat(environment.getProperty("spring.mail.properties.mail.smtp.ssl.enable")).isEqualTo("false");
+        assertThat(environment.getProperty("spring.mail.properties.mail.smtp.ssl.checkserveridentity")).isEqualTo("true");
         assertThat(environment.getProperty("app.password-reset.page-url")).isEqualTo("http://localhost:5173/reset-password");
         assertThat(environment.getProperty("app.account-activation.page-url"))
                 .isEqualTo("http://localhost:5173/activate-account");
@@ -30,14 +31,15 @@ class MailConfigurationDefaultsTest {
     @Test
     void productionValuesFromEnvironmentVariablesReachTheMailAndLinkSettings() throws IOException {
         StandardEnvironment environment = environment(Map.of(
-                "MAIL_HOST", "mail.internal-hire.com", "MAIL_PORT", "465",
+                "MAIL_HOST", "emailserver4-186.serverpoint.com", "MAIL_PORT", "465",
                 "MAIL_SMTP_AUTH", "true", "MAIL_SMTP_STARTTLS", "false", "MAIL_SMTP_SSL", "true",
                 "MAIL_USERNAME", "support@internal-hire.com",
                 "RESET_PASSWORD_PAGE_URL", "https://internal-hire.com/reset-password",
                 "ACCOUNT_ACTIVATION_PAGE_URL", "https://internal-hire.com/activate-account",
                 "CORS_ALLOWED_ORIGINS", "https://internal-hire.com,https://www.internal-hire.com"));
 
-        assertThat(environment.getProperty("spring.mail.host")).isEqualTo("mail.internal-hire.com");
+        assertThat(environment.getProperty("spring.mail.host")).isEqualTo("emailserver4-186.serverpoint.com");
+        assertThat(environment.getProperty("spring.mail.properties.mail.smtp.ssl.checkserveridentity")).isEqualTo("true");
         assertThat(environment.getProperty("spring.mail.port")).isEqualTo("465");
         assertThat(environment.getProperty("spring.mail.properties.mail.smtp.auth")).isEqualTo("true");
         assertThat(environment.getProperty("spring.mail.properties.mail.smtp.ssl.enable")).isEqualTo("true");
