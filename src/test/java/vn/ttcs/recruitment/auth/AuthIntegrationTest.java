@@ -46,7 +46,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -298,6 +300,10 @@ class AuthIntegrationTest {
         JsonNode replacement = body(refresh(original.path("refreshToken").asText()));
         var logout = request("POST", "/api/v1/auth/logout", null, replacement.path("accessToken").asText());
         assertThat(logout.statusCode()).isEqualTo(204);
+        assertThat(logout.body()).isEmpty();
+        assertThat(logout.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        assertThat(request("POST", "/api/v1/auth/logout", null,
+                replacement.path("accessToken").asText()).statusCode()).isEqualTo(401);
         for (JsonNode tokens : List.of(original, replacement)) {
             assertThat(request("GET", "/api/v1/auth/me", null,
                     tokens.path("accessToken").asText()).statusCode()).isEqualTo(401);
@@ -314,6 +320,50 @@ class AuthIntegrationTest {
         request("POST", "/api/v1/auth/logout", null, first.path("accessToken").asText());
         assertThat(request("GET", "/api/v1/auth/me", null,
                 second.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(second.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void logoutRejectsMissingCredentialsAndAnotherSessionsSubject() throws Exception {
+        JsonNode original = successfulLogin();
+        UUID sessionId = jdbc.queryForObject("SELECT id FROM auth_sessions", UUID.class);
+        assertThat(request("POST", "/api/v1/auth/logout", null, null).statusCode()).isEqualTo(401);
+        String wrongSubject = tokenService.createAccessToken(UUID.randomUUID(), sessionId);
+        assertThat(request("POST", "/api/v1/auth/logout", null, wrongSubject).statusCode()).isEqualTo(401);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_sessions WHERE revoked_at IS NOT NULL",
+                Integer.class)).isZero();
+    }
+
+    @Test
+    void refreshAndLogoutCannotLeaveAUsableSessionAfterLogoutReturns() throws Exception {
+        JsonNode original = successfulLogin();
+        var start = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var refreshing = executor.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return refresh(original.path("refreshToken").asText());
+            });
+            var loggingOut = executor.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return request("POST", "/api/v1/auth/logout", null, original.path("accessToken").asText());
+            });
+            var refreshResponse = refreshing.get(30, TimeUnit.SECONDS);
+            assertThat(loggingOut.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(204);
+            assertThat(refreshResponse.statusCode()).isIn(200, 401);
+            if (refreshResponse.statusCode() == 200) {
+                JsonNode replacement = body(refreshResponse);
+                assertThat(request("GET", "/api/v1/auth/me", null,
+                        replacement.path("accessToken").asText()).statusCode()).isEqualTo(401);
+                assertThat(refresh(replacement.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+            }
+        }
+        assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(401);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_sessions WHERE revoked_at IS NOT NULL",
+                Integer.class)).isEqualTo(1);
     }
 
     @Test
