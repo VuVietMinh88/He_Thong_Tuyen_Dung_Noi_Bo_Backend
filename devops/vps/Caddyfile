@@ -1,0 +1,22 @@
+internal-hire.com {
+    root * /srv
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        X-Frame-Options DENY
+    }
+    route {
+        try_files {path} /index.html
+        header /index.html Cache-Control "no-cache"
+        file_server
+    }
+}
+
+www.internal-hire.com {
+    redir https://internal-hire.com{uri} permanent
+}
+
+api.internal-hire.com {
+    reverse_proxy backend:8080
+}

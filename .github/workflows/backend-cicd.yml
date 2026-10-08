@@ -1,0 +1,124 @@
+name: Backend tests and VPS deployment
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+# A newer merge must never cancel a deployment during its backup/rollback.
+# Only outdated pull request builds are cancelled.
+concurrency:
+  group: backend-cicd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and all tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Test deployment failure and rollback paths
+        run: |
+          for script in devops/vps/*.sh; do bash -n "$script"; done
+          python3 -m unittest discover -s devops/vps/tests -v
+      - name: Clean build, all backend tests and coverage gate
+        run: bash ./mvnw --batch-mode --no-transfer-progress clean verify
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/*.xml
+            target/failsafe-reports/*.xml
+            target/site/jacoco/
+          if-no-files-found: ignore
+      - name: Save the tested JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-jar
+          path: target/ttcs-backend-0.0.1-SNAPSHOT.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy the tested JAR
+    needs: build
+    # Off until the repository variable DEPLOY_ENABLED is 'true' (Settings > Secrets and variables > Actions).
+    # Keep it off while develop lacks migrations already deployed on the VPS; deploy.py would refuse anyway.
+    # DEPLOY_ENABLED and ALERT_TO must stay repository variables: job-level `if` cannot read environment variables.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop' && vars.DEPLOY_ENABLED == 'true'
+    # Secrets live in the `production` environment, limited to the develop branch.
+    environment: production
+    runs-on: ubuntu-24.04
+    # Above the 15-minute lock wait in deploy.sh plus backup, health check and rollback.
+    timeout-minutes: 45
+    steps:
+      - name: Skip if develop already has a newer commit
+        id: latest
+        run: |
+          head="$(git ls-remote --exit-code "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" refs/heads/develop | cut -f1)"
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::develop is now at $head; not deploying older commit $GITHUB_SHA."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v6
+        if: steps.latest.outputs.deploy == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        if: steps.latest.outputs.deploy == 'true'
+        with:
+          name: backend-jar
+          path: release
+      - name: Copy JAR and deploy with backup and rollback
+        if: steps.latest.outputs.deploy == 'true'
+        env:
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: bash devops/vps/upload-and-deploy.sh release/ttcs-backend-0.0.1-SNAPSHOT.jar
+
+  notify-failure:
+    name: Email the team on failure
+    needs: [build, deploy]
+    # Recipients live in the repository variable ALERT_TO, not in this public file.
+    if: >-
+      always() && github.event_name == 'push' && vars.ALERT_TO != '' &&
+      (needs.build.result == 'failure' || needs.deploy.result == 'failure' ||
+       needs.build.result == 'cancelled' || needs.deploy.result == 'cancelled')
+    # CI_SMTP_PASSWORD is a `production` environment secret, so PR and branch runs cannot read it.
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Send failure details without secrets or application logs
+        env:
+          SMTP_HOST: emailserver4-186.serverpoint.com
+          SMTP_PORT: '587'
+          SMTP_USERNAME: support@internal-hire.com
+          SMTP_PASSWORD: ${{ secrets.CI_SMTP_PASSWORD }}
+          ALERT_TO: ${{ vars.ALERT_TO }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: python3 devops/vps/notify_failure.py

@@ -1,0 +1,9 @@
+.env
+LOGIN.txt
+backups/
+runtime/
+incoming/
+logs/
+frontend/
+__pycache__/
+.deploy.lock
