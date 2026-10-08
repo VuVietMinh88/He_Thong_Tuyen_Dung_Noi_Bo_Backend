@@ -123,17 +123,27 @@ Refresh token cũ dùng một lần; thay cả hai token bằng response mới. 
 
 `POST /api/v1/auth/refresh` xác thực bằng `refreshToken` trong JSON. Không cần gửi access token; nếu interceptor vẫn gắn header `Authorization` cũ/hết hạn thì endpoint bỏ qua header này và kiểm tra refresh token. JWT gắn kèm không thể thay thế refresh token bị thiếu hoặc không hợp lệ.
 
-Token đúng định dạng gồm43ký tự Base64URL. Thiếu/null/sai định dạng trả400 (`VALIDATION_ERROR`; JSON sai trả `INVALID_JSON`). Token đúng định dạng nhưng không tồn tại, bị thay thế, thu hồi, hết hạn hoặc tài khoản bị vô hiệu hóa trả401 `SESSION_INVALID`, không gia hạn phiên. Lỗi không trả lại giá trị token.
+Token đúng định dạng gồm43 ký tự Base64URL. Thiếu/null/sai định dạng trả 400 (`VALIDATION_ERROR`; JSON sai trả `INVALID_JSON`). Token đúng định dạng nhưng không tồn tại, bị thay thế, thu hồi, hết hạn hoặc tài khoản bị vô hiệu hóa trả 401 `SESSION_INVALID`, không gia hạn phiên. Lỗi không trả lại giá trị token.
 
-Thành công trả200 cùng cấu trúc JSON như login, có `Cache-Control: no-store`, không tạo cookie. Database lưu hash của refresh mới và thời hạn7ngày tính từ lần gia hạn. Hai request đồng thời dùng cùng token chỉ một request thành công; frontend cần điều phối một request refresh tại một thời điểm và cập nhật đồng thời cả hai token. Xem [thiết kế phiên](../architecture/auth-sessions.md).
+Thành công trả 200 cùng cấu trúc JSON như login, có `Cache-Control: no-store`, không tạo cookie. Database lưu hash của refresh mới và thời hạn7 ngày tính từ lần gia hạn. Hai request đồng thời dùng cùng token chỉ một request thành công; frontend cần điều phối một request refresh tại một thời điểm và cập nhật đồng thời cả hai token. Xem [thiết kế phiên](../architecture/auth-sessions.md).
 
 ### Hợp đồng Logout — TKNHTTDNB1-99
 
-`POST /api/v1/auth/logout` cần bearer access token còn hạn, không cần body. Thành công trả204, body rỗng và `Cache-Control: no-store`. Backend khóa phiên, kiểm lại chủ sở hữu và trạng thái còn hoạt động rồi thu hồi. Logout không xóa tài khoản hoặc dữ liệu nghiệp vụ.
+`POST /api/v1/auth/logout` cần bearer access token còn hạn, không cần body. Thành công trả 204, body rỗng và `Cache-Control: no-store`. Backend khóa phiên, kiểm lại chủ sở hữu và trạng thái còn hoạt động rồi thu hồi. Logout không xóa tài khoản hoặc dữ liệu nghiệp vụ.
 
-Thiếu JWT, JWT sai/hết hạn hoặc phiên đã bị thu hồi trả401 `UNAUTHORIZED`; nếu phiên đổi trạng thái trong lúc request chờ khóa thì trả401 `SESSION_INVALID`. Client xóa cặp token khi logout thành công hoặc nhận401; lỗi mạng/5xx cần được xử lý riêng vì chưa xác nhận server đã thu hồi phiên.
+Thiếu JWT, JWT sai/hết hạn hoặc phiên đã bị thu hồi trả 401 `UNAUTHORIZED`; nếu phiên đổi trạng thái trong lúc request chờ khóa thì trả 401 `SESSION_INVALID`. Client xóa cặp token khi logout thành công hoặc nhận401; lỗi mạng/5xx cần được xử lý riêng vì chưa xác nhận server đã thu hồi phiên.
 
-Logout thu hồi mọi access/refresh token của đúng phiên đó, kể cả token mới được cấp bởi một request refresh chạy đồng thời. Các phiên đăng nhập khác vẫn hoạt động. Gọi logout lần nữa bằng cùng phiên trả401; không tạo hoặc phục hồi phiên.
+Logout thu hồi mọi access/refresh token của đúng phiên đó, kể cả token mới được cấp bởi một request refresh chạy đồng thời. Các phiên đăng nhập khác vẫn hoạt động. Gọi logout lần nữa bằng cùng phiên trả 401; không tạo hoặc phục hồi phiên.
+
+### Hết hạn và khôi phục phiên — TKNHTTDNB1-100
+
+- Access JWT hết hạn đúng sau 900 giây. Khi JWT vẫn còn hạn nhưng phiên database đã hết hạn/thu hồi, `/me` và `/logout` vẫn trả 401. JWT hợp lệ không bỏ qua trạng thái phiên.
+- Refresh/phiên hết hạn đúng thời điểm `refreshExpiresAt`. Gọi `/me` không kéo dài thời hạn; chỉ refresh thành công mới đặt mốc 7 ngày mới. Refresh được gửi trước hạn nhưng phải chờ khóa tới sau hạn cũng bị từ chối.
+- Header bearer cũ/sai/hết hạn không chặn `POST /login`; endpoint vẫn bắt buộc email/password hợp lệ. Login lại tạo phiên mới, không phục hồi phiên đã hết hạn.
+- Với API cần đăng nhập: khi nhận401 `UNAUTHORIZED`, client refresh một lần, thay cặp token và retry request ban đầu tối đa một lần. Refresh401 `SESSION_INVALID` thì dừng và yêu cầu login lại. Không chạy vòng lặp refresh khi chính `/login` hoặc `/refresh` báo lỗi.
+- Refresh400 là request sai;403 là thiếu quyền;5xx/mất mạng xử lý như lỗi dịch vụ/kết nối. Không xóa dữ liệu biểu mẫu chỉ vì một lỗi mạng.
+
+Backend giữ nguyên các mã lỗi/JSON đã công bố. Phần bảo toàn dữ liệu đang nhập, điều phối các tab và giao diện đăng nhập lại thuộc các task frontend 97/101/102; client chịu trách nhiệm lưu bản nháp theo thiết kế của phần đó.
 
 ```powershell
 Invoke-RestMethod -Method Post `
