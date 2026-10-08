@@ -2,6 +2,8 @@
 
 TKNHTTDNB1-90 đăng nhập nhân sự nội bộ bằng email/mật khẩu. Backend trả vai trò; frontend dùng vai trò mở trang phù hợp trong subtask giao diện riêng. Ứng viên bên ngoài không có tài khoản nội bộ.
 
+TKNHTTDNB1-93 hoàn thiện kiểm tra Access Token trên luồng đăng nhập này. API và cấu trúc JSON giữ tương thích với phần giao diện.
+
 ## Đăng nhập
 
 **POST** `http://localhost:8080/api/v1/auth/login`, header `Content-Type: application/json`.
@@ -34,6 +36,25 @@ Thành công trả **200**:
 ```
 
 Access token giống vé truy cập có thời hạn 15 phút (`900` giây), được ký để server phát hiện sửa đổi. Refresh token cấp vé mới, hết hạn sau 7 ngày nếu không gia hạn. Gia hạn thành công cấp refresh token mới và kéo dài phiên thêm 7 ngày. Không đưa token vào URL hoặc log.
+
+### Quy tắc Access Token
+
+Backend chỉ cấp token sau khi xác thực thành công. JWT được ký bằng **HS256**, với các trường sau:
+
+| Trường trong JWT | Ý nghĩa |
+|---|---|
+| `iss` | Nơi cấp token: `ttcs-backend` |
+| `aud` | API nhận token: `ttcs-api` |
+| `sub` | UUID tài khoản đã đăng nhập |
+| `jti` | UUID phiên đăng nhập trong `auth_sessions` |
+| `iat` | Thời điểm cấp token |
+| `exp` | Thời điểm hết hạn, sau thời điểm cấp 900 giây |
+
+JWT được ký, không được mã hóa nội dung. Không đưa mật khẩu hoặc dữ liệu hồ sơ vào token. Vai trò hiện tại được đọc từ database khi gọi API cần xác thực.
+
+Client gửi `Authorization: Bearer <accessToken>` khi gọi `/me` hoặc `/logout`. Backend kiểm chữ ký, nơi cấp, API nhận, thời hạn và phiên đăng nhập còn hoạt động, sau đó kiểm tài khoản còn được bật. Token thiếu `exp`, hết hạn, bị sửa hoặc không thuộc phiên hợp lệ đều trả **401** với `code=UNAUTHORIZED`. Nếu token có `nbf` (thời điểm bắt đầu được dùng), backend cũng kiểm tra thời điểm đó.
+
+Token chỉ có hiệu lực khi thời gian hiện tại **nhỏ hơn** `exp`: ví dụ cấp lúc 10:00:00 thì hết hạn từ 10:15:00. `expiresIn` trong response là thời hạn lúc cấp, không phải bộ đếm tự cập nhật. Thời hạn 15 phút là cấu hình hiện có của dự án; subtask Jira 93 không quy định thời hạn riêng.
 
 Email lạ, sai password, tài khoản vô hiệu hóa và bị khóa đều trả **401**, cùng nội dung:
 

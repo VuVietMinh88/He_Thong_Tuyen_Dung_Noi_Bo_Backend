@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AuthServiceTest {
@@ -73,6 +74,7 @@ class AuthServiceTest {
                     .hasMessage("Không thể đăng nhập bằng thông tin đã cung cấp.");
         }
         verify(sessions, never()).save(any());
+        verifyNoInteractions(tokens);
     }
 
     @Test
@@ -86,6 +88,7 @@ class AuthServiceTest {
         assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, PASSWORD)))
                 .isInstanceOf(AuthenticationFailureException.class);
         verify(sessions, never()).save(any());
+        verifyNoInteractions(tokens);
     }
 
     @Test
@@ -97,5 +100,6 @@ class AuthServiceTest {
         assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, prefix + "ắ")))
                 .isInstanceOf(AuthenticationFailureException.class);
         verify(sessions, never()).save(any());
+        verifyNoInteractions(tokens);
     }
 }

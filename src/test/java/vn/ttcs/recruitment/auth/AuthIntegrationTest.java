@@ -223,12 +223,18 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void expiredAccessCanBeRefreshedWhileTheSessionIsActive() throws Exception {
+    void accessExpiresExactlyAtFifteenMinutesAndCanBeRefreshed() throws Exception {
         JsonNode original = successfulLogin();
-        clock.set(START.plusSeconds(901));
+        clock.set(START.plusSeconds(899));
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                original.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        clock.set(START.plusSeconds(900));
         assertThat(request("GET", "/api/v1/auth/me", null,
                 original.path("accessToken").asText()).statusCode()).isEqualTo(401);
-        assertThat(refresh(original.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+        var refreshed = refresh(original.path("refreshToken").asText());
+        assertThat(refreshed.statusCode()).isEqualTo(200);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                body(refreshed).path("accessToken").asText()).statusCode()).isEqualTo(200);
     }
 
     @Test
