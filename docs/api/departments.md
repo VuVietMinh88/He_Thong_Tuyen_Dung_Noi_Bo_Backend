@@ -68,7 +68,7 @@ Response: `{items, page, size, totalElements, totalPages}`. Mỗi item có cấu
 
 Cây chứa cả node active và inactive, không phân trang hoặc lọc để tránh làm đứt quan hệ cha–con. Dữ liệu cây có chu trình do sửa SQL ngoài API sẽ trả HTTP 409 `DEPARTMENT_TREE_INVALID`; backend không bỏ qua âm thầm các node lỗi.
 
-Ngừng áp dụng một phòng không xóa phòng, không tự ngừng phòng con hoặc gỡ thành viên. API quản trị tài khoản hiện có từ chối gán mới vào phòng inactive nhưng cho giữ liên kết cũ.
+Ngừng áp dụng một phòng không xóa phòng, không tự ngừng phòng con hoặc gỡ thành viên. API quản trị tài khoản hiện có từ chối gán mới vào phòng inactive nhưng cho giữ liên kết cũ. [API yêu cầu tuyển dụng](requisitions.md) (task 246) không cho tạo hoặc lưu lại bản nháp với phòng inactive (`REQUISITION_DEPARTMENT_INACTIVE`); nháp đã có vẫn xem được. Trong lúc một yêu cầu tuyển dụng đang được lưu, PUT sửa phòng đó (kể cả ngừng áp dụng) phải chờ yêu cầu lưu xong.
 
 ## Lỗi
 
