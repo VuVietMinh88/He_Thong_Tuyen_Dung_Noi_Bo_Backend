@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.role.SelfAdminRevocationException;
 import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import vn.ttcs.recruitment.department.DepartmentException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -29,7 +30,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
-                .body(ApiError.of(exception.getCode(), exception.getMessage()));
+                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
     }
 
     @ExceptionHandler(DepartmentException.class)
@@ -123,5 +124,13 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> invalidJson() {
         return ResponseEntity.badRequest().body(ApiError.of("INVALID_JSON", "Nội dung yêu cầu không đúng định dạng JSON."));
+    }
+
+    // A file above spring.servlet.multipart.max-file-size, or a request above max-request-size
+    // (application.properties), is refused while the upload is read, before any controller runs.
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> fileTooLarge() {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).cacheControl(CacheControl.noStore())
+                .body(ApiError.of("FILE_TOO_LARGE", "Tệp tải lên vượt quá dung lượng cho phép."));
     }
 }
