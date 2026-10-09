@@ -69,6 +69,9 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final Instant START = Instant.parse("2026-10-06T00:00:00Z");
     private static final UUID UNKNOWN_ID = UUID.randomUUID();
     private static final String INVALID_BODY = "{}";
+    // A real catalog type, so permitted calls reach the item lookup or body validation.
+    private static final String CATALOG_TYPE = "CANDIDATE_SOURCE";
+    private static final String CATALOG_ITEMS = "/api/v1/recruitment-catalogs/" + CATALOG_TYPE + "/items";
     private static final ApiError FORBIDDEN_ERROR = ApiError.of("FORBIDDEN", "Bạn không có quyền thực hiện thao tác này.");
 
     private static final String SELF_PROFILE_READ = "SELF_PROFILE_READ";
@@ -78,6 +81,12 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String USER_ADMIN_WRITE_ALL = "USER_ADMIN_WRITE_ALL";
     private static final String ORGANIZATION_READ_ALL = "ORGANIZATION_READ_ALL";
     private static final String ORGANIZATION_WRITE_ALL = "ORGANIZATION_WRITE_ALL";
+    private static final String SALARY_RANGES_READ_ALL = "SALARY_RANGES_READ_ALL";
+    private static final String SALARY_RANGES_WRITE_ALL = "SALARY_RANGES_WRITE_ALL";
+    private static final String REQUISITIONS_READ_ALL = "REQUISITIONS_READ_ALL";
+    private static final String REQUISITIONS_READ_SCOPED = "REQUISITIONS_READ_SCOPED";
+    private static final String REQUISITIONS_WRITE_ALL = "REQUISITIONS_WRITE_ALL";
+    private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -113,11 +122,35 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/positions", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/positions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
-            endpoint("POST", "/api/v1/positions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/positions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("POST", "/api/v1/positions", allOf(ORGANIZATION_WRITE_ALL, SALARY_RANGES_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/positions/{id}", allOf(ORGANIZATION_WRITE_ALL, SALARY_RANGES_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/competency-frameworks", permission(ORGANIZATION_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/competency-frameworks", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), null, 404),
+            endpoint("GET", "/api/v1/positions/{id}/evaluation-criteria", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("GET", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/interview-questions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/interview-questions", permission(ORGANIZATION_READ_ALL), null, 200),
+            // Requisitions: ALL and SCOPED writers both pass the matcher; RequisitionService applies the scope.
+            endpoint("POST", "/api/v1/requisitions", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/requisitions", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
+            endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
+            endpoint("DELETE", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404),
+            endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
-            "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions");
+            "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
+            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -144,11 +177,15 @@ class ApiAuthorizationMatrixIntegrationTest {
     void createOneLoggedInAccountPerIdentity() throws Exception {
         permissionSeed = jdbc.queryForList("SELECT role_code, permission_code FROM role_permissions");
         clock.set(START);
+        // Requisitions reference departments, positions and accounts (ON DELETE RESTRICT), so they go first.
+        jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
         jdbc.update("UPDATE departments SET parent_id = NULL");
         jdbc.update("DELETE FROM departments");
         jdbc.update("DELETE FROM positions");
+        jdbc.update("DELETE FROM competency_frameworks");
+        jdbc.update("DELETE FROM recruitment_catalog_items");
         jdbc.update("DELETE FROM user_accounts");
         bootstrap.run(new DefaultApplicationArguments());
         fixturePasswordHash = jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE email = ?",
@@ -261,7 +298,21 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "code", "TARGET", "name", "Target", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID position = UUID.fromString(expect(request("POST", "/api/v1/positions", json.writeValueAsString(
-                positionBody("TARGET", "Target")), actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+                positionBody("TARGET", "Target")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        UUID framework = UUID.fromString(expect(request("POST", "/api/v1/competency-frameworks", json.writeValueAsString(
+                competencyFrameworkBody("TARGET", "Target")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        Map<String, Object> requisitionBody = Map.of("positionId", position, "departmentId", department,
+                "headcount", 1, "reason", "NEW_HEADCOUNT");
+        UUID requisition = UUID.fromString(expect(request("POST", "/api/v1/requisitions",
+                json.writeValueAsString(requisitionBody), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        Map<String, Object> changedRequisition = Map.of("positionId", position, "departmentId", department,
+                "headcount", 9, "reason", "REPLACEMENT");
+        // Task 197: nothing uses this department, so a permitted DELETE would remove it.
+        UUID unused = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
+                "code", "UNUSED", "name", "Unused", "managerUserId", interviewer, "active", true)),
+                actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+        UUID catalogItem = UUID.fromString(expect(request("POST", CATALOG_ITEMS, json.writeValueAsString(
+                catalogItemBody("TARGET", "Target")), actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -287,7 +338,31 @@ class ApiAuthorizationMatrixIntegrationTest {
                         Map.of("currentPassword", PASSWORD, "newPassword", "ChangedPassword123")),
                 new Attack(Identity.INTERVIEWER, "POST", "/api/v1/positions", positionBody("SHADOW", "Shadow")),
                 new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/positions/" + position,
-                        positionBody("TARGET", "Taken over")));
+                        positionBody("TARGET", "Taken over")),
+                // ADMIN has ORGANIZATION_WRITE_ALL but not SALARY_RANGES_WRITE_ALL, and every position write sets salaries.
+                new Attack(Identity.ADMIN, "POST", "/api/v1/positions", positionBody("SHADOW", "Shadow")),
+                new Attack(Identity.ADMIN, "PUT", "/api/v1/positions/" + position, positionBody("TARGET", "Taken over")),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/competency-frameworks",
+                        competencyFrameworkBody("SHADOW", "Shadow")),
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/competency-frameworks/" + framework,
+                        competencyFrameworkBody("TARGET", "Taken over")),
+                // INTERVIEWER holds no REQUISITIONS permission, even for the department it manages.
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.INTERVIEWER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
+                // HIRING_MANAGER passes the matcher (REQUISITIONS_WRITE_SCOPED) but does not manage TARGET,
+                // so RequisitionService refuses after locking the row.
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
+                // Task 249: the same SCOPED writers cannot create a requisition for a department they do not manage.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions", requisitionBody),
+                // Task 197: ORGANIZATION_READ_ALL alone cannot delete a department, not even the one the caller manages.
+                new Attack(Identity.INTERVIEWER, "DELETE", "/api/v1/departments/" + unused, null),
+                new Attack(Identity.RECRUITER, "DELETE", "/api/v1/departments/" + unused, null),
+                new Attack(Identity.RECRUITER, "POST", CATALOG_ITEMS, catalogItemBody("SHADOW", "Shadow")),
+                new Attack(Identity.APPROVER, "PUT", CATALOG_ITEMS + "/" + catalogItem,
+                        catalogItemBody("TARGET", "Taken over")),
+                new Attack(Identity.HIRING_MANAGER, "DELETE", CATALOG_ITEMS + "/" + catalogItem, null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -339,9 +414,31 @@ class ApiAuthorizationMatrixIntegrationTest {
     }
 
     @Test
+    void positionSalaryBandIsReturnedOnlyToIdentitiesGrantedSalaryRangeRead() throws Exception {
+        UUID position = UUID.fromString(expect(request("POST", "/api/v1/positions", json.writeValueAsString(
+                positionBody("BAND", "Band")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        for (Identity identity : Identity.values()) {
+            String token = actors.get(identity).token();
+            if (!identity.expectedGrants().contains(ORGANIZATION_READ_ALL)) {
+                assertForbidden(identity + " GET /api/v1/positions/{id}", request("GET", "/api/v1/positions/" + position, null, token));
+                continue;
+            }
+            // Field-level rule: the server drops the band, so a caller who skips the UI still cannot read it.
+            boolean seesBand = identity.expectedGrants().contains(SALARY_RANGES_READ_ALL);
+            JsonNode detail = expect(request("GET", "/api/v1/positions/" + position, null, token), 200);
+            JsonNode item = expect(request("GET", "/api/v1/positions", null, token), 200).path("items").path(0);
+            for (JsonNode view : List.of(detail, item)) {
+                assertThat(view.path("code").asText()).as(identity.name()).isEqualTo("BAND");
+                assertThat(view.has("salaryMin")).as(identity + " salaryMin").isEqualTo(seesBand);
+                assertThat(view.has("salaryMax")).as(identity + " salaryMax").isEqualTo(seesBand);
+            }
+        }
+    }
+
+    @Test
     void routesWithoutADeclaredRuleAreDeniedEvenForTheAdministrator() throws Exception {
         String token = actors.get(Identity.ADMIN).token();
-        for (String route : List.of("DELETE /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
+        for (String route : List.of("PATCH /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
                 "DELETE /api/v1/positions/" + UNKNOWN_ID, "PATCH /api/v1/profile", "GET /api/v1/roles",
                 "GET /api/v1/internal/accounts")) {
             String[] parts = route.split(" ");
@@ -382,6 +479,14 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Map<String, Object> positionBody(String code, String name) {
         return Map.of("code", code, "name", name, "level", "Junior", "salaryMin", 15_000_000L,
                 "salaryMax", 25_000_000L, "active", true);
+    }
+
+    private static Map<String, Object> competencyFrameworkBody(String code, String name) {
+        return Map.of("code", code, "name", name, "criteria", List.of(Map.of("name", "Kỹ năng chuyên môn", "weight", 100)));
+    }
+
+    private static Map<String, Object> catalogItemBody(String code, String name) {
+        return Map.of("code", code, "name", name, "active", true);
     }
 
     private HttpResponse<String> call(Endpoint endpoint, Identity identity) throws Exception {
@@ -481,7 +586,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private record Endpoint(String method, String template, Rule rule, String body, int allowedStatus, boolean endsSession) {
         String key() { return method + " " + template; }
 
-        String samplePath() { return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER"); }
+        String samplePath() {
+            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+                    .replace("{type}", CATALOG_TYPE);
+        }
 
         @Override
         public String toString() { return key() + " [" + rule + "]"; }
