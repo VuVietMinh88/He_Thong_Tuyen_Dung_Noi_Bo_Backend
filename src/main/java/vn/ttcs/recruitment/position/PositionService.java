@@ -15,6 +15,11 @@ import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.competency.CompetencyFramework;
+import vn.ttcs.recruitment.competency.CompetencyFrameworkRepository;
+import vn.ttcs.recruitment.competency.CompetencyFrameworkStatus;
+import vn.ttcs.recruitment.security.AccessScope;
+import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.sql.SQLException;
@@ -22,20 +27,30 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class PositionService {
+    // Every catalog write carries a salary band (both salaries are required), so it also needs the salary permission.
+    private static final List<String> CATALOG_WRITE = List.of("ORGANIZATION_WRITE_ALL", "SALARY_RANGES_WRITE_ALL");
+    // Choosing the competency framework of a position never touches the salary band (Jira 214).
+    private static final List<String> FRAMEWORK_WRITE = List.of("ORGANIZATION_WRITE_ALL");
+
     private final PositionRepository positions;
+    private final CompetencyFrameworkRepository frameworks;
     private final AccountRepository accounts;
     private final AuthSessionRepository sessions;
     private final AuthService auth;
     private final PermissionService permissions;
     private final Clock clock;
 
-    public PositionService(PositionRepository positions, AccountRepository accounts, AuthSessionRepository sessions,
-                           AuthService auth, PermissionService permissions, Clock clock) {
+    public PositionService(PositionRepository positions, CompetencyFrameworkRepository frameworks,
+                           AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
+                           PermissionService permissions, Clock clock) {
         this.positions = positions;
+        this.frameworks = frameworks;
         this.accounts = accounts;
         this.sessions = sessions;
         this.auth = auth;
@@ -45,7 +60,7 @@ public class PositionService {
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PositionPage list(Jwt jwt, String query, Boolean active, int page, int size) {
-        requireReadAccess(jwt);
+        boolean showSalaryBand = canSeeSalaryBand(requireReadAccess(jwt));
         if (page < 0 || size < 1 || size > 100 || (query != null && query.length() > 255)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                     "Trang, số lượng hoặc từ khóa tìm kiếm chức danh không hợp lệ.");
@@ -53,19 +68,21 @@ public class PositionService {
         List<Boolean> activeValues = active == null ? List.of(true, false) : List.of(active);
         var result = positions.search(containsPattern(query), activeValues,
                 PageRequest.of(page, size, Sort.by("code", "id")));
-        return new PositionPage(result.getContent().stream().map(PositionView::from).toList(),
+        return new PositionPage(result.getContent().stream()
+                .map(position -> PositionView.from(position, showSalaryBand)).toList(),
                 page, size, result.getTotalElements(), result.getTotalPages());
     }
 
     @Transactional(readOnly = true)
     public PositionView get(Jwt jwt, UUID id) {
-        requireReadAccess(jwt);
-        return positions.findById(id).map(PositionView::from).orElseThrow(PositionService::notFound);
+        boolean showSalaryBand = canSeeSalaryBand(requireReadAccess(jwt));
+        return positions.findById(id).map(position -> PositionView.from(position, showSalaryBand))
+                .orElseThrow(PositionService::notFound);
     }
 
     @Transactional
     public PositionView create(Jwt jwt, PositionRequest request) {
-        requireWriteAccess(jwt);
+        Set<String> granted = requireWriteAccess(jwt, CATALOG_WRITE);
         requireValidSalaryBand(request);
         if (positions.existsByCode(request.code())) {
             throw duplicateCode();
@@ -77,12 +94,12 @@ public class PositionService {
         } catch (DataIntegrityViolationException exception) {
             throw translateDuplicateCode(exception);
         }
-        return PositionView.from(position);
+        return PositionView.from(position, canSeeSalaryBand(granted));
     }
 
     @Transactional
     public PositionView update(Jwt jwt, UUID id, PositionRequest request) {
-        requireWriteAccess(jwt);
+        Set<String> granted = requireWriteAccess(jwt, CATALOG_WRITE);
         requireValidSalaryBand(request);
         Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
         if (positions.existsByCodeAndIdNot(request.code(), id)) {
@@ -95,18 +112,56 @@ public class PositionService {
         } catch (DataIntegrityViolationException exception) {
             throw translateDuplicateCode(exception);
         }
-        return PositionView.from(position);
+        return PositionView.from(position, canSeeSalaryBand(granted));
     }
 
-    private void requireReadAccess(Jwt jwt) {
+    // Jira 214: many positions may point to the same framework. Only positions.competency_framework_id is written,
+    // so the criteria rows stay in the framework and are never copied per position.
+    // Checks in order: position exists (404), framework exists (400), framework is ACTIVE (409).
+    @Transactional
+    public PositionView useCompetencyFramework(Jwt jwt, UUID id, UUID frameworkId) {
+        Set<String> granted = requireWriteAccess(jwt, FRAMEWORK_WRITE);
+        // Same row lock as update(), so a catalog edit of the same position runs before or after this one.
+        Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
+        // FOR SHARE: the status read here cannot change before this transaction commits (see findByIdForShare).
+        CompetencyFramework framework = frameworks.findByIdForShare(frameworkId)
+                .orElseThrow(PositionService::unknownFramework);
+        // Interview evaluation forms are scored with this framework, so it must be complete (weights total 100%).
+        // An ACTIVE framework never goes back to DRAFT and every edit keeps its total at 100%
+        // (CompetencyFrameworkService), so a framework in use by positions always stays complete.
+        if (framework.getStatus() != CompetencyFrameworkStatus.ACTIVE) {
+            throw new ApiException(HttpStatus.CONFLICT, "COMPETENCY_FRAMEWORK_NOT_ACTIVE",
+                    "Chỉ gán được khung năng lực đã hoàn chỉnh (ACTIVE) cho chức danh.",
+                    Map.of("frameworkId", "Khung năng lực này còn là bản nháp (DRAFT)."));
+        }
+        position.useCompetencyFramework(framework.getId(), now());
+        return PositionView.from(position, canSeeSalaryBand(granted));
+    }
+
+    // Removes the link to the framework; the framework itself stays for the other positions using it.
+    // A position without a framework simply stays without one, so calling this twice is harmless.
+    @Transactional
+    public PositionView removeCompetencyFramework(Jwt jwt, UUID id) {
+        Set<String> granted = requireWriteAccess(jwt, FRAMEWORK_WRITE);
+        Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
+        position.useCompetencyFramework(null, now());
+        return PositionView.from(position, canSeeSalaryBand(granted));
+    }
+
+    // Returns the caller's current permission codes, which also decide whether the salary band is shown.
+    private Set<String> requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
-        if (!permissions.forUser(actor.getId()).contains("ORGANIZATION_READ_ALL")) {
+        Set<String> granted = permissions.forUser(actor.getId());
+        if (!granted.contains("ORGANIZATION_READ_ALL")) {
             throw new AccessDeniedException("Position access requires ORGANIZATION_READ_ALL");
         }
+        return granted;
     }
 
-    private void requireWriteAccess(Jwt jwt) {
+    // required: the permission codes this write needs, all of them (CATALOG_WRITE or FRAMEWORK_WRITE).
+    // Returns the caller's current permission codes, which also decide whether the salary band is shown.
+    private Set<String> requireWriteAccess(Jwt jwt, List<String> required) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -128,17 +183,28 @@ public class PositionService {
         if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
-            throw new AccessDeniedException("Position management requires ORGANIZATION_WRITE_ALL");
+        Set<String> granted = permissions.forUser(actorId);
+        if (!granted.containsAll(required)) {
+            throw new AccessDeniedException("This position write requires " + String.join(" and ", required));
         }
+        return granted;
     }
 
-    // @PositiveOrZero already rejects negative salaries. This keeps an inverted band from reaching the
-    // V7 CHECK constraint, which would otherwise surface as a 500.
+    // Jira 205: only callers with SALARY_RANGES_READ_ALL receive salaryMin/salaryMax, also in write responses,
+    // because WRITE never implies READ. SALARY_RANGES_READ_SCOPED has no defined scope yet and no role holds it,
+    // so it shows nothing.
+    private static boolean canSeeSalaryBand(Set<String> granted) {
+        return AccessScope.read(granted, PermissionModule.SALARY_RANGES) == AccessScope.ALL;
+    }
+
+    // PositionRequest has already checked each salary on its own (whole VND, 0 to MAX_SALARY_VND).
+    // Equal values are a valid band. The V7 CHECK stays as the last line of defence, but an inverted band
+    // never reaches it: that would surface as a 500 instead of an error the form can show on salaryMax.
     private static void requireValidSalaryBand(PositionRequest request) {
         if (request.salaryMin() > request.salaryMax()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "POSITION_SALARY_RANGE_INVALID",
-                    "Lương tối thiểu không được lớn hơn lương tối đa.");
+                    "Lương tối thiểu không được lớn hơn lương tối đa.",
+                    Map.of("salaryMax", "Lương tối đa phải lớn hơn hoặc bằng lương tối thiểu."));
         }
     }
 
@@ -173,11 +239,18 @@ public class PositionService {
         return exception;
     }
 
-    private static ApiException notFound() {
+    // Package-private: SalaryBandService reports an unknown position with the same error.
+    static ApiException notFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "POSITION_NOT_FOUND", "Không tìm thấy chức danh.");
     }
 
     private static ApiException duplicateCode() {
         return new ApiException(HttpStatus.CONFLICT, "POSITION_CODE_EXISTS", "Mã chức danh đã được sử dụng.");
+    }
+
+    // 400 like other unknown ids sent in a body (INVALID_DEPARTMENT_PARENT): the URL itself was found.
+    private static ApiException unknownFramework() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_COMPETENCY_FRAMEWORK",
+                "Khung năng lực không tồn tại.", Map.of("frameworkId", "Không tìm thấy khung năng lực này."));
     }
 }
