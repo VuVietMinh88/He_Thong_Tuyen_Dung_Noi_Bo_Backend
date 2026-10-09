@@ -86,7 +86,7 @@ Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; kh
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tới V7 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính, chức danh/dải lương); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tới V13 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính, chức danh/dải lương, quyền xem dải lương, khung năng lực, ngân hàng câu hỏi phỏng vấn, danh mục tuyển dụng dùng chung, yêu cầu tuyển dụng nháp); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp. Lưu ý: V11–V12 chưa có trong nhánh này, nên chưa nâng cấp database làm việc hoặc database dùng chung bằng nhánh này cho tới khi V11–V12 được gộp, vì database đã chạy V13 trước đó sẽ không khởi động được sau khi gộp (xem phần thứ tự phiên bản trong [tài liệu database](database/README.md)).
 
 [Khóa/mở khóa tài khoản](api/account-locking.md) dùng Bearer Admin và không cần SMTP. Sau khi mở khóa, người dùng phải đăng nhập lại vì phiên cũ đã thu hồi. Không hạ về backend cũ bỏ qua trạng thái khóaV6 khi còn tài khoản bị khóa; cần xử lý kế hoạch tương thích trước rollback.
 
@@ -97,6 +97,8 @@ Từ thư mục gốc repo Backend:
 ```powershell
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC'
 ```
+
+Thời điểm (`createdAt`, hạn token...) luôn tính theo UTC. Các quy tắc theo **ngày** nghiệp vụ, ví dụ ngày cần người của [yêu cầu tuyển dụng](api/requisitions.md) không được trước hôm nay, dùng múi giờ `app.business-zone` trong `src/main/resources/application.properties` (mặc định `Asia/Ho_Chi_Minh`), không phụ thuộc múi giờ của JVM hay máy chủ.
 
 Khi khởi động xong:
 
