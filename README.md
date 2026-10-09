@@ -36,10 +36,17 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [account-roles](docs/api/account-roles.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
+- [avatars](docs/api/avatars.md)
+- [company-profile](docs/api/company-profile.md)
+- [competency-frameworks](docs/api/competency-frameworks.md)
 - [departments](docs/api/departments.md)
+- [evaluation-criteria](docs/api/evaluation-criteria.md)
+- [interview-questions](docs/api/interview-questions.md)
 - [password-reset](docs/api/password-reset.md)
 - [positions](docs/api/positions.md)
 - [profile](docs/api/profile.md)
+- [recruitment-catalogs](docs/api/recruitment-catalogs.md)
+- [requisitions](docs/api/requisitions.md)
 
 Phân quyền: [thiết kế](docs/architecture/authorization.md) và [ma trận vai trò và quyền](docs/architecture/role-permission-matrix.md) (đề xuất chờ BA/PO xác nhận).
 
