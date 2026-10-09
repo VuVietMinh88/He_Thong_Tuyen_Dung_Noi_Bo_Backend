@@ -119,10 +119,42 @@ public class SecurityConfiguration {
                                 "/api/v1/auth/change-password").hasAuthority("PERM_SELF_SECURITY_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/positions", "/api/v1/positions/*")
                                 .hasAuthority("PERM_ORGANIZATION_READ_ALL")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/positions")
+                        // Both salaries are required on a position write, so writers also need the salary permission.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/positions").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
+                        // Competency frameworks are organization data: every internal role reads them (interviewers
+                        // score with them), and only organization writers create or edit them.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/competency-frameworks",
+                                "/api/v1/competency-frameworks/*").hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/competency-frameworks")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/competency-frameworks/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Choosing the shared competency framework of a position never touches its salary band,
+                        // so organization writers do it without the salary permission.
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*/competency-framework")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/positions/*/competency-framework")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // The evaluation criteria of a position carry no salary data, so every internal role reads
+                        // them: interviewers score candidates with these criteria.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/positions/*/evaluation-criteria")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        // The interview question bank belongs to the competency frameworks: every internal role reads
+                        // the questions (interviewers ask them), and only organization writers create or edit them.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interview-questions",
+                                "/api/v1/interview-questions/*").hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/interview-questions")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/interview-questions/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Requisitions: ALL and SCOPED writers both reach RequisitionService, which uses AccessScope.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
