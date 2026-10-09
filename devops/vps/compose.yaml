@@ -1,0 +1,92 @@
+name: ttcs
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  database:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: recruitment
+      POSTGRES_USER: recruitment
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 768m
+    logging: *logging
+
+  backend:
+    build: ./backend
+    image: ttcs-backend-runtime:java21
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      SERVER_ADDRESS: 0.0.0.0
+      SERVER_PORT: "8080"
+      DB_URL: jdbc:postgresql://database:5432/recruitment
+      DB_USERNAME: recruitment
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+      CORS_ALLOWED_ORIGINS: https://internal-hire.com,https://www.internal-hire.com
+      BOOTSTRAP_ADMIN_ENABLED: ${BOOTSTRAP_ADMIN_ENABLED:-true}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?BOOTSTRAP_ADMIN_EMAIL is required}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?BOOTSTRAP_ADMIN_PASSWORD is required}
+      MAIL_HOST: emailserver4-186.serverpoint.com
+      MAIL_PORT: "587"
+      MAIL_USERNAME: support@internal-hire.com
+      MAIL_PASSWORD: ${MAIL_PASSWORD:?MAIL_PASSWORD is required}
+      MAIL_FROM: support@internal-hire.com
+      MAIL_SMTP_AUTH: "true"
+      MAIL_SMTP_STARTTLS: "true"
+      RESET_PASSWORD_PAGE_URL: https://internal-hire.com/reset-password
+      ACCOUNT_ACTIVATION_PAGE_URL: https://internal-hire.com/activate-account
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/application-vps.properties
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx1024m -XX:+ExitOnOutOfMemoryError
+    volumes:
+      - ./runtime/backend.jar:/app/backend.jar:ro
+      - ./backend/application-vps.properties:/app/application-vps.properties:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, --max-time, "5", http://127.0.0.1:8080/api/v1/health]
+      interval: 10s
+      timeout: 6s
+      start_period: 30s
+      retries: 12
+    stop_grace_period: 30s
+    mem_limit: 1536m
+    logging: *logging
+
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./frontend:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 256m
+    logging: *logging
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
