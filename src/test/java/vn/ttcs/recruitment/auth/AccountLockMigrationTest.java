@@ -47,7 +47,8 @@ class AccountLockMigrationTest {
             var previousResetTokens = jdbc.queryForList("SELECT * FROM password_reset_tokens ORDER BY id");
             var previousInvitations = jdbc.queryForList("SELECT * FROM account_activation_tokens ORDER BY user_id");
 
-            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
+            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                    .target("6").load();
             assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
             flyway.validate();
 

@@ -75,7 +75,7 @@ V3 xử lý `W` giống `W*`, vì chú thích của bảng nguồn ghi `W` là "
 
 ## 4. Cách thay đổi ma trận
 
-1. Tạo migration mới trong `database/migrations`, đánh số từ `V7__...` trở đi. **Không sửa V1–V6**, đặc biệt V3 và V5. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
+1. Tạo migration mới trong `database/migrations`, dùng số phiên bản kế tiếp, lớn hơn migration mới nhất đang có (hiện là V7). **Không sửa V1–V7**, đặc biệt V3 và V5. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
 2. Thay đổi quyền bằng `INSERT`/`DELETE` trên `role_permissions`. Chỉ thêm dòng vào `permissions` khi cần mã mới, ví dụ mã cho dải lương.
 
    ```sql

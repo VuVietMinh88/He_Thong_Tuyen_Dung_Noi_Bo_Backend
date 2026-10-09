@@ -36,7 +36,8 @@ class AccountProfileMigrationTest {
             var previousSession = jdbc.queryForMap("SELECT * FROM auth_sessions WHERE id=?", sessionId);
             var previousActivation = jdbc.queryForMap("SELECT * FROM account_activation_tokens WHERE user_id=?", userId);
 
-            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
+            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                    .target("6").load();
             assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
             flyway.validate();
 
