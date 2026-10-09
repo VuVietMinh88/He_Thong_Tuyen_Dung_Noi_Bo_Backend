@@ -79,7 +79,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String ORGANIZATION_READ_ALL = "ORGANIZATION_READ_ALL";
     private static final String ORGANIZATION_WRITE_ALL = "ORGANIZATION_WRITE_ALL";
 
-    private static final Rule PUBLIC = new Rule(null, false);
+    private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
     // One row per handler mapping. Path variables get an unknown id, and write samples carry an invalid body,
     // so a call that passes authorization stops at 404 or validation instead of changing data.
@@ -110,10 +110,14 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/departments/tree", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/departments", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/positions", permission(ORGANIZATION_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/positions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/positions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/positions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
-            "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions");
+            "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -144,6 +148,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
         jdbc.update("UPDATE departments SET parent_id = NULL");
         jdbc.update("DELETE FROM departments");
+        jdbc.update("DELETE FROM positions");
         jdbc.update("DELETE FROM user_accounts");
         bootstrap.run(new DefaultApplicationArguments());
         fixturePasswordHash = jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE email = ?",
@@ -197,7 +202,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         return ENDPOINTS.stream().flatMap(endpoint -> Arrays.stream(Identity.values()).map(identity ->
                 dynamicTest(identity + ": " + endpoint, () -> {
                     var response = call(endpoint, identity);
-                    if (endpoint.rule().allows(identity.roles(), identity.expectedGrants)) {
+                    if (endpoint.rule().allows(identity.roles(), identity.expectedGrants())) {
                         assertAllowed(endpoint, response);
                     } else {
                         assertForbidden(endpoint.toString(), response);
@@ -255,6 +260,8 @@ class ApiAuthorizationMatrixIntegrationTest {
         UUID department = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
                 "code", "TARGET", "name", "Target", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+        UUID position = UUID.fromString(expect(request("POST", "/api/v1/positions", json.writeValueAsString(
+                positionBody("TARGET", "Target")), actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -277,7 +284,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.INTERVIEWER, "GET", "/api/v1/accounts/" + admin, null),
                 new Attack(Identity.NO_ROLE, "PUT", "/api/v1/profile", Map.of("fullName", "Renamed")),
                 new Attack(Identity.NO_ROLE, "POST", "/api/v1/auth/change-password",
-                        Map.of("currentPassword", PASSWORD, "newPassword", "ChangedPassword123")));
+                        Map.of("currentPassword", PASSWORD, "newPassword", "ChangedPassword123")),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/positions", positionBody("SHADOW", "Shadow")),
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/positions/" + position,
+                        positionBody("TARGET", "Taken over")));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -309,7 +319,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     @Test
     void removedPermissionIsEnforcedOnTheNextRequestWithTheSameAccessToken() throws Exception {
         List<Endpoint> organizationReads = ENDPOINTS.stream()
-                .filter(endpoint -> ORGANIZATION_READ_ALL.equals(endpoint.rule().permission())).toList();
+                .filter(endpoint -> endpoint.rule().equals(permission(ORGANIZATION_READ_ALL))).toList();
         assertThat(organizationReads).isNotEmpty();
         for (Endpoint endpoint : organizationReads) {
             assertAllowed(endpoint, call(endpoint, Identity.RECRUITER));
@@ -332,10 +342,46 @@ class ApiAuthorizationMatrixIntegrationTest {
     void routesWithoutADeclaredRuleAreDeniedEvenForTheAdministrator() throws Exception {
         String token = actors.get(Identity.ADMIN).token();
         for (String route : List.of("DELETE /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
-                "PATCH /api/v1/profile", "GET /api/v1/roles", "GET /api/v1/internal/accounts")) {
+                "DELETE /api/v1/positions/" + UNKNOWN_ID, "PATCH /api/v1/profile", "GET /api/v1/roles",
+                "GET /api/v1/internal/accounts")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
+    }
+
+    @Test
+    void everyIdentityExpectsExactlyThePermissionsTheServerReportsForIt() throws Exception {
+        for (Identity identity : Identity.values()) {
+            assertThat(menuPermissions(actors.get(identity))).as(identity.name()).isEqualTo(identity.expectedGrants());
+        }
+    }
+
+    @Test
+    void ruleFactoriesCombinePermissionsAndTheAdminRoleAsDocumented() {
+        Set<String> noRoles = Set.of();
+        Set<String> readOnly = Set.of(ORGANIZATION_READ_ALL);
+        Set<String> readWrite = Set.of(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL);
+
+        assertThat(PUBLIC.allows(noRoles, Set.of())).isTrue();
+        assertThat(permission(ORGANIZATION_READ_ALL).allows(noRoles, readOnly)).isTrue();
+        assertThat(permission(ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(allOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(noRoles, readOnly)).isFalse();
+        assertThat(allOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(noRoles, readWrite)).isTrue();
+        assertThat(anyOf(ORGANIZATION_WRITE_ALL, USER_ADMIN_READ_ALL).allows(noRoles, readOnly)).isFalse();
+        assertThat(anyOf(ORGANIZATION_WRITE_ALL, ORGANIZATION_READ_ALL).allows(noRoles, readOnly)).isTrue();
+        assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("HR_MANAGER"), readOnly)).isFalse();
+        assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("ADMIN"), readOnly)).isTrue();
+        assertThat(adminWith(ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(List.of(PUBLIC, permission(ORGANIZATION_READ_ALL), allOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL),
+                anyOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), adminWith(USER_ADMIN_WRITE_ALL)))
+                .extracting(Rule::toString).containsExactly("PUBLIC", "ORGANIZATION_READ_ALL",
+                        "ORGANIZATION_READ_ALL + ORGANIZATION_WRITE_ALL", "ORGANIZATION_READ_ALL | ORGANIZATION_WRITE_ALL",
+                        "ROLE_ADMIN + USER_ADMIN_WRITE_ALL");
+    }
+
+    private static Map<String, Object> positionBody(String code, String name) {
+        return Map.of("code", code, "name", name, "level", "Junior", "salaryMin", 15_000_000L,
+                "salaryMax", 25_000_000L, "active", true);
     }
 
     private HttpResponse<String> call(Endpoint endpoint, Identity identity) throws Exception {
@@ -407,20 +453,28 @@ class ApiAuthorizationMatrixIntegrationTest {
         return new Endpoint(method, template, rule, body, allowedStatus, false);
     }
 
-    private static Rule permission(String code) { return new Rule(code, false); }
+    private static Rule permission(String code) { return new Rule(List.of(code), false, false); }
 
-    private static Rule adminWith(String code) { return new Rule(code, true); }
+    private static Rule allOf(String... codes) { return new Rule(List.of(codes), false, false); }
 
-    private record Rule(String permission, boolean requiresAdminRole) {
-        boolean isPublic() { return permission == null; }
+    private static Rule anyOf(String... codes) { return new Rule(List.of(codes), true, false); }
 
-        boolean allows(Set<String> roles, Set<String> permissions) {
-            return isPublic() || (permissions.contains(permission) && (!requiresAdminRole || roles.contains("ADMIN")));
+    private static Rule adminWith(String code) { return new Rule(List.of(code), false, true); }
+
+    // PUBLIC has no codes. Otherwise the caller needs every code (any one with anyOf), plus ROLE_ADMIN when required.
+    private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {
+        boolean isPublic() { return permissions.isEmpty(); }
+
+        boolean allows(Set<String> roles, Set<String> granted) {
+            if (isPublic()) { return true; }
+            boolean permitted = anyOf ? permissions.stream().anyMatch(granted::contains) : granted.containsAll(permissions);
+            return permitted && (!requiresAdminRole || roles.contains("ADMIN"));
         }
 
         @Override
         public String toString() {
-            return isPublic() ? "PUBLIC" : (requiresAdminRole ? "ROLE_ADMIN + " : "") + permission;
+            if (isPublic()) { return "PUBLIC"; }
+            return (requiresAdminRole ? "ROLE_ADMIN + " : "") + String.join(anyOf ? " | " : " + ", permissions);
         }
     }
 
@@ -440,26 +494,25 @@ class ApiAuthorizationMatrixIntegrationTest {
         public String toString() { return attacker + " " + method + " " + path; }
     }
 
-    // Grants for the codes the current APIs check, as seeded by V3/V5. A seed change must update this spec.
+    // One account per internal role plus one without roles. Expected grants are written only once, in
+    // RolePermissionSeedMigrationTest.EXPECTED_GRANTS, so a seed change updates this spec automatically.
     private enum Identity {
-        ADMIN(Role.ADMIN, ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL, USER_ADMIN_READ_ALL, USER_ADMIN_WRITE_ALL),
-        HR_MANAGER(Role.HR_MANAGER, ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL, USER_ADMIN_READ_ALL),
-        RECRUITER(Role.RECRUITER, ORGANIZATION_READ_ALL),
-        HIRING_MANAGER(Role.HIRING_MANAGER, ORGANIZATION_READ_ALL),
-        INTERVIEWER(Role.INTERVIEWER, ORGANIZATION_READ_ALL),
-        APPROVER(Role.APPROVER, ORGANIZATION_READ_ALL),
+        ADMIN(Role.ADMIN),
+        HR_MANAGER(Role.HR_MANAGER),
+        RECRUITER(Role.RECRUITER),
+        HIRING_MANAGER(Role.HIRING_MANAGER),
+        INTERVIEWER(Role.INTERVIEWER),
+        APPROVER(Role.APPROVER),
         NO_ROLE(null);
 
         private final Role role;
-        private final Set<String> expectedGrants;
 
-        Identity(Role role, String... moduleGrants) {
+        Identity(Role role) {
             this.role = role;
-            Set<String> grants = new HashSet<>(List.of(moduleGrants));
-            if (role != null) {
-                grants.addAll(List.of(SELF_PROFILE_READ, SELF_PROFILE_WRITE, SELF_SECURITY_WRITE));
-            }
-            this.expectedGrants = Set.copyOf(grants);
+        }
+
+        Set<String> expectedGrants() {
+            return role == null ? Set.of() : RolePermissionSeedMigrationTest.EXPECTED_GRANTS.get(role.name());
         }
 
         Set<String> roles() { return role == null ? Set.of() : Set.of(role.name()); }

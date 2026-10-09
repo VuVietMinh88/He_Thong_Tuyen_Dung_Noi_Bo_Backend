@@ -26,6 +26,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiError> apiFailure(ApiException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .body(ApiError.of(exception.getCode(), exception.getMessage()));
+    }
+
     @ExceptionHandler(DepartmentException.class)
     public ResponseEntity<ApiError> departmentFailure(DepartmentException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
