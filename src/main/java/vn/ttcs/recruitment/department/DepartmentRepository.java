@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -65,6 +66,31 @@ public class DepartmentRepository {
             parents.put(row.getObject("id", UUID.class), row.getObject("parent_id", UUID.class));
         });
         return parents;
+    }
+
+    // The departments this user manages directly, plus every department below them in the tree (children,
+    // grandchildren...). Used for REQUISITIONS_*_SCOPED. The active flag is ignored: it says whether a department
+    // is still used, not who is responsible for it. UNION (not UNION ALL) drops rows already found, so the
+    // recursion also stops on a cycle left by manual SQL edits.
+    public Set<UUID> findManagedDepartmentIds(UUID managerUserId) {
+        return Set.copyOf(jdbc.query("""
+                WITH RECURSIVE managed(id) AS (
+                    SELECT id FROM departments WHERE manager_user_id = :managerUserId
+                    UNION
+                    SELECT child.id FROM departments child JOIN managed ON child.parent_id = managed.id
+                )
+                SELECT id FROM managed
+                """, new MapSqlParameterSource("managerUserId", managerUserId),
+                (row, number) -> row.getObject("id", UUID.class)));
+    }
+
+    // Task 246: is this department still used (active)? Empty when it does not exist. FOR SHARE keeps the row
+    // locked until the caller's transaction ends, so a PUT that deactivates the department waits for the caller's
+    // commit; other FOR SHARE readers (account assignment, requisitions) still run in parallel. Must be called in a
+    // read-write transaction (PostgreSQL refuses FOR SHARE in a read-only one).
+    public Optional<Boolean> findActiveForShare(UUID id) {
+        return jdbc.query("SELECT active FROM departments WHERE id = :id FOR SHARE",
+                new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
     }
 
     public void acquireTreeWriteLock() {
