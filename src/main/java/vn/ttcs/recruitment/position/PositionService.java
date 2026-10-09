@@ -15,6 +15,8 @@ import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.security.AccessScope;
+import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.sql.SQLException;
@@ -22,6 +24,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -45,7 +49,7 @@ public class PositionService {
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PositionPage list(Jwt jwt, String query, Boolean active, int page, int size) {
-        requireReadAccess(jwt);
+        boolean showSalaryBand = canSeeSalaryBand(requireReadAccess(jwt));
         if (page < 0 || size < 1 || size > 100 || (query != null && query.length() > 255)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                     "Trang, số lượng hoặc từ khóa tìm kiếm chức danh không hợp lệ.");
@@ -53,19 +57,21 @@ public class PositionService {
         List<Boolean> activeValues = active == null ? List.of(true, false) : List.of(active);
         var result = positions.search(containsPattern(query), activeValues,
                 PageRequest.of(page, size, Sort.by("code", "id")));
-        return new PositionPage(result.getContent().stream().map(PositionView::from).toList(),
+        return new PositionPage(result.getContent().stream()
+                .map(position -> PositionView.from(position, showSalaryBand)).toList(),
                 page, size, result.getTotalElements(), result.getTotalPages());
     }
 
     @Transactional(readOnly = true)
     public PositionView get(Jwt jwt, UUID id) {
-        requireReadAccess(jwt);
-        return positions.findById(id).map(PositionView::from).orElseThrow(PositionService::notFound);
+        boolean showSalaryBand = canSeeSalaryBand(requireReadAccess(jwt));
+        return positions.findById(id).map(position -> PositionView.from(position, showSalaryBand))
+                .orElseThrow(PositionService::notFound);
     }
 
     @Transactional
     public PositionView create(Jwt jwt, PositionRequest request) {
-        requireWriteAccess(jwt);
+        Set<String> granted = requireWriteAccess(jwt);
         requireValidSalaryBand(request);
         if (positions.existsByCode(request.code())) {
             throw duplicateCode();
@@ -77,12 +83,12 @@ public class PositionService {
         } catch (DataIntegrityViolationException exception) {
             throw translateDuplicateCode(exception);
         }
-        return PositionView.from(position);
+        return PositionView.from(position, canSeeSalaryBand(granted));
     }
 
     @Transactional
     public PositionView update(Jwt jwt, UUID id, PositionRequest request) {
-        requireWriteAccess(jwt);
+        Set<String> granted = requireWriteAccess(jwt);
         requireValidSalaryBand(request);
         Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
         if (positions.existsByCodeAndIdNot(request.code(), id)) {
@@ -95,18 +101,21 @@ public class PositionService {
         } catch (DataIntegrityViolationException exception) {
             throw translateDuplicateCode(exception);
         }
-        return PositionView.from(position);
+        return PositionView.from(position, canSeeSalaryBand(granted));
     }
 
-    private void requireReadAccess(Jwt jwt) {
+    // Returns the caller's current permission codes, which also decide whether the salary band is shown.
+    private Set<String> requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
-        if (!permissions.forUser(actor.getId()).contains("ORGANIZATION_READ_ALL")) {
+        Set<String> granted = permissions.forUser(actor.getId());
+        if (!granted.contains("ORGANIZATION_READ_ALL")) {
             throw new AccessDeniedException("Position access requires ORGANIZATION_READ_ALL");
         }
+        return granted;
     }
 
-    private void requireWriteAccess(Jwt jwt) {
+    private Set<String> requireWriteAccess(Jwt jwt) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -128,17 +137,30 @@ public class PositionService {
         if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
-            throw new AccessDeniedException("Position management requires ORGANIZATION_WRITE_ALL");
+        // Every write carries a salary band (both salaries are required), so it also needs the salary permission.
+        Set<String> granted = permissions.forUser(actorId);
+        if (!granted.contains("ORGANIZATION_WRITE_ALL") || !granted.contains("SALARY_RANGES_WRITE_ALL")) {
+            throw new AccessDeniedException(
+                    "Position management requires ORGANIZATION_WRITE_ALL and SALARY_RANGES_WRITE_ALL");
         }
+        return granted;
     }
 
-    // @PositiveOrZero already rejects negative salaries. This keeps an inverted band from reaching the
-    // V7 CHECK constraint, which would otherwise surface as a 500.
+    // Jira 205: only callers with SALARY_RANGES_READ_ALL receive salaryMin/salaryMax, also in write responses,
+    // because WRITE never implies READ. SALARY_RANGES_READ_SCOPED has no defined scope yet and no role holds it,
+    // so it shows nothing.
+    private static boolean canSeeSalaryBand(Set<String> granted) {
+        return AccessScope.read(granted, PermissionModule.SALARY_RANGES) == AccessScope.ALL;
+    }
+
+    // PositionRequest has already checked each salary on its own (whole VND, 0 to MAX_SALARY_VND).
+    // Equal values are a valid band. The V7 CHECK stays as the last line of defence, but an inverted band
+    // never reaches it: that would surface as a 500 instead of an error the form can show on salaryMax.
     private static void requireValidSalaryBand(PositionRequest request) {
         if (request.salaryMin() > request.salaryMax()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "POSITION_SALARY_RANGE_INVALID",
-                    "Lương tối thiểu không được lớn hơn lương tối đa.");
+                    "Lương tối thiểu không được lớn hơn lương tối đa.",
+                    Map.of("salaryMax", "Lương tối đa phải lớn hơn hoặc bằng lương tối thiểu."));
         }
     }
 
