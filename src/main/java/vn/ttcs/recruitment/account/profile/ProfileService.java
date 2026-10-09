@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.account.avatar.AvatarRepository;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
@@ -20,15 +21,17 @@ import java.util.UUID;
 @Service
 public class ProfileService {
     private final AccountRepository accounts;
+    private final AvatarRepository avatars;
     private final AuthSessionRepository sessions;
     private final AuthService auth;
     private final PermissionService permissions;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
-    public ProfileService(AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
-                          PermissionService permissions, JdbcTemplate jdbc, Clock clock) {
+    public ProfileService(AccountRepository accounts, AvatarRepository avatars, AuthSessionRepository sessions,
+                          AuthService auth, PermissionService permissions, JdbcTemplate jdbc, Clock clock) {
         this.accounts = accounts;
+        this.avatars = avatars;
         this.sessions = sessions;
         this.auth = auth;
         this.permissions = permissions;
@@ -90,6 +93,7 @@ public class ProfileService {
             departmentName = jdbc.queryForObject("SELECT name FROM departments WHERE id = ?",
                     String.class, account.getDepartmentId());
         }
-        return ProfileResponse.from(account, departmentName);
+        Instant avatarUpdatedAt = avatars.findUpdatedAt(account.getId()).orElse(null);
+        return ProfileResponse.from(account, departmentName, avatarUpdatedAt);
     }
 }
