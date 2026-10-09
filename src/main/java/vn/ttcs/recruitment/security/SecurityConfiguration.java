@@ -119,10 +119,13 @@ public class SecurityConfiguration {
                                 "/api/v1/auth/change-password").hasAuthority("PERM_SELF_SECURITY_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/positions", "/api/v1/positions/*")
                                 .hasAuthority("PERM_ORGANIZATION_READ_ALL")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/positions")
-                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*")
-                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Both salaries are required on a position write, so writers also need the salary permission.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/positions").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
