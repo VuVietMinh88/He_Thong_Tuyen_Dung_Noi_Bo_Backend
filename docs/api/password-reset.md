@@ -69,11 +69,12 @@ Mở [Mailpit local](http://localhost:8025) để đọc thư. Compose mail tác
 | `MAIL_HOST`, `MAIL_PORT` | SMTP server, mặc định 127.0.0.1/1025 |
 | `MAIL_USERNAME`, `MAIL_PASSWORD` | Thông tin SMTP, local để trống |
 | `MAIL_SMTP_AUTH` | Xác thực SMTP, local false |
-| `MAIL_SMTP_STARTTLS` | Bật và bắt buộc STARTTLS, local false |
-| `MAIL_FROM` | Người gửi, mặc định no-reply@ttcs.test |
+| `MAIL_SMTP_STARTTLS` | Bật và bắt buộc STARTTLS (cổng 587), local false |
+| `MAIL_SMTP_SSL` | Bật TLS ngay từ đầu (cổng 465), local false; không bật cùng STARTTLS |
+| `MAIL_FROM` | Người gửi, mặc định support@internal-hire.com |
 | `RESET_PASSWORD_PAGE_URL` | URL frontend cố định; mặc định http://localhost:5173/reset-password |
 
-Với SMTP thật dùng cấu hình được nhà cung cấp cấp, thường587 + AUTH/STARTTLS; giữ bí mật trong `.env`. URL frontend phải HTTPS, chỉ cho HTTP với localhost. Không dùng URL do request gửi lên để tạo link. Timeout kết nối/đọc/ghi SMTP là5 giây. Spring Mail được cấu hình theo [tài liệu Spring Boot](https://docs.spring.io/spring-boot/reference/io/email.html).
+Với SMTP thật dùng cấu hình được nhà cung cấp cấp, thường 587 + AUTH/STARTTLS hoặc 465 + SSL; giữ bí mật trong `.env`. Cấu hình cho tên miền dự án và hộp thư support@internal-hire.com (ServerPoint) xem [tên miền và email](../deployment/domain-and-mail.md). URL frontend phải HTTPS, chỉ cho HTTP với localhost. Không dùng URL do request gửi lên để tạo link. Timeout kết nối/đọc/ghi SMTP là5 giây. Spring Mail được cấu hình theo [tài liệu Spring Boot](https://docs.spring.io/spring-boot/reference/io/email.html).
 
 Nếu SMTP lỗi, token mới bị rollback và API vẫn trả thông báo chung; backend chỉ log loại lỗi. Người dùng có thể yêu cầu lại. Hàng đợi nằm trong bộ nhớ, chưa có retry bền vững qua restart. SMTP và DB không commit chung: hiếm khi thư đã được SMTP nhận nhưng DB commit thất bại thì link không dùng được, cần yêu cầu lại.
 

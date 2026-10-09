@@ -12,7 +12,7 @@ Sao chép `.env.example` thành `.env` nếu chưa có; đặt `DB_PASSWORD` the
 docker compose --env-file .env -f devops/docker/compose.yaml up -d postgres
 ```
 
-Frontend kết nối `http://localhost:8080/api/v1`. Backend giữ mã Java trong `src/`, SQL trong `database/migrations/`; Maven chạy ở root, không `cd backend`. Các commit đã chuyển từ repo cũ đã được điều chỉnh cấu trúc này. Thay đổi cấu hình tiếp theo được bổ sung bằng commit mới, giữ lịch sử đã chia sẻ.
+Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản chạy thật dùng tên miền `internal-hire.com` (Frontend), `api.internal-hire.com` (API) và gửi email từ `support@internal-hire.com`; xem [tên miền và email](docs/deployment/domain-and-mail.md). Backend giữ mã Java trong `src/`, SQL trong `database/migrations/`; Maven chạy ở root, không `cd backend`. Các commit đã chuyển từ repo cũ đã được điều chỉnh cấu trúc này. Thay đổi cấu hình tiếp theo được bổ sung bằng commit mới, giữ lịch sử đã chia sẻ.
 
 ## Chạy và kiểm thử
 
