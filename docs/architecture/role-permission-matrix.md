@@ -4,7 +4,7 @@
 
 Tài liệu phục vụ Jira TKNHTTDNB1-119 "Xác định danh sách Role và Permission" và TKNHTTDNB1-120 "Xác định quyền của từng Role" thuộc story TKNHTTDNB1-14. Cả hai task yêu cầu kết hợp với BA/PO.
 
-**Trạng thái: đề xuất của nhóm backend, chờ BA/PO xác nhận. Đây chưa phải bản chốt.** Nội dung mô tả đúng những gì database đang cấp (Flyway V3 và V5) và những gì server đang kiểm. Sau khi BA/PO trả lời các câu hỏi ở mục 8, backend sẽ điều chỉnh bằng migration mới theo mục 4.
+**Trạng thái: đề xuất của nhóm backend, chờ BA/PO xác nhận. Đây chưa phải bản chốt.** Nội dung mô tả đúng những gì database đang cấp (Flyway V3, V5 và V7_1) và những gì server đang kiểm. Sau khi BA/PO trả lời các câu hỏi ở mục 8, backend sẽ điều chỉnh bằng migration mới theo mục 4.
 
 Nguồn: bảng `2. User Roles` của đặc tả "HỆ THỐNG TUYỂN DỤNG NỘI BỘ", Jira TKNHTTDNB1-14 và TKNHTTDNB1-205. Cơ chế kiểm quyền được mô tả trong [thiết kế phân quyền](authorization.md). Test `RolePermissionSeedMigrationTest` so dữ liệu seed với hằng `EXPECTED_GRANTS` viết tay trong test, là bản chép lại mục 5.1 và 5.2. Migration đổi quyền mà chưa sửa `EXPECTED_GRANTS` sẽ làm test thất bại. `ApiAuthorizationMatrixIntegrationTest` đọc lại chính hằng này để biết vai trò nào được gọi API nào, nên quyền mong đợi chỉ được viết ở một chỗ. Test không đọc file này, nên người đổi ma trận phải tự cập nhật tài liệu trong cùng thay đổi (mục 4).
 
@@ -33,11 +33,11 @@ Mã quyền nghiệp vụ có dạng `<MODULE>_<READ|WRITE>_<ALL|SCOPED>`, ví d
 - `ALL`: mọi bản ghi của module.
 - `SCOPED`: chỉ những bản ghi gắn với người dùng. Ý nghĩa cụ thể theo từng module ở bảng dưới. Server bắt buộc phải lọc dữ liệu theo phạm vi này; frontend không tự lọc thay.
 
-Có 10 module × 2 thao tác × 2 phạm vi = 40 mã. Database tạo đủ 40 mã, kể cả các mã chưa vai trò nào được cấp, ví dụ `ORGANIZATION_READ_SCOPED`. Khi cần cấp thêm quyền, chỉ cần thêm dòng `role_permissions`.
+Có 11 module × 2 thao tác × 2 phạm vi = 44 mã: V3 tạo 40 mã của mười module đầu, V7_1 thêm 4 mã của `SALARY_RANGES`. Database tạo đủ 44 mã, kể cả các mã chưa vai trò nào được cấp, ví dụ `ORGANIZATION_READ_SCOPED`. Khi cần cấp thêm quyền, chỉ cần thêm dòng `role_permissions`.
 
 | Module | Dòng trong bảng nguồn | `SCOPED` nghĩa là (đề xuất) | API backend hiện có |
 |---|---|---|---|
-|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196), chức danh (203)|
+|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196), chức danh (203), khung năng lực (212)|
 |`REQUISITIONS`|Yêu cầu tuyển dụng|Hiring Manager: yêu cầu của bộ phận mình. Recruiter: yêu cầu được phân công. Approver: yêu cầu được chuyển cho mình duyệt|Chưa có|
 |`JOB_POSTINGS`|Tin tuyển dụng|Recruiter: tin của vị trí được phân công|Chưa có|
 |`CANDIDATES`|Hồ sơ ứng viên & pipeline|Recruiter: ứng viên của vị trí được phân công. Hiring Manager: ứng viên của vị trí mình sở hữu. Interviewer: ứng viên trong vòng mình phỏng vấn. Candidate: hồ sơ của chính mình|Chưa có|
@@ -47,6 +47,7 @@ Có 10 module × 2 thao tác × 2 phạm vi = 40 mã. Database tạo đủ 40 m�
 |`NOTIFICATIONS`|Email & thông báo|Thông báo gửi cho chính mình hoặc thuộc vị trí mình liên quan|Chưa có|
 |`REPORTS`|Báo cáo & dashboard|Recruiter: số liệu vị trí được phân công. Hiring Manager: số liệu vị trí mình sở hữu|Chưa có|
 |`USER_ADMIN`|Người dùng & nhật ký|Chưa vai trò nào dùng|Tài khoản, vai trò, khóa tài khoản (145–166)|
+|`SALARY_RANGES`|Không có dòng riêng; tách khỏi "Danh mục tổ chức & vị trí" theo Jira 205 (V7_1)|Chưa định nghĩa, chưa vai trò nào dùng; server coi như không có quyền|Dải lương `salaryMin`/`salaryMax` của chức danh (205)|
 
 Cột `SCOPED` là đề xuất của backend. Các API nghiệp vụ dùng phạm vi này chưa được xây dựng, nên hiện chưa có code kiểm quyền sở hữu từng bản ghi.
 
@@ -58,7 +59,7 @@ Cột `SCOPED` là đề xuất của backend. Các API nghiệp vụ dùng ph�
 |`SELF_PROFILE_WRITE`|Sửa hồ sơ cá nhân của chính mình|V5|
 |`SELF_SECURITY_WRITE`|Đăng xuất, đổi mật khẩu|V3|
 
-Ba mã này được cấp cho cả sáu vai trò nội bộ và không cấp cho `CANDIDATE`. Bảng `permissions` có tổng cộng 43 mã.
+Ba mã này được cấp cho cả sáu vai trò nội bộ và không cấp cho `CANDIDATE`. Bảng `permissions` có tổng cộng 47 mã (44 mã nghiệp vụ và 3 mã tự phục vụ).
 
 ## 3. Chuyển ký hiệu bảng nguồn sang mã quyền
 
@@ -75,8 +76,8 @@ V3 xử lý `W` giống `W*`, vì chú thích của bảng nguồn ghi `W` là "
 
 ## 4. Cách thay đổi ma trận
 
-1. Tạo migration mới trong `database/migrations`, dùng số phiên bản kế tiếp, lớn hơn migration mới nhất đang có (hiện là V7). **Không sửa V1–V7**, đặc biệt V3 và V5. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
-2. Thay đổi quyền bằng `INSERT`/`DELETE` trên `role_permissions`. Chỉ thêm dòng vào `permissions` khi cần mã mới, ví dụ mã cho dải lương.
+1. Tạo migration mới trong `database/migrations`, dùng số phiên bản kế tiếp, lớn hơn migration mới nhất đang có (hiện là V8). **Không sửa các migration đã có (V1–V8)**, đặc biệt V3, V5 và V7_1. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
+2. Thay đổi quyền bằng `INSERT`/`DELETE` trên `role_permissions`. Chỉ thêm dòng vào `permissions` khi cần mã mới, như V7_1 đã thêm bốn mã `SALARY_RANGES_*` cho dải lương.
 
    ```sql
    -- Ví dụ minh họa, không phải quyết định đã chốt
@@ -84,7 +85,7 @@ V3 xử lý `W` giống `W*`, vì chú thích của bảng nguồn ghi `W` là "
    INSERT INTO role_permissions (role_code, permission_code) VALUES ('APPROVER', 'CANDIDATES_READ_SCOPED');
    ```
 
-3. Trong cùng thay đổi, cập nhật `EXPECTED_GRANTS` trong `src/test/java/vn/ttcs/recruitment/auth/RolePermissionSeedMigrationTest.java` và mục 5–7 của tài liệu này. `ApiAuthorizationMatrixIntegrationTest` tự đọc `EXPECTED_GRANTS`, không cần sửa quyền ở enum `Identity`; chạy thêm test này (hoặc `verify` đầy đủ) để thấy API nào đổi kết quả cho phép/từ chối. Test chỉ kiểm `EXPECTED_GRANTS`, không kiểm tài liệu, nên phải sửa tài liệu bằng tay. Nếu điều kiện của endpoint thay đổi, sửa thêm `SecurityConfiguration`, phần kiểm lại trong service tương ứng (`AccountProvisioningService`, `AccountManagementService`, `AccountRoleService`, `AccountLockService` cho tài khoản; `DepartmentService` cho phòng ban; `PositionService` cho chức danh; `ProfileService` cho hồ sơ cá nhân) và [thiết kế phân quyền](authorization.md).
+3. Trong cùng thay đổi, cập nhật `EXPECTED_GRANTS` trong `src/test/java/vn/ttcs/recruitment/auth/RolePermissionSeedMigrationTest.java` và mục 5–7 của tài liệu này. `ApiAuthorizationMatrixIntegrationTest` tự đọc `EXPECTED_GRANTS`, không cần sửa quyền ở enum `Identity`; chạy thêm test này (hoặc `verify` đầy đủ) để thấy API nào đổi kết quả cho phép/từ chối. Test chỉ kiểm `EXPECTED_GRANTS`, không kiểm tài liệu, nên phải sửa tài liệu bằng tay. Nếu điều kiện của endpoint thay đổi, sửa thêm `SecurityConfiguration`, phần kiểm lại trong service tương ứng (`AccountProvisioningService`, `AccountManagementService`, `AccountRoleService`, `AccountLockService` cho tài khoản; `DepartmentService` cho phòng ban; `PositionService` cho chức danh và việc ẩn dải lương; `CompetencyFrameworkService` cho khung năng lực; `ProfileService` cho hồ sơ cá nhân) và [thiết kế phân quyền](authorization.md).
 4. Thêm vai trò mới cần thêm bước: trong migration mới, `INSERT INTO roles` (vì `user_roles` và `role_permissions` có khóa ngoại tới `roles`) và sửa ràng buộc CHECK của `user_roles`; thêm giá trị vào enum `Role` trong Java; thêm vai trò vào `EXPECTED_GRANTS` và thêm một hằng cho vai trò đó vào enum `Identity` của `ApiAuthorizationMatrixIntegrationTest`.
 5. Chạy `./mvnw.cmd test -Dtest=RolePermissionSeedMigrationTest` (Windows) hoặc `sh ./mvnw test -Dtest=RolePermissionSeedMigrationTest` ở thư mục gốc của repo Backend. Sau đó chạy `verify` đầy đủ trước khi tạo Pull Request.
 
@@ -94,7 +95,7 @@ Sau khi migrate, quyền mới có hiệu lực ở yêu cầu kế tiếp. Ngư
 
 ### 5.1 Ký hiệu nguồn và quyền đã seed
 
-Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_WRITE_SCOPED`. Mã đầy đủ là tên module ghép với hậu tố, ví dụ `CANDIDATES` + RS = `CANDIDATES_READ_SCOPED`. Cột ADMIN lấy theo ghi chú "Admin toàn quyền mọi module" của bảng nguồn.
+Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_WRITE_SCOPED`. Mã đầy đủ là tên module ghép với hậu tố, ví dụ `CANDIDATES` + RS = `CANDIDATES_READ_SCOPED`. Cột ADMIN lấy theo ghi chú "Admin toàn quyền mọi module" của bảng nguồn, trừ dải lương (mục 7.9).
 
 | Module | CANDIDATE | INTERVIEWER | HIRING_MANAGER | RECRUITER | APPROVER | HR_MANAGER | ADMIN |
 |---|---|---|---|---|---|---|---|
@@ -108,18 +109,19 @@ Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_W
 |`NOTIFICATIONS`|R* · RS|R* · RS|R* · RS|F · RA, WA|–|F · RA, WA|F · RA, WA|
 |`REPORTS`|–|–|R* · RS|R* · RS|R · RA|F · RA, WA|F · RA, WA|
 |`USER_ADMIN`|–|–|–|–|–|R · RA|F · RA, WA|
+|`SALARY_RANGES`|–|–|–|–|–|**F** · RA, WA|**–**|
 |Tự phục vụ (`SELF_*`)|–|3 mã|3 mã|3 mã|3 mã|3 mã|3 mã|
 
-Ô in đậm là khác biệt duy nhất so với bảng nguồn; lý do ở mục 7.
+Ô in đậm là khác biệt so với bảng nguồn; lý do ở mục 7.1 (Recruiter – hồ sơ ứng viên) và 7.9 (dải lương). Bảng nguồn không có dòng dải lương riêng: theo Jira 205, chỉ HR_MANAGER được cấp, và ADMIN không được cấp dù ghi chú "Admin toàn quyền mọi module".
 
 ### 5.2 Danh sách mã chính xác trong `role_permissions`
 
-Ba mã tự phục vụ `SELF_PROFILE_READ`, `SELF_PROFILE_WRITE`, `SELF_SECURITY_WRITE` có trong mọi vai trò nội bộ và được tính vào cột tổng. Tổng cộng có 102 dòng.
+Ba mã tự phục vụ `SELF_PROFILE_READ`, `SELF_PROFILE_WRITE`, `SELF_SECURITY_WRITE` có trong mọi vai trò nội bộ và được tính vào cột tổng. Tổng cộng có 104 dòng (102 dòng của V3/V5 và 2 dòng của V7_1).
 
 | Vai trò | Tổng | Mã quyền nghiệp vụ |
 |---|---|---|
 |`ADMIN`|23|`ORGANIZATION_READ_ALL`, `ORGANIZATION_WRITE_ALL`, `REQUISITIONS_READ_ALL`, `REQUISITIONS_WRITE_ALL`, `JOB_POSTINGS_READ_ALL`, `JOB_POSTINGS_WRITE_ALL`, `CANDIDATES_READ_ALL`, `CANDIDATES_WRITE_ALL`, `INTERVIEWS_READ_ALL`, `INTERVIEWS_WRITE_ALL`, `EVALUATIONS_READ_ALL`, `EVALUATIONS_WRITE_ALL`, `OFFERS_READ_ALL`, `OFFERS_WRITE_ALL`, `NOTIFICATIONS_READ_ALL`, `NOTIFICATIONS_WRITE_ALL`, `REPORTS_READ_ALL`, `REPORTS_WRITE_ALL`, `USER_ADMIN_READ_ALL`, `USER_ADMIN_WRITE_ALL`|
-|`HR_MANAGER`|22|Giống `ADMIN` nhưng không có `USER_ADMIN_WRITE_ALL`|
+|`HR_MANAGER`|24|Giống `ADMIN` nhưng không có `USER_ADMIN_WRITE_ALL`; có thêm `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` (V7_1)|
 |`RECRUITER`|18|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_SCOPED`, `JOB_POSTINGS_WRITE_SCOPED`, `CANDIDATES_READ_SCOPED`, `CANDIDATES_WRITE_SCOPED`, `INTERVIEWS_READ_ALL`, `INTERVIEWS_WRITE_ALL`, `EVALUATIONS_READ_ALL`, `OFFERS_READ_SCOPED`, `OFFERS_WRITE_SCOPED`, `NOTIFICATIONS_READ_ALL`, `NOTIFICATIONS_WRITE_ALL`, `REPORTS_READ_SCOPED`|
 |`HIRING_MANAGER`|13|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_ALL`, `CANDIDATES_READ_SCOPED`, `INTERVIEWS_READ_SCOPED`, `EVALUATIONS_READ_SCOPED`, `OFFERS_READ_SCOPED`, `NOTIFICATIONS_READ_SCOPED`, `REPORTS_READ_SCOPED`|
 |`APPROVER`|12|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_ALL`, `CANDIDATES_READ_ALL`, `EVALUATIONS_READ_ALL`, `OFFERS_READ_SCOPED`, `OFFERS_WRITE_SCOPED`, `REPORTS_READ_ALL`|
@@ -160,12 +162,16 @@ URL dùng tiền tố `/api/v1`. "6 vai trò nội bộ" là ADMIN, HR_MANAGER, 
 |24|`POST /departments`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 |25|`PUT /departments/{id}`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 |26|`GET /api/health` (không có `/v1`)|Công khai; API sức khỏe cũ giữ lại để tương thích|Mọi người|
-|27|`GET /positions`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
-|28|`GET /positions/{id}`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
-|29|`POST /positions`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
-|30|`PUT /positions/{id}`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
+|27|`GET /positions`|`ORGANIZATION_READ_ALL`; `salaryMin`/`salaryMax` chỉ có trong response khi có thêm `SALARY_RANGES_READ_ALL`|6 vai trò nội bộ; chỉ HR_MANAGER thấy dải lương|
+|28|`GET /positions/{id}`|`ORGANIZATION_READ_ALL`; `salaryMin`/`salaryMax` chỉ có trong response khi có thêm `SALARY_RANGES_READ_ALL`|6 vai trò nội bộ; chỉ HR_MANAGER thấy dải lương|
+|29|`POST /positions`|`ORGANIZATION_WRITE_ALL` **và** `SALARY_RANGES_WRITE_ALL`|HR_MANAGER|
+|30|`PUT /positions/{id}`|`ORGANIZATION_WRITE_ALL` **và** `SALARY_RANGES_WRITE_ALL`|HR_MANAGER|
+|31|`GET /competency-frameworks`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
+|32|`GET /competency-frameworks/{id}`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
+|33|`POST /competency-frameworks`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
+|34|`PUT /competency-frameworks/{id}`|`ORGANIZATION_WRITE_ALL`|ADMIN, HR_MANAGER|
 
-Ngoài bộ lọc trong `SecurityConfiguration`, service của tài khoản (13–20), phòng ban (21–25), chức danh (27–30) và hồ sơ cá nhân (9–10) kiểm lại mã quyền trước khi xử lý; với thao tác ghi, việc kiểm lại diễn ra sau khi khóa bản ghi. Thao tác ghi tài khoản yêu cầu đồng thời vai trò `ADMIN` và mã `USER_ADMIN_WRITE_ALL`, ở cả `SecurityConfiguration` lẫn `AccountProvisioningService`, `AccountManagementService`, `AccountRoleService` và `AccountLockService`. Vì vậy, nếu sau này cấp `USER_ADMIN_WRITE_ALL` cho vai trò khác, vai trò đó vẫn nhận 403 cho tới khi sửa cả năm chỗ này.
+Ngoài bộ lọc trong `SecurityConfiguration`, service của tài khoản (13–20), phòng ban (21–25), chức danh (27–30), khung năng lực (31–34) và hồ sơ cá nhân (9–10) kiểm lại mã quyền trước khi xử lý; với thao tác ghi, việc kiểm lại diễn ra sau khi khóa bản ghi. Thao tác ghi tài khoản yêu cầu đồng thời vai trò `ADMIN` và mã `USER_ADMIN_WRITE_ALL`, ở cả `SecurityConfiguration` lẫn `AccountProvisioningService`, `AccountManagementService`, `AccountRoleService` và `AccountLockService`. Vì vậy, nếu sau này cấp `USER_ADMIN_WRITE_ALL` cho vai trò khác, vai trò đó vẫn nhận 403 cho tới khi sửa cả năm chỗ này. Tương tự, tạo/sửa chức danh (29–30) yêu cầu cả hai mã ở `SecurityConfiguration` lẫn `PositionService`; còn việc ẩn dải lương ở dòng 27–30 là kiểm tra theo trường trong `PositionService`, không có matcher URL riêng.
 
 Mọi URL không có trong bảng đều bị từ chối mặc định. Khi bộ lọc Bearer gặp token thiếu, sai hoặc phiên đã hết, server trả **401** `UNAUTHORIZED` kèm `WWW-Authenticate: Bearer`. Khi phiên hợp lệ nhưng thiếu quyền, server trả **403** `FORBIDDEN` với thông báo tiếng Việt. Cả hai phản hồi này đều có `Cache-Control: no-store`. Riêng refresh token hỏng và các lần service kiểm lại phiên thấy phiên đã mất trả 401 với mã `SESSION_INVALID` qua `ApiExceptionHandler`, không kèm hai header trên. Quyền được đọc lại từ database ở mỗi yêu cầu, nên thay đổi vai trò có hiệu lực ngay ở yêu cầu kế tiếp.
 
@@ -176,10 +182,10 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 3. **Nhiều vai trò thì cộng quyền.** Quyền của tài khoản là hợp của quyền mọi vai trò được gán. Hệ thống không có quyền "cấm", nên thêm vai trò chỉ mở rộng quyền. Đề xuất: khi một người có cả `_READ_ALL` và `_READ_SCOPED` của cùng module, API sau này áp dụng phạm vi rộng hơn.
 4. **Tài khoản không có vai trò.** Tài khoản vẫn đăng nhập và refresh được. Tuy vậy, mọi API được bảo vệ đều trả 403, kể cả `/auth/me`, `/profile`, đăng xuất và đổi mật khẩu, vì tài khoản không còn mã `SELF_*`. Admin có thể gán lại vai trò. Hiện không có quy tắc "mỗi tài khoản phải có ít nhất một vai trò".
 5. **Ứng viên là tác nhân bên ngoài.** `CANDIDATE` có `internal=false` và không có tài khoản nội bộ. Ràng buộc CHECK trên `user_roles` (V1) chỉ nhận sáu vai trò nội bộ nên chặn việc gán `CANDIDATE`; khóa ngoại sang `roles` (V3) chặn thêm các mã vai trò không tồn tại. Cổng ứng viên sau này sẽ cần cơ chế xác thực riêng; cơ chế đó chưa được thiết kế.
-6. **Admin có toàn quyền mọi module.** Quyền này gồm cả dữ liệu cá nhân của ứng viên, phiếu đánh giá và offer (`*_ALL`), theo ghi chú "Admin toàn quyền mọi module". Phần mô tả vai trò chỉ nêu quản lý tài khoản, danh mục và nhật ký. Xem câu hỏi 6.
+6. **Admin có toàn quyền mọi module, trừ dải lương.** Quyền này gồm cả dữ liệu cá nhân của ứng viên, phiếu đánh giá và offer (`*_ALL`), theo ghi chú "Admin toàn quyền mọi module". Ngoại lệ duy nhất là module `SALARY_RANGES` (mục 7.9 và câu hỏi 4): ADMIN không xem được dải lương và không tạo/sửa được chức danh. Phần mô tả vai trò chỉ nêu quản lý tài khoản, danh mục và nhật ký. Xem câu hỏi 6.
 7. **HR Manager chỉ xem tài khoản.** `USER_ADMIN_READ_ALL` cho phép xem danh sách và chi tiết tài khoản, không cho tạo, sửa, gán vai trò hay khóa tài khoản. Nhật ký hệ thống (audit log) trong dòng "Người dùng & nhật ký" chưa được xây dựng và chưa có API.
 8. **Recruiter xem lịch và phiếu của mọi vị trí.** Theo bảng nguồn, Recruiter có `INTERVIEWS` = F và `EVALUATIONS` = R, nên được seed `ALL`. Do đó Recruiter có thể xem lịch phỏng vấn và phiếu đánh giá của ứng viên thuộc vị trí không được phân công, dù hồ sơ ứng viên đã bị giới hạn. Xem câu hỏi 8.
-9. **Dải lương chưa có mã quyền riêng.** Bảng nguồn đặt "vị trí" trong dòng "Danh mục tổ chức & vị trí", tức module `ORGANIZATION`. Cả sáu vai trò nội bộ đều có `ORGANIZATION_READ_ALL`. Nếu dải lương nằm trong danh mục chức danh, quyền này không đủ để che dải lương. Xem câu hỏi 4. API chức danh của task 203 (mục 6, dòng 27–30) hiện trả dải lương cho mọi người có `ORGANIZATION_READ_ALL`; task 205 sẽ bổ sung quyền riêng để ẩn dải lương.
+9. **Dải lương có module quyền riêng `SALARY_RANGES` (V7_1, task 205).** Bảng nguồn đặt "vị trí" trong dòng "Danh mục tổ chức & vị trí", tức module `ORGANIZATION`, mà cả sáu vai trò nội bộ đều có `ORGANIZATION_READ_ALL`; quyền đó không đủ để che dải lương. V7_1 thêm bốn mã `SALARY_RANGES_*` và chỉ cấp `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` cho HR_MANAGER, theo Jira 205 "chỉ Trưởng phòng Nhân sự xem được dải lương". ADMIN cố ý không được cấp, khác ghi chú "Admin toàn quyền mọi module"; vì lương là trường bắt buộc khi tạo/sửa chức danh, ADMIN cũng không tạo/sửa được chức danh. Người thiếu `SALARY_RANGES_READ_ALL` nhận response chức danh không có khóa `salaryMin`/`salaryMax` (mục 6, dòng 27–30). Xem câu hỏi 4.
 10. **Quyền `SCOPED` chưa được kiểm theo từng bản ghi.** Các API ứng viên, yêu cầu tuyển dụng, offer, báo cáo chưa tồn tại. Hiện chỉ có kiểm tra mã quyền theo module.
 
 ## 8. Câu hỏi cần BA/PO xác nhận
@@ -187,8 +193,8 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 1. **Phạm vi ứng viên của Recruiter.** BA/PO có đồng ý thay `F` bằng `W*` (chỉ ứng viên của vị trí được phân công) không? "Được phân công" xác định theo yêu cầu tuyển dụng hay theo vị trí, và HR Manager phân công ở đâu?
 2. **`W` hay `W*` cho Recruiter.** Ở yêu cầu tuyển dụng, tin tuyển dụng và offer, Recruiter đang chỉ thao tác trên vị trí được phân công. Có cần cho Recruiter thao tác trên mọi vị trí (`ALL`) không? Riêng yêu cầu tuyển dụng: Recruiter có được tạo mới không, hay chỉ Hiring Manager tạo?
 3. **Approver xem toàn bộ ứng viên.** Approver đang có `CANDIDATES_READ_ALL` và `EVALUATIONS_READ_ALL`, tức xem được dữ liệu cá nhân của mọi ứng viên. Có nên giới hạn ở ứng viên và offer đang chờ chính người đó duyệt không?
-4. **Ai được xem dải lương.** Story 14 yêu cầu Interviewer không xem được; Jira 205 ghi "chỉ Trưởng phòng Nhân sự xem được dải lương". Vậy Admin, Approver (duyệt offer vượt hạn mức), Recruiter (soạn offer) và Hiring Manager có được xem không? Backend đề xuất một mã quyền riêng cho dải lương thay vì dùng `ORGANIZATION_READ_ALL`.
-5. **Hạn mức lương khi duyệt offer.** "Vượt hạn mức lương" được so với dải lương của chức danh hay với hạn mức riêng của từng cấp duyệt? Recruiter có bị giới hạn mức lương khi soạn offer không? Có cần lưu hạn mức theo từng Approver không?
+4. **Ai được xem dải lương.** Story 14 yêu cầu Interviewer không xem được; Jira 205 ghi "chỉ Trưởng phòng Nhân sự xem được dải lương". **Trạng thái: backend đã tạm áp dụng (task 205, V7_1), chờ BA/PO xác nhận.** Hiện chỉ HR_MANAGER có `SALARY_RANGES_READ_ALL` và `SALARY_RANGES_WRITE_ALL`; mọi vai trò khác, kể cả ADMIN, không thấy dải lương và không tạo/sửa được chức danh. Cần xác nhận: Admin có cần quản lý danh mục chức danh (tức cần cả hai mã) không? Approver (duyệt offer vượt hạn mức), Recruiter (soạn offer) và Hiring Manager có cần xem dải lương không, và nếu có thì xem toàn bộ hay chỉ của vị trí liên quan (`SALARY_RANGES_READ_SCOPED`, hiện chưa có ý nghĩa)? Đổi quyết định chỉ cần migration mới thêm/xóa dòng `role_permissions` theo mục 4.
+5. **Hạn mức lương khi duyệt offer.** "Vượt hạn mức lương" được so với dải lương của chức danh hay với hạn mức riêng của từng cấp duyệt? Recruiter có bị giới hạn mức lương khi soạn offer không? Có cần lưu hạn mức theo từng Approver không? Task 206 đã chuẩn bị phần so với dải lương của chức danh (`SalaryBandService`: `BELOW`/`WITHIN`/`ABOVE`, tính cả hai đầu dải) và tạm quyết định chức danh ngừng áp dụng không có dải lương chuẩn (`POSITION_INACTIVE`), kể cả với offer đang chờ duyệt; cần BA/PO xác nhận quyết định này cùng câu hỏi trên.
 6. **Admin và dữ liệu cá nhân ứng viên.** Có giữ toàn quyền của Admin với hồ sơ ứng viên, phiếu đánh giá và offer không, hay thu hẹp Admin về tài khoản, danh mục và nhật ký theo nguyên tắc quyền tối thiểu?
 7. **HR Manager và tài khoản.** Chỉ xem tài khoản như hiện tại có đủ không? HR Manager có cần tạo tài khoản, gán vai trò Recruiter hoặc xem nhật ký hệ thống không?
 8. **Recruiter xem lịch và phiếu đánh giá.** Có nên giới hạn `INTERVIEWS` và `EVALUATIONS` của Recruiter về vị trí được phân công, cho nhất quán với hồ sơ ứng viên?
@@ -202,5 +208,6 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 - Vai trò lấy từ `user.roles` trong response của `POST /auth/login`, hoặc từ `roles` của `GET /auth/me`. Đây là **mảng**, vì một người có thể có nhiều vai trò. Giá trị là mã ở mục 1, ví dụ `HR_MANAGER`.
 - Quyền lấy từ `GET /auth/permissions`, response có dạng `{"permissions":["ORGANIZATION_READ_ALL","SELF_PROFILE_READ", ...]}` đã sắp xếp. Nên dựa vào mã quyền hơn là tên vai trò, vì quyền là hợp của nhiều vai trò và ma trận còn có thể thay đổi.
 - Gợi ý, chờ Jira 130 chốt: hiện menu của một module khi người dùng có `<MODULE>_READ_ALL` hoặc `<MODULE>_READ_SCOPED`; hiện nút tạo/sửa khi có `<MODULE>_WRITE_ALL` hoặc `<MODULE>_WRITE_SCOPED`. Ví dụ, menu tài khoản dùng `USER_ADMIN_READ_ALL`, menu phòng ban dùng `ORGANIZATION_READ_ALL`, hồ sơ cá nhân dùng `SELF_PROFILE_READ`.
+- Chức danh: hiện cột/ô dải lương khi có `SALARY_RANGES_READ_ALL`; hiện nút tạo/sửa chức danh khi có cả `ORGANIZATION_WRITE_ALL` và `SALARY_RANGES_WRITE_ALL`. Với người không có quyền xem, response không có khóa `salaryMin`/`salaryMax`, nên giao diện phải xử lý trường vắng mặt thay vì hiển thị `0`.
 - Ẩn menu chỉ để trải nghiệm người dùng tốt hơn. Server luôn kiểm lại quyền ở mọi yêu cầu. Frontend vẫn cần xử lý 401 (refresh token hoặc đăng nhập lại) và 403 (báo không có quyền), và tải lại quyền sau khi đăng nhập hoặc khi vai trò thay đổi.
 - Nhánh frontend `feature/TKNHTTDNB1-132-permission-mechanism` hiện dùng ví dụ một trường `role` đơn, tên vai trò như `HR`, `EMPLOYEE` và tên quyền như `VIEW_REPORT`, `APPROVE_RECRUITMENT`. Backend chưa có các tên này. Khi tích hợp, hai bên cần thống nhất dùng mã ở tài liệu này, ví dụ báo cáo tương ứng `REPORTS_READ_ALL` hoặc `REPORTS_READ_SCOPED`.
