@@ -167,7 +167,7 @@ class RequisitionReadUpdateIntegrationTest {
         assertThat(first.path("size").asInt()).isEqualTo(2);
         assertThat(first.path("totalElements").asLong()).isEqualTo(3);
         assertThat(first.path("totalPages").asLong()).isEqualTo(2);
-        first.path("items").forEach(this::assertExactFields);
+        first.path("items").forEach(this::assertListItemFields);
 
         JsonNode second = expect(request("GET", BASE + "?page=1&size=2", null, hrToken), 200);
         assertThat(ids(second)).containsExactly(oldest);
@@ -182,8 +182,47 @@ class RequisitionReadUpdateIntegrationTest {
         assertThat(defaults.path("page").asInt()).isZero();
         assertThat(defaults.path("size").asInt()).isEqualTo(20);
         assertThat(defaults.path("totalPages").asLong()).isEqualTo(1);
-        // A list item is the same view as the detail.
-        assertThat(defaults.path("items").path(0)).isEqualTo(expect(request("GET", BASE + "/" + newest, null, adminToken), 200));
+        JsonNode listItem = defaults.path("items").path(0);
+        JsonNode detail = expect(request("GET", BASE + "/" + newest, null, adminToken), 200);
+        assertListItemFields(listItem);
+        RESPONSE_FIELDS.forEach(field -> assertThat(listItem.path(field)).as(field).isEqualTo(detail.path(field)));
+    }
+
+    @Test
+    void listMetricsFollowBusinessMidnightAndKeepMissingDeadlinesEmpty() throws Exception {
+        Map<String, Object> due = payload(positionId, itId);
+        due.put("neededBy", "2026-10-08");
+        UUID dueId = id(createDraft(due, headToken));
+
+        clock.set(Instant.parse("2026-10-07T16:30:00Z")); // 23:30 in Vietnam on October 7.
+        String token = token("hr@example.test");
+        JsonNode beforeMidnight = expect(request("GET", BASE, null, token), 200).path("items").path(0);
+        assertThat(id(beforeMidnight)).isEqualTo(dueId);
+        assertThat(beforeMidnight.path("daysOpen").asLong()).isZero();
+        assertThat(beforeMidnight.path("daysUntilNeededBy").asLong()).isEqualTo(1);
+        assertThat(beforeMidnight.path("overdue").asBoolean()).isFalse();
+
+        clock.set(Instant.parse("2026-10-07T17:30:00Z")); // 00:30 in Vietnam on the due date.
+        token = token("hr@example.test");
+        JsonNode onDueDate = expect(request("GET", BASE, null, token), 200).path("items").path(0);
+        assertThat(onDueDate.path("daysOpen").asLong()).isEqualTo(1);
+        assertThat(onDueDate.path("daysUntilNeededBy").asLong()).isZero();
+        assertThat(onDueDate.path("overdue").asBoolean()).isFalse();
+
+        clock.set(Instant.parse("2026-10-08T17:30:00Z")); // 00:30 in Vietnam the following day.
+        token = token("hr@example.test");
+        JsonNode overdue = expect(request("GET", BASE, null, token), 200).path("items").path(0);
+        assertThat(overdue.path("daysOpen").asLong()).isEqualTo(2);
+        assertThat(overdue.path("daysUntilNeededBy").asLong()).isEqualTo(-1);
+        assertThat(overdue.path("overdue").asBoolean()).isTrue();
+
+        UUID noDeadlineId = id(createDraft(payload(positionId, itId), token));
+        JsonNode noDeadline = expect(request("GET", BASE, null, token), 200).path("items").path(0);
+        assertThat(id(noDeadline)).isEqualTo(noDeadlineId);
+        assertThat(noDeadline.path("daysOpen").asLong()).isZero();
+        assertThat(noDeadline.path("daysUntilNeededBy").isNull()).isTrue();
+        assertThat(noDeadline.path("overdue").asBoolean()).isFalse();
+        assertExactFields(expect(request("GET", BASE + "/" + noDeadlineId, null, token), 200));
     }
 
     @Test
@@ -663,6 +702,14 @@ class RequisitionReadUpdateIntegrationTest {
     private void assertExactFields(JsonNode requisition) {
         assertThat(requisition.size()).isEqualTo(RESPONSE_FIELDS.size());
         RESPONSE_FIELDS.forEach(field -> assertThat(requisition.has(field)).as(field).isTrue());
+    }
+
+    private void assertListItemFields(JsonNode requisition) {
+        assertThat(requisition.size()).isEqualTo(RESPONSE_FIELDS.size() + 3);
+        RESPONSE_FIELDS.forEach(field -> assertThat(requisition.has(field)).as(field).isTrue());
+        for (String field : List.of("daysOpen", "daysUntilNeededBy", "overdue")) {
+            assertThat(requisition.has(field)).as(field).isTrue();
+        }
     }
 
     private void assertPageFields(JsonNode page) {
