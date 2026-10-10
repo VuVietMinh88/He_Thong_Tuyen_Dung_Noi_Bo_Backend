@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -80,10 +81,14 @@ public class RequisitionService {
     // Task 249 adds: a SCOPED caller may only choose a department they manage.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
-        Caller caller = requireWriteAccess(jwt);
+        Writer writer = lockWriter(jwt);
+        requireStillWriter(jwt, writer);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
+        // The FOR SHARE locks above can wait for HR's edit of the position or the department, and meanwhile the
+        // access token may expire or the permission may be removed: check the caller again before saving.
+        Caller caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
@@ -134,16 +139,23 @@ public class RequisitionService {
     // scope of task 249 for the department in the body).
     @Transactional
     public RequisitionView update(Jwt jwt, UUID id, RequisitionRequest request) {
-        Caller caller = requireWriteAccess(jwt);
-        // Lock order: the actor's account, the actor's session (inside requireWriteAccess), then the requisition,
+        Writer writer = lockWriter(jwt);
+        requireStillWriter(jwt, writer);
+        // Lock order: the actor's account, the actor's session (inside lockWriter), then the requisition,
         // then (shared) the chosen position and department.
+        var locked = requisitions.findByIdForUpdate(id);
+        // Every row lock can wait, and meanwhile the access token may expire or the permission may be removed, so the
+        // caller is checked again after each of them: here before the 404 (like DepartmentService.lockDepartment,
+        // task 198) and again after the position and department locks, right before the save.
+        Caller caller = requireStillWriter(jwt, writer);
+        var requisition = locked.orElseThrow(RequisitionService::notFound);
         // The scope is checked after this lock, so a department manager change made while we waited is respected.
-        var requisition = requisitions.findByIdForUpdate(id).orElseThrow(RequisitionService::notFound);
         requireInScope(caller, requisition.getDepartmentId());
         requireDraft(requisition);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
+        caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
@@ -163,7 +175,10 @@ public class RequisitionService {
         return new Caller(actor.getId(), scope);
     }
 
-    private Caller requireWriteAccess(Jwt jwt) {
+    // The caller of a write after lockWriter: the account id and the session row this transaction has locked.
+    private record Writer(UUID actorId, AuthSession session) { }
+
+    private Writer lockWriter(Jwt jwt) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -179,18 +194,28 @@ public class RequisitionService {
         var session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
 
-        // The request may have waited for those locks. Recheck the token, session and permission now.
+        return new Writer(actorId, session);
+    }
+
+    // May the caller still write? Called once the account and session locks are held (the request may have waited
+    // for them), and again after every row lock the write waits for. From the first call on this transaction holds
+    // the caller's account and session rows, so an admin lock, a logout or a role change through the account API
+    // waits for it. Time still passes (token or session expiry) and the grants in role_permissions can still change
+    // (a migration locks no account), so all three are checked every time, with the permissions read again from the
+    // database.
+    private Caller requireStillWriter(Jwt jwt, Writer writer) {
         var now = clock.instant();
         requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!writer.session().getUserId().equals(writer.actorId()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
         // ALL (ADMIN, HR_MANAGER) and SCOPED (HIRING_MANAGER, RECRUITER, APPROVER) may both write.
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
         // SCOPED callers are then limited to their departments: the saved requisition on update (requireInScope)
         // and the department written in the body on create and update (requireChosenDepartmentInScope).
-        AccessScope scope = AccessScope.write(permissions.forUser(actorId), PermissionModule.REQUISITIONS).orDeny();
-        return new Caller(actorId, scope);
+        AccessScope scope = AccessScope.write(permissions.forUser(writer.actorId()), PermissionModule.REQUISITIONS)
+                .orDeny();
+        return new Caller(writer.actorId(), scope);
     }
 
     // ALL reaches every department. SCOPED only reaches a department the caller manages, directly or through a
