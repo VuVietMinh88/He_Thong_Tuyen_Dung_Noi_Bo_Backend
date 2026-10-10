@@ -81,7 +81,7 @@ chụp phiên xử lý.
 |409|APPROVAL_FLOW_EXISTS|Phòng ban đã có cấu hình|
 |409|APPROVAL_VERSION_CONFLICT|Phiên bản đang sửa đã cũ|
 
-V7 thêm approval_flows, approval_flow_versions và approval_flow_steps; giữ nguyên dữ liệu cũ.
+V18 (ban đầu đánh số V7, đổi số khi đưa lên trên V17) thêm approval_flows, approval_flow_versions và approval_flow_steps; giữ nguyên dữ liệu cũ.
 Khóa ghi theo tài khoản (UUID tăng dần), phiên người gọi, rồi phòng ban; các lần lưu cùng phòng ban
 được tuần tự hóa. Khóa ngoại từ phiên bản giữ người tạo và đối tượng duyệt để lịch sử còn tham chiếu.
 Kiểm thử sử dụng PostgreSQL tạm riêng; áp dụng migration lên database làm việc khi triển khai ứng dụng.

@@ -18,6 +18,7 @@ import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.approval.*;
+import vn.ttcs.recruitment.common.ApiException;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -84,7 +85,7 @@ class ApprovalFlowServiceTest {
         assertThat(service.get(jwt, first.id(), null)).isEqualTo(second);
         assertThat(service.list(jwt, department, 0, 20).totalElements()).isEqualTo(1);
         assertThat(service.list(jwt, department, 1, 20).items()).isEmpty();
-        assertThatThrownBy(() -> service.update(jwt, first.id(), changed)).isInstanceOfSatisfying(ApprovalFlowException.class,
+        assertThatThrownBy(() -> service.update(jwt, first.id(), changed)).isInstanceOfSatisfying(ApiException.class,
                 e -> assertThat(e.getCode()).isEqualTo("APPROVAL_VERSION_CONFLICT"));
     }
 
@@ -102,10 +103,10 @@ class ApprovalFlowServiceTest {
                 List.of(step(1, null, "ADMIN"), step(2, "1.1", "HR_MANAGER")));
         for (var steps : invalid) {
             assertThatThrownBy(() -> service.create(jwt, new ApprovalFlowRequest(department, "Flow", null, steps)))
-                    .isInstanceOfSatisfying(ApprovalFlowException.class, e -> assertThat(e.getFieldErrors()).isNotEmpty());
+                    .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getFieldErrors()).isNotEmpty());
         }
         assertThatThrownBy(() -> service.create(jwt, new ApprovalFlowRequest(department, "Flow", null, Arrays.asList((ApprovalFlowRequest.Step) null))))
-                .isInstanceOf(ApprovalFlowException.class);
+                .isInstanceOf(ApiException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM approval_flows", Integer.class)).isZero();
     }
 
@@ -113,9 +114,9 @@ class ApprovalFlowServiceTest {
     void invalidUpdateKeepsCurrentVersionAndInactiveDepartmentsAreRejected() {
         var first = service.create(jwt, payload(null));
         assertThatThrownBy(() -> service.update(jwt, first.id(), new ApprovalFlowRequest(department, "", 1, first.steps())))
-                .isInstanceOf(ApprovalFlowException.class);
+                .isInstanceOf(ApiException.class);
         jdbc.update("UPDATE departments SET active=false WHERE id=?", department);
-        assertThatThrownBy(() -> service.update(jwt, first.id(), payload(1))).isInstanceOf(ApprovalFlowException.class);
+        assertThatThrownBy(() -> service.update(jwt, first.id(), payload(1))).isInstanceOf(ApiException.class);
         assertThat(service.get(jwt, first.id(), null)).isEqualTo(first);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM approval_flow_versions", Integer.class)).isEqualTo(1);
     }
@@ -132,7 +133,7 @@ class ApprovalFlowServiceTest {
         var flow = service.create(hr, body);
         jdbc.update("UPDATE user_accounts SET enabled=false WHERE id=?", hrId);
         assertThatThrownBy(() -> service.update(jwt, flow.id(), new ApprovalFlowRequest(department, "Explicit", 1, body.steps())))
-                .isInstanceOf(ApprovalFlowException.class);
+                .isInstanceOf(ApiException.class);
         jdbc.update("DELETE FROM role_permissions WHERE role_code='ADMIN' AND permission_code='REQUISITIONS_WRITE_ALL'");
         assertThatThrownBy(() -> service.update(jwt, flow.id(), payload(1))).isInstanceOf(AccessDeniedException.class);
         jdbc.update("DELETE FROM role_permissions WHERE role_code='ADMIN' AND permission_code='REQUISITIONS_READ_ALL'");
@@ -179,7 +180,7 @@ class ApprovalFlowServiceTest {
     }
 
     private String outcome(Runnable action) {
-        try { action.run(); return "ok"; } catch (ApprovalFlowException ex) { return ex.getCode(); }
+        try { action.run(); return "ok"; } catch (ApiException ex) { return ex.getCode(); }
     }
     private Jwt login(String email) { return decoder.decode(auth.login(new LoginRequest(email, "TestingOnly123!")).accessToken()); }
     private ApprovalFlowRequest payload(Integer expected) {

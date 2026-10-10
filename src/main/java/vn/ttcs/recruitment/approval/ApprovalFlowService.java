@@ -13,6 +13,7 @@ import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.math.BigDecimal;
@@ -168,13 +169,13 @@ public class ApprovalFlowService {
         if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(clock.instant()))
             throw AuthenticationFailureException.sessionInvalid();
     }
-    private static ApprovalFlowException invalid(Map<String,String> fields) {
-        return new ApprovalFlowException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra cấu hình phê duyệt.", fields);
+    private static ApiException invalid(Map<String,String> fields) {
+        return new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra cấu hình phê duyệt.", fields);
     }
-    private static ApprovalFlowException notFound() {
+    private static ApiException notFound() {
         return failure(HttpStatus.NOT_FOUND, "APPROVAL_FLOW_NOT_FOUND", "Không tìm thấy cấu hình hoặc phiên bản phê duyệt.");
     }
-    private static ApprovalFlowException failure(HttpStatus status, String code, String message) {
-        return new ApprovalFlowException(status, code, message, Map.of());
+    private static ApiException failure(HttpStatus status, String code, String message) {
+        return new ApiException(status, code, message);
     }
 }

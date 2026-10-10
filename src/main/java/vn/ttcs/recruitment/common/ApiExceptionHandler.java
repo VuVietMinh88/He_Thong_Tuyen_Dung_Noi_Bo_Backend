@@ -19,7 +19,6 @@ import vn.ttcs.recruitment.account.InvalidAccountQueryException;
 import vn.ttcs.recruitment.account.role.SelfAdminRevocationException;
 import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import vn.ttcs.recruitment.department.DepartmentException;
-import vn.ttcs.recruitment.approval.ApprovalFlowException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
@@ -31,12 +30,6 @@ import java.util.Map;
 public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
-        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
-                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
-    }
-
-    @ExceptionHandler(ApprovalFlowException.class)
-    public ResponseEntity<ApiError> approvalFlowFailure(ApprovalFlowException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
                 .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
     }
