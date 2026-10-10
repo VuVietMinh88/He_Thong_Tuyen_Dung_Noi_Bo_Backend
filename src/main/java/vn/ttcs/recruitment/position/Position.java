@@ -34,6 +34,11 @@ public class Position {
     @Column(nullable = false)
     private boolean active;
 
+    // Competency framework used to evaluate candidates for this position; null until one is assigned.
+    // Several positions may share one framework, so its criteria are never copied per position.
+    // update() leaves it alone: only useCompetencyFramework() changes it.
+    private UUID competencyFrameworkId;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -71,6 +76,14 @@ public class Position {
         this.updatedAt = updatedAt;
     }
 
+    // Jira 214: the position now uses this shared framework, or none when frameworkId is null. Only the id is
+    // stored, so the criteria stay in the framework and an edit of the framework reaches every position using it.
+    // PositionService checks that the framework exists and is ACTIVE before calling this.
+    public void useCompetencyFramework(UUID frameworkId, Instant updatedAt) {
+        this.competencyFrameworkId = frameworkId;
+        this.updatedAt = updatedAt;
+    }
+
     public UUID getId() { return id; }
     public String getCode() { return code; }
     public String getName() { return name; }
@@ -78,6 +91,7 @@ public class Position {
     public long getSalaryMin() { return salaryMin; }
     public long getSalaryMax() { return salaryMax; }
     public boolean isActive() { return active; }
+    public UUID getCompetencyFrameworkId() { return competencyFrameworkId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }
