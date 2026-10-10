@@ -12,13 +12,13 @@ Tiêu chí của story:
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
-|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}`|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
-|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó như `GET /assignment`|HR_MANAGER, ADMIN|
+|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}` (từ task 262 gồm cả người tham gia duyệt)|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
+|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt)|HR_MANAGER, ADMIN|
 |`POST /requisitions/{id}/unassign`|Như `POST /assign`|HR_MANAGER, ADMIN|
 |`GET /requisitions/{id}/assignment-history`|Như `GET /assignment`|Như `GET /assignment`|
 
 - Chỉ người có `REQUISITIONS_WRITE_ALL` được phân công. Trưởng bộ phận (`REQUISITIONS_WRITE_SCOPED`) bị 403, vì bảng vai trò ghi việc "phân công recruiter" thuộc về Trưởng phòng Nhân sự. Không thêm mã quyền mới.
-- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó như `GET /requisitions/{id}`, giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
+- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó theo phạm vi phòng ban của `GET /requisitions/{id}` (người tham gia duyệt không được tính, task 262), giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
 - Được phân công **chưa** làm recruiter thấy yêu cầu đó: `REQUISITIONS_*_SCOPED` vẫn hiểu là "phòng ban mình phụ trách". Việc mở rộng phạm vi theo phân công chờ BA/PO (câu hỏi 14 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)) và task 285.
 
 ## Xem phân công

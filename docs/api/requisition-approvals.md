@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) và TKNHTTDNB1-262 (API quyết định phê duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -93,6 +93,52 @@ Mỗi lần gửi duyệt mở một **lượt duyệt** (round). Lượt đầu
 
 Phiên bản cấu hình đã niêm phong không bao giờ đổi hay bị xóa (V18), và dòng lịch sử tham chiếu tới nó bằng khóa ngoại, nên dòng này **chính là** bản chụp chuỗi duyệt. HR lưu phiên bản cấu hình mới thì các lượt duyệt đang chạy vẫn theo phiên bản cũ; chỉ lần gửi duyệt sau mới dùng phiên bản mới. Trong lúc chờ duyệt, yêu cầu không sửa được, nên lương và phòng ban đã quyết định số cấp cũng không đổi.
 
+## Quyết định của cấp duyệt
+
+`POST /requisitions/{id}/approvals` (task 262) là quyết định của cấp đang chờ:
+
+```json
+{ "action": "REJECT", "comment": "Mức lương vượt kế hoạch quý IV", "expectedRevision": 1 }
+```
+
+| Trường | Quy tắc |
+|---|---|
+|action|Bắt buộc, đúng chữ hoa. Task 262 có `REJECT` (từ chối)|
+|comment|Nhận xét. Bắt buộc khi từ chối hoặc yêu cầu bổ sung; tối đa 2.000 ký tự, không chứa ký tự NUL; để trống hoặc không có ký tự nhìn thấy được (chỉ gồm khoảng trắng, kể cả U+00A0, xuống dòng, hoặc ký tự vô hình như U+200B) coi như không có; nhận xét có ký tự nhìn thấy được giữ nguyên xuống dòng|
+|expectedRevision|Bắt buộc, số nguyên dương: `revision` của tiến độ duyệt người duyệt đang xem, tức số thứ tự của sự kiện mới nhất trong lịch sử duyệt (1 ngay sau lần gửi duyệt đầu tiên, tăng 1 sau mỗi quyết định hoặc lần gửi duyệt; task 267 trả số này ở `GET /requisitions/{id}/approvals`). Lệch với lịch sử hiện tại (bấm hai lần, người khác vừa quyết định) thì trả 409 để tải lại|
+
+Trường khác (ví dụ `reason`) trả `INVALID_JSON`. Response 200 là yêu cầu tuyển dụng với trạng thái mới.
+
+Quyền ở matcher: `REQUISITIONS_WRITE_ALL` hoặc `REQUISITIONS_WRITE_SCOPED`, vì quyết định là thao tác ghi đổi trạng thái. Ai được quyết định một cấp do mục "Ai được duyệt một cấp" quyết định, **không** theo phạm vi phòng ban.
+
+### Thứ tự kiểm khi quyết định
+
+1. Quyền ở `SecurityConfiguration` (401/403). `{id}` không phải UUID trả 400 `VALIDATION_ERROR`.
+2. Body: `INVALID_JSON`, rồi `VALIDATION_ERROR` với `fieldErrors`.
+3. Thiếu nhận xét khi bắt buộc: 400 `APPROVAL_COMMENT_REQUIRED` với `fieldErrors.comment`.
+4. Khóa tài khoản người gọi rồi phiên; kiểm lại hạn token, phiên và quyền ghi (401 `SESSION_INVALID` / 403).
+5. Khóa dòng yêu cầu, kiểm lại người gọi. Không có quyền xem yêu cầu nào thì 403 ngay, trước khi biết yêu cầu có tồn tại không.
+6. Yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`).
+7. Khóa `FOR SHARE` phòng ban của yêu cầu, kiểm lại người gọi.
+8. Người gọi xem được yêu cầu (mục "Ai được xem yêu cầu"), nếu không thì 403.
+9. Yêu cầu đang chờ duyệt (409 `REQUISITION_NOT_PENDING_APPROVAL`).
+10. `expectedRevision` đúng `revision` mới nhất (409 `APPROVAL_STATE_CHANGED`).
+11. Người gọi được quyết định cấp hiện tại (403).
+12. Ghi quyết định vào lịch sử và đổi trạng thái của yêu cầu.
+
+Hai lỗi 409 đứng trước lỗi 403 ở bước 11 có chủ ý: hai người cùng giữ vai trò của một cấp cùng bấm thì người sau nhận thông báo tải lại, không phải lỗi quyền (giao diện chuyển mọi 403 sang `/unauthorized`).
+
+Khóa dòng phòng ban làm việc đổi người phụ trách hoặc phòng ban cha của phòng ban đó phải chờ quyết định này, hoặc quyết định thấy thay đổi đã lưu. Tài khoản người gọi được đọc khi đang khóa, nên vai trò bị gỡ trong lúc chờ cũng được thấy. Hai quyết định cùng lúc cho một cấp chạy lần lượt trên dòng yêu cầu: chỉ một quyết định được ghi. Database còn chặn hai quyết định cho cùng một cấp của một lượt.
+
+## Ai được xem yêu cầu
+
+Người có `REQUISITIONS_READ_SCOPED` vốn chỉ xem yêu cầu của phòng ban mình phụ trách. Từ task 262, người **tham gia duyệt** một yêu cầu cũng xem được nó, kể cả khi không phụ trách phòng ban nào (ví dụ vai trò APPROVER):
+
+- người đã quyết định một cấp của yêu cầu, ở bất kỳ lượt nào, mãi về sau;
+- người mà một cấp được chuyển tới (tài khoản được chỉ định, hoặc người giữ vai trò theo bảng ở mục "Ai được duyệt một cấp"), khi lượt duyệt đã **tới** cấp đó. Cấp chưa tới thì chưa mở gì.
+
+Quy tắc này áp dụng cho `GET /requisitions/{id}`, `GET /requisitions/{id}/assignment`, `GET /requisitions/{id}/assignment-history` và quyết định duyệt. Danh sách `GET /requisitions`, `GET /requisitions/{id}/headcount-overrides` và sao chép vẫn chỉ theo phòng ban. Quyền ghi nội dung (sửa, gửi duyệt, sao chép, phân công) không được mở rộng.
+
 ## Lịch sử quyết định
 
 Task 261: mỗi quyết định của một cấp được ghi thêm một dòng vào lịch sử duyệt (`requisition_workflow_events`), cùng transaction với trạng thái mới của yêu cầu. Mỗi dòng ghi:
@@ -124,7 +170,7 @@ Task 268 ("Lịch sử không sửa và không xoá được"):
 
 | HTTP | `code` | Khi nào |
 |---|---|---|
-|400|`VALIDATION_ERROR`|`comment` quá 2.000 ký tự hoặc chứa ký tự NUL; `{id}` không phải UUID|
+|400|`VALIDATION_ERROR`|`comment` quá 2.000 ký tự hoặc chứa ký tự NUL; `{id}` không phải UUID; khi quyết định: `action` thiếu hoặc không phải thao tác hợp lệ, `expectedRevision` thiếu hoặc nhỏ hơn 1 (task 262)|
 |400|`INVALID_JSON`|JSON sai hoặc có trường không được phép|
 |400|`REQUISITION_INCOMPLETE`|Gửi duyệt khi còn thiếu thông tin (`fieldErrors` liệt kê đủ)|
 |400|`NEEDED_BY_IN_PAST`, `INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`, `SALARY_JUSTIFICATION_REQUIRED`|Như khi lưu yêu cầu|
@@ -134,6 +180,10 @@ Task 268 ("Lịch sử không sửa và không xoá được"):
 |409|`REQUISITION_NOT_SUBMITTABLE`|Yêu cầu không ở trạng thái gửi duyệt được (đã gửi rồi chẳng hạn)|
 |409|`APPROVAL_FLOW_NOT_CONFIGURED`|Phòng ban chưa có cấu hình luồng duyệt|
 |409|`APPROVAL_LEVEL_UNAVAILABLE`|Có cấp không có người duyệt hợp lệ, hoặc không đủ người khác nhau cho các cấp|
+|400|`APPROVAL_COMMENT_REQUIRED`|Từ chối hoặc yêu cầu bổ sung mà không có nhận xét|
+|403|`FORBIDDEN`|Quyết định: không xem được yêu cầu, hoặc không được quyết định cấp hiện tại|
+|409|`REQUISITION_NOT_PENDING_APPROVAL`|Quyết định khi yêu cầu không còn chờ duyệt|
+|409|`APPROVAL_STATE_CHANGED`|`expectedRevision` không còn là `revision` mới nhất (bấm lại, người khác vừa quyết định)|
 
 ## Chọn cấp duyệt
 
@@ -182,4 +232,6 @@ Các quy tắc trên là giả định của backend. Gồm:
 - khi gửi duyệt bắt buộc có cả hai mức lương, ngày cần người, mô tả công việc và yêu cầu ứng viên;
 - không kiểm định biên lại khi gửi duyệt hay khi duyệt, vì yêu cầu đã được tính từ lúc lưu;
 - recruiter vẫn được phân công khi yêu cầu chờ duyệt, cần bổ sung hoặc đã duyệt; không phân công khi đã bị từ chối;
-- gửi duyệt và duyệt không đổi `updatedAt`; bản sao không mang trạng thái hay lịch sử duyệt.
+- gửi duyệt và duyệt không đổi `updatedAt`; bản sao không mang trạng thái hay lịch sử duyệt;
+- người tham gia duyệt xem được yêu cầu, phân công và lịch sử phân công của nó; danh sách và ngoại lệ định biên vẫn theo phòng ban;
+- `HR_MANAGER` và `ADMIN` không duyệt thay; một cấp mà người duyệt bị khóa hoặc mất quyền sau khi gửi thì chờ tới khi có người đủ điều kiện.

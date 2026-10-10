@@ -148,6 +148,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/requisitions/{id}/copy", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 404),
             // Task 257: submitting; the empty body is valid, so a permitted call stops at the unknown id.
             endpoint("POST", "/api/v1/requisitions/{id}/submit", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 404),
+            // Task 262: deciding is a REQUISITIONS write; the empty body stops a permitted call at 400 (no action).
+            endpoint("POST", "/api/v1/requisitions/{id}/approvals", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 284: only ALL writers assign; the empty body stops a permitted call at 400 before any lookup.
             endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
@@ -400,6 +402,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "departmentId", department, "name", "Target",
                 "steps", List.of(Map.of("position", 1, "approverRole", "HR_MANAGER")))),
                 actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        // Task 262: a requisition of TARGET created and submitted by ADMIN; its only level is HR_MANAGER's, so a
+        // forbidden decision that slipped through would add an event and change its status.
+        UUID pending = UUID.fromString(expect(request("POST", "/api/v1/requisitions", json.writeValueAsString(readyBody),
+                actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+        expect(request("POST", "/api/v1/requisitions/" + pending + "/submit", null, actors.get(Identity.ADMIN).token()), 200);
+        Map<String, Object> rejection = Map.of("action", "REJECT", "comment", "Không phù hợp", "expectedRevision", 1);
         UUID unused = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
                 "code", "UNUSED", "name", "Unused", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
@@ -488,6 +496,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + ready + "/submit", null),
                 new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + ready + "/submit",
                         Map.of("comment", "Gửi thay")),
+                // Task 262: only the people of the current level decide: not the creator and submitter (ADMIN), not
+                // the department's other roles, not INTERVIEWER (no REQUISITIONS permission).
+                new Attack(Identity.ADMIN, "POST", "/api/v1/requisitions/" + pending + "/approvals", rejection),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + pending + "/approvals", rejection),
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions/" + pending + "/approvals", rejection),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + pending + "/approvals", rejection),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions/" + pending + "/approvals", rejection),
                 // Only ADMIN and HR_MANAGER configure approval flows, even with a REQUISITIONS write permission.
                 new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/approval-flows", Map.of("departmentId", unused,
                         "name", "Shadow", "steps", List.of(Map.of("position", 1, "approverRole", "HIRING_MANAGER")))),

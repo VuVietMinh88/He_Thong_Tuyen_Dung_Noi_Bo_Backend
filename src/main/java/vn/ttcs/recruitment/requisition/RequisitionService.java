@@ -70,6 +70,8 @@ public class RequisitionService {
     private final HeadcountQuota headcountQuota;
     private final ApprovalChainSelector approvalChains;
     private final RequisitionApprovalRepository approvals;
+    private final ApprovalParticipants participants;
+    private final ApproverDirectory approverDirectory;
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
@@ -79,6 +81,7 @@ public class RequisitionService {
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
                               SalaryBandService salaryBands, HeadcountQuota headcountQuota,
                               ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
+                              ApprovalParticipants participants, ApproverDirectory approverDirectory,
                               Validator validator, BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
@@ -91,6 +94,8 @@ public class RequisitionService {
         this.headcountQuota = headcountQuota;
         this.approvalChains = approvalChains;
         this.approvals = approvals;
+        this.participants = participants;
+        this.approverDirectory = approverDirectory;
         this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
@@ -229,11 +234,13 @@ public class RequisitionService {
                 page, size, result.getTotalElements(), result.getTotalPages());
     }
 
+    // Task 262: also open to the people of the requisition's approval (ApprovalParticipants), so that an approver who
+    // manages none of its departments can read what they decide. GET /assignment and /assignment-history use this too.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionView get(Jwt jwt, UUID id) {
-        Caller caller = requireReadAccess(jwt);
+        Reader reader = requireReader(jwt);
         var requisition = requisitions.findById(id).orElseThrow(RequisitionService::notFound);
-        requireInScope(caller, requisition.getDepartmentId());
+        requireReadable(reader, requisition);
         return RequisitionView.from(requisition);
     }
 
@@ -318,8 +325,8 @@ public class RequisitionService {
         return RequisitionView.from(requisition);
     }
 
-    // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same access as
-    // GET /requisitions/{id}; only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
+    // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same permission
+    // as GET /requisitions/{id} but only its department scope: approval participants are not admitted. Only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
     // An exception keeps the department of the plan it went over, and the requisition may have moved since: a SCOPED
     // caller only sees the exceptions of departments they manage, never the plan numbers of another department.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -338,12 +345,29 @@ public class RequisitionService {
     }
 
     private Caller requireReadAccess(Jwt jwt) {
+        return requireReader(jwt).caller();
+    }
+
+    // A reader and the account it was read from.
+    private record Reader(Caller caller, Account account) { }
+
+    private Reader requireReader(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
         Set<String> granted = permissions.forUser(actor.getId());
         AccessScope scope = AccessScope.read(granted, PermissionModule.REQUISITIONS).orDeny();
-        return new Caller(actor.getId(), scope, granted);
+        return new Reader(new Caller(actor.getId(), scope, granted), actor);
+    }
+
+    // Task 262: the department scope of the reader, or a part in the requisition's approval. Out of both is the
+    // standard 403.
+    private void requireReadable(Reader reader, RecruitmentRequisition requisition) {
+        var candidate = approverDirectory.candidate(reader.account(), reader.caller().permissions());
+        if (!participants.readable(candidate, reader.caller().scope(), requisition,
+                () -> approvals.findEvents(requisition.getId()))) {
+            throw new AccessDeniedException("The requisition is outside the caller's scope and approval");
+        }
     }
 
     // The caller of a write after lockWriter: the account id and the session row this transaction has locked.
