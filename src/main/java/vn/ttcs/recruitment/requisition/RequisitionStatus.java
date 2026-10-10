@@ -8,6 +8,8 @@ package vn.ttcs.recruitment.requisition;
 // Task 272: decide too whether its people still count against the headcount plan of the department
 // (HeadcountPlanRepository.COUNTED_REQUISITION_STATUSES); HeadcountPlanRepositoryIntegrationTest does not compile
 // until the new status is given its group there.
+// Task 279: RequisitionService.copy copies a requisition in any status into a new DRAFT. Decide whether a requisition
+// in the new status may be copied (for example a cancelled one), and add a copy test for it.
 public enum RequisitionStatus {
     DRAFT
 }
