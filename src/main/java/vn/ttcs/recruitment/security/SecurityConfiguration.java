@@ -178,6 +178,10 @@ public class SecurityConfiguration {
                         // the source (REQUISITIONS_READ_* and its department).
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/copy")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 257: sending a requisition for approval changes its status, a write of its department;
+                        // RequisitionService also checks that the caller may read it (the answer shows it).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/submit")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         // Task 284: assigning or handing over recruiters is for ALL writers only (HR_MANAGER, ADMIN); a
                         // department head (REQUISITIONS_WRITE_SCOPED) is refused. RequisitionRecruiterService checks the
                         // code again after its locks.
