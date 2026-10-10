@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) TKNHTTDNB1-262 (API quyết định phê duyệt) và TKNHTTDNB1-263 (chuyển cấp và hoàn tất phê duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) TKNHTTDNB1-262 (API quyết định phê duyệt) TKNHTTDNB1-263 (chuyển cấp và hoàn tất phê duyệt) và TKNHTTDNB1-264 (trả yêu cầu bổ sung cho người tạo), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -29,11 +29,11 @@ Mỗi trạng thái được xếp sẵn vào các nhóm sau. `RequisitionStatus
 |---|---|---|---|---|---|---|
 |`DRAFT`|Có|Có|Có|Có|Có|Có|
 |`PENDING_APPROVAL`|Không|Không|Có|Có|Có|Có|
-|`RETURNED`|Không|Không|Có|Có|Có|Có|
+|`RETURNED`|Có|Có|Có|Có|Có|Có|
 |`APPROVED`|Không|Không|Có|Có|Có|Có|
 |`REJECTED`|Không|Không|Không|Không|Không (vẫn chặn bằng khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Có|
 
-- Sửa yêu cầu không ở trạng thái sửa được trả 409 `REQUISITION_NOT_DRAFT`.
+- Sửa yêu cầu không ở trạng thái sửa được trả 409 `REQUISITION_NOT_DRAFT`. Từ task 264, yêu cầu `RETURNED` được sửa và gửi lại như bản nháp.
 - Yêu cầu bị từ chối trả lại chỗ trong định biên. Không có bước nào đưa yêu cầu từ trạng thái không tính về trạng thái tính, nên gửi duyệt và quyết định duyệt không phải kiểm định biên lại.
 - Bản sao luôn là `DRAFT` và **không** có lịch sử duyệt: lịch sử gắn với `id` của yêu cầu.
 - Gửi duyệt và quyết định duyệt không đổi `updatedAt`, vốn là thời điểm sửa nội dung gần nhất.
@@ -72,7 +72,7 @@ Rồi các kiểm tra của lần lưu chạy lại với giá trị hiện tạ
 4. Khóa dòng yêu cầu, kiểm lại người gọi. Không có quyền xem yêu cầu nào thì 403 ngay.
 5. Yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`).
 6. Phòng ban của yêu cầu nằm trong phạm vi ghi và xem của người gọi (403).
-7. Trạng thái cho phép gửi duyệt (409 `REQUISITION_NOT_SUBMITTABLE`). Bấm gửi hai lần thì lần sau nhận lỗi này.
+7. Trạng thái cho phép gửi duyệt: `DRAFT` hoặc `RETURNED` (409 `REQUISITION_NOT_SUBMITTABLE`). Bấm gửi hai lần thì lần sau nhận lỗi này.
 8. Đủ thông tin (400 `REQUISITION_INCOMPLETE`).
 9. Ngày cần người không ở quá khứ (400 `NEEDED_BY_IN_PAST`).
 10. Khóa `FOR SHARE` chức danh rồi phòng ban: tồn tại và còn áp dụng (400 `INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`). Kiểm lại người gọi và phạm vi.
@@ -103,7 +103,7 @@ Phiên bản cấu hình đã niêm phong không bao giờ đổi hay bị xóa 
 
 | Trường | Quy tắc |
 |---|---|
-|action|Bắt buộc, đúng chữ hoa: `APPROVE` (duyệt, task 263) hoặc `REJECT` (từ chối, task 262)|
+|action|Bắt buộc, đúng chữ hoa: `APPROVE` (duyệt, task 263), `REJECT` (từ chối, task 262) hoặc `REQUEST_INFO` (yêu cầu bổ sung, task 264)|
 |comment|Nhận xét. Bắt buộc khi từ chối hoặc yêu cầu bổ sung; tối đa 2.000 ký tự, không chứa ký tự NUL; để trống hoặc không có ký tự nhìn thấy được (chỉ gồm khoảng trắng, kể cả U+00A0, xuống dòng, hoặc ký tự vô hình như U+200B) coi như không có; nhận xét có ký tự nhìn thấy được giữ nguyên xuống dòng|
 |expectedRevision|Bắt buộc, số nguyên dương: `revision` của tiến độ duyệt người duyệt đang xem, tức số thứ tự của sự kiện mới nhất trong lịch sử duyệt (1 ngay sau lần gửi duyệt đầu tiên, tăng 1 sau mỗi quyết định hoặc lần gửi duyệt; task 267 trả số này ở `GET /requisitions/{id}/approvals`). Lệch với lịch sử hiện tại (bấm hai lần, người khác vừa quyết định) thì trả 409 để tải lại|
 
@@ -137,8 +137,19 @@ Khóa dòng phòng ban làm việc đổi người phụ trách hoặc phòng ba
 |`APPROVE`|Chưa phải cấp cuối của lượt|Yêu cầu vẫn `PENDING_APPROVAL`, cấp kế tiếp chờ duyệt|
 |`APPROVE`|Cấp cuối|Yêu cầu sang `APPROVED` (Đã duyệt)|
 |`REJECT`|Bất kỳ|Yêu cầu sang `REJECTED`, lượt duyệt kết thúc|
+|`REQUEST_INFO`|Bất kỳ|Yêu cầu sang `RETURNED`, lượt duyệt kết thúc; bên yêu cầu sửa rồi gửi lại|
 
 Task 263: duyệt xong một cấp thì tự chuyển sang cấp kế tiếp, cấp cuối duyệt thì yêu cầu sang `APPROVED`. Mỗi người chỉ duyệt một cấp trong một lượt, nên người đã duyệt cấp 1 không duyệt tiếp cấp 2 dù giữ cả vai trò của cấp 2. Lượt duyệt đang chạy giữ các cấp của phiên bản cấu hình lúc gửi: HR đổi người duyệt trong phiên bản mới thì người mới chỉ duyệt các lượt sau. Yêu cầu đã duyệt vẫn được tính vào định biên và vẫn được phân công recruiter; không sửa, không gửi lại.
+
+### Yêu cầu bổ sung và gửi lại
+
+Task 264 ("Yêu cầu bổ sung trả hồ sơ về cho người tạo và giữ nguyên lịch sử"):
+
+1. Người duyệt cấp hiện tại gửi `REQUEST_INFO` kèm nhận xét (bắt buộc) nói cần bổ sung gì. Yêu cầu sang `RETURNED`. Các quyết định trước đó của lượt (ví dụ cấp 1 đã duyệt) và mọi lượt cũ vẫn nằm nguyên trong lịch sử.
+2. Bên yêu cầu sửa bằng `PUT /requisitions/{id}`, với đúng các kiểm tra của bản nháp: phạm vi phòng ban, chức danh và phòng ban còn áp dụng, giải trình lương, ngày cần người, và định biên (vượt định biên thì cần HR xác nhận kèm lý do như khi lưu nháp). Có thể chuyển yêu cầu sang phòng ban khác trong phạm vi; lượt sau dùng cấu hình của phòng ban mới.
+3. Gửi lại bằng `POST /requisitions/{id}/submit`. Đây là **lượt duyệt mới**, bắt đầu từ cấp 1, với phiên bản cấu hình và lương đề xuất tối đa **hiện tại**: lương tăng quá ngưỡng thì có thêm cấp. Người đã duyệt ở lượt trước được duyệt lại ở lượt mới; người gửi lại thì không.
+
+"Trả về người tạo" nghĩa là trả về phía bên yêu cầu: ai sửa được yêu cầu (quyền ghi theo phòng ban) đều sửa và gửi lại được, kể cả người tạo nếu vẫn phụ trách phòng ban. Tiến độ duyệt ghi người tạo là người cần xử lý. Yêu cầu `RETURNED` vẫn giữ chỗ trong định biên.
 
 ## Ai được xem yêu cầu
 
@@ -187,7 +198,7 @@ Task 268 ("Lịch sử không sửa và không xoá được"):
 |401|`UNAUTHORIZED` / `SESSION_INVALID`|Token sai, hết hạn hoặc phiên bị thu hồi, kể cả khi điều đó xảy ra trong lúc chờ khóa|
 |403|`FORBIDDEN`|Thiếu quyền (kể cả bị gỡ quyền trong lúc chờ); không có quyền xem; yêu cầu ngoài phạm vi|
 |404|`REQUISITION_NOT_FOUND`|Không có yêu cầu với `{id}`|
-|409|`REQUISITION_NOT_SUBMITTABLE`|Yêu cầu không ở trạng thái gửi duyệt được (đã gửi rồi chẳng hạn)|
+|409|`REQUISITION_NOT_SUBMITTABLE`|Yêu cầu không ở trạng thái nháp hoặc cần bổ sung (đã gửi rồi chẳng hạn)|
 |409|`APPROVAL_FLOW_NOT_CONFIGURED`|Phòng ban chưa có cấu hình luồng duyệt|
 |409|`APPROVAL_LEVEL_UNAVAILABLE`|Có cấp không có người duyệt hợp lệ, hoặc không đủ người khác nhau cho các cấp|
 |400|`APPROVAL_COMMENT_REQUIRED`|Từ chối hoặc yêu cầu bổ sung mà không có nhận xét|
@@ -238,6 +249,7 @@ Các quy tắc trên là giả định của backend. Gồm:
 - các cấp duyệt lần lượt, mỗi cấp một người quyết định; tối đa 20 cấp như cấu hình cho phép, chưa giới hạn 3 cấp như giả định của PO;
 - người duyệt theo vai trò như bảng trên; `HR_MANAGER` và `ADMIN` không duyệt thay;
 - người tạo và người gửi duyệt không tự duyệt, mỗi người chỉ duyệt một cấp trong một lượt;
+- người sửa nội dung (`PUT`) khi yêu cầu là nháp hoặc cần bổ sung, kể cả người duyệt vừa yêu cầu bổ sung, vẫn được duyệt lượt sau nếu không phải người gửi duyệt lượt đó, vì hệ thống chưa lưu người sửa gần nhất;
 - ai sửa được yêu cầu thì gửi duyệt được (người có quyền ghi theo phạm vi phòng ban), không chỉ người tạo;
 - khi gửi duyệt bắt buộc có cả hai mức lương, ngày cần người, mô tả công việc và yêu cầu ứng viên;
 - không kiểm định biên lại khi gửi duyệt hay khi duyệt, vì yêu cầu đã được tính từ lúc lưu;
