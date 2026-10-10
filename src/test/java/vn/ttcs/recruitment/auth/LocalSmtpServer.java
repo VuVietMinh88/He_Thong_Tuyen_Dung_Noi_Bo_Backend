@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // A loopback-only SMTP fixture verifies actual MIME delivery without an external mailbox.
 final class LocalSmtpServer implements AutoCloseable {
@@ -27,6 +28,9 @@ final class LocalSmtpServer implements AutoCloseable {
     private final ExecutorService listener = Executors.newSingleThreadExecutor();
     private final List<MimeMessage> messages = new CopyOnWriteArrayList<>();
     private volatile boolean reject;
+    private volatile int acceptLimit = Integer.MAX_VALUE;
+    private final AtomicInteger deliveryAttempts = new AtomicInteger();
+    private volatile String rejectedRecipient;
     private volatile CountDownLatch receiptGate = new CountDownLatch(0);
     private volatile CountDownLatch dataReceived = new CountDownLatch(1);
 
@@ -48,6 +52,13 @@ final class LocalSmtpServer implements AutoCloseable {
     int port() { return server.getLocalPort(); }
     List<MimeMessage> messages() { return List.copyOf(messages); }
     void rejectDelivery(boolean value) { reject = value; }
+    // Accepts this many messages, then answers every later one with a temporary failure, as a mail server that
+    // stops working in the middle of a run.
+    void rejectDeliveryAfter(int acceptedMessages) { acceptLimit = acceptedMessages; }
+    // How many messages were handed over (DATA commands), accepted or not.
+    int deliveryAttempts() { return deliveryAttempts.get(); }
+    // Refuses this one address at RCPT TO, as a mail server does for a mailbox it does not accept; null accepts all.
+    void rejectRecipient(String address) { rejectedRecipient = address; }
     void pauseReceipt() { receiptGate = new CountDownLatch(1); }
     void releaseReceipt() { receiptGate.countDown(); }
     boolean awaitData() throws InterruptedException { return dataReceived.await(5, TimeUnit.SECONDS); }
@@ -55,6 +66,9 @@ final class LocalSmtpServer implements AutoCloseable {
     void reset() {
         messages.clear();
         reject = false;
+        acceptLimit = Integer.MAX_VALUE;
+        deliveryAttempts.set(0);
+        rejectedRecipient = null;
         receiptGate = new CountDownLatch(0);
         dataReceived = new CountDownLatch(1);
     }
@@ -68,7 +82,11 @@ final class LocalSmtpServer implements AutoCloseable {
         while ((command = input.readLine()) != null) {
             if (command.startsWith("EHLO") || command.startsWith("HELO")) {
                 reply(output, "250 localhost");
+            } else if (command.startsWith("RCPT TO:") && rejectedRecipient != null
+                    && command.contains("<" + rejectedRecipient + ">")) {
+                reply(output, "550 Mailbox unavailable");
             } else if (command.equals("DATA")) {
+                deliveryAttempts.incrementAndGet();
                 reply(output, "354 End with a dot");
                 StringBuilder data = new StringBuilder();
                 String line;
@@ -79,7 +97,7 @@ final class LocalSmtpServer implements AutoCloseable {
                 if (!receiptGate.await(10, TimeUnit.SECONDS)) {
                     throw new IllegalStateException("Test did not release SMTP receipt");
                 }
-                if (reject) {
+                if (reject || messages.size() >= acceptLimit) {
                     reply(output, "451 Temporary test failure");
                 } else {
                     messages.add(new MimeMessage(Session.getInstance(new Properties()),
