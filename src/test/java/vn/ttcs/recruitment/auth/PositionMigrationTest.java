@@ -8,6 +8,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,6 +52,44 @@ class PositionMigrationTest {
             assertThat(jdbc.queryForList("SELECT * FROM role_permissions ORDER BY role_code,permission_code"))
                     .isEqualTo(previousGrants);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isZero();
+        }
+    }
+
+    @Test
+    void upgradesV7ByAddingSalaryRangePermissionsForTheHrManagerOnly() throws Exception {
+        try (var postgres = startPostgres()) {
+            var dataSource = postgres.getPostgresDatabase();
+            Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                    .target("7").load().migrate();
+            var jdbc = new JdbcTemplate(dataSource);
+            UUID managerId = insertAccount(jdbc, "manager@example.test");
+            jdbc.update("INSERT INTO user_roles (user_id,role) VALUES (?, 'HR_MANAGER')", managerId);
+            insertJuniorDeveloper(jdbc);
+            var previousAccounts = jdbc.queryForList("SELECT * FROM user_accounts ORDER BY id");
+            var previousRoles = jdbc.queryForList("SELECT * FROM user_roles ORDER BY user_id,role");
+            var previousPositions = jdbc.queryForList("SELECT * FROM positions ORDER BY id");
+            var previousPermissions = jdbc.queryForList("SELECT code FROM permissions", String.class);
+            var previousGrants = jdbc.queryForList("SELECT role_code || ':' || permission_code FROM role_permissions",
+                    String.class);
+
+            var flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                    .target("7.1").load();
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+            flyway.validate();
+
+            assertThat(jdbc.queryForList("SELECT * FROM user_accounts ORDER BY id")).isEqualTo(previousAccounts);
+            assertThat(jdbc.queryForList("SELECT * FROM user_roles ORDER BY user_id,role")).isEqualTo(previousRoles);
+            assertThat(jdbc.queryForList("SELECT * FROM positions ORDER BY id")).isEqualTo(previousPositions);
+            // Every earlier code and grant is kept; the upgrade only adds four codes and two HR manager grants.
+            var expectedPermissions = new ArrayList<>(previousPermissions);
+            expectedPermissions.addAll(List.of("SALARY_RANGES_READ_ALL", "SALARY_RANGES_WRITE_ALL",
+                    "SALARY_RANGES_READ_SCOPED", "SALARY_RANGES_WRITE_SCOPED"));
+            assertThat(jdbc.queryForList("SELECT code FROM permissions", String.class))
+                    .containsExactlyInAnyOrderElementsOf(expectedPermissions);
+            var expectedGrants = new ArrayList<>(previousGrants);
+            expectedGrants.addAll(List.of("HR_MANAGER:SALARY_RANGES_READ_ALL", "HR_MANAGER:SALARY_RANGES_WRITE_ALL"));
+            assertThat(jdbc.queryForList("SELECT role_code || ':' || permission_code FROM role_permissions",
+                    String.class)).containsExactlyInAnyOrderElementsOf(expectedGrants);
         }
     }
 
