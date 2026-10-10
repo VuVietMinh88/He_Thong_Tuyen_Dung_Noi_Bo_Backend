@@ -191,7 +191,7 @@ Response: `{items, page, size, totalElements, totalPages}`; mỗi item có đún
 
 `PUT /requisitions/{id}` lưu lại bản nháp với nội dung mới, trả **200** cùng yêu cầu sau khi sửa. Body có đúng các trường và quy tắc của `POST` ở trên. `PUT` **thay toàn bộ** nội dung: trường không gửi, gửi `null` hoặc văn bản rỗng/chỉ có khoảng trắng trở thành `null`, nên giao diện phải gửi lại mọi trường đang có trên form. `id`, `status`, `createdBy`, `createdAt` không sửa được (gửi lên là `INVALID_JSON`); `createdBy` và `createdAt` giữ nguyên kể cả khi người sửa không phải người tạo, `updatedAt` là thời điểm sửa (UTC, micro giây).
 
-Chỉ yêu cầu ở trạng thái `DRAFT` được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được.
+Chỉ yêu cầu ở trạng thái `DRAFT` được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
 
 Thứ tự kiểm tra:
 

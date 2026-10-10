@@ -10,7 +10,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// Task 262: what a decision of the current level does to the round, without a database.
+// Tasks 262, 263: what a decision of the current level does to the round, without a database.
 class ApprovalRoundTransitionTest {
     private static final Instant AT = Instant.parse("2026-10-11T03:00:00Z");
     private final List<ApprovalEvent> events = new ArrayList<>();
@@ -23,6 +23,26 @@ class ApprovalRoundTransitionTest {
 
         approved(1, RequisitionStatus.PENDING_APPROVAL);
         assertThat(round().apply(ApprovalAction.REJECT).level()).isEqualTo(2);
+    }
+
+    @Test
+    void anApprovalMovesToTheNextLevelAndTheLastOneApprovesTheRequisition() {
+        submitted(3);
+        assertThat(round().apply(ApprovalAction.APPROVE)).isEqualTo(new ApprovalOutcome(ApprovalEventType.APPROVED, 1,
+                RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.PENDING_APPROVAL));
+        approved(1, RequisitionStatus.PENDING_APPROVAL);
+        assertThat(round().apply(ApprovalAction.APPROVE).after()).isEqualTo(RequisitionStatus.PENDING_APPROVAL);
+        approved(2, RequisitionStatus.PENDING_APPROVAL);
+        assertThat(round().apply(ApprovalAction.APPROVE)).isEqualTo(new ApprovalOutcome(ApprovalEventType.APPROVED, 3,
+                RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.APPROVED));
+        approved(3, RequisitionStatus.APPROVED);
+        assertThatThrownBy(() -> round().apply(ApprovalAction.APPROVE)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void aOneLevelChainIsApprovedByItsOnlyLevel() {
+        submitted(1);
+        assertThat(round().apply(ApprovalAction.APPROVE).after()).isEqualTo(RequisitionStatus.APPROVED);
     }
 
     @Test

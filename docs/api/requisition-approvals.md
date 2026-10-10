@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) và TKNHTTDNB1-262 (API quyết định phê duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) TKNHTTDNB1-262 (API quyết định phê duyệt) và TKNHTTDNB1-263 (chuyển cấp và hoàn tất phê duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -103,7 +103,7 @@ Phiên bản cấu hình đã niêm phong không bao giờ đổi hay bị xóa 
 
 | Trường | Quy tắc |
 |---|---|
-|action|Bắt buộc, đúng chữ hoa. Task 262 có `REJECT` (từ chối)|
+|action|Bắt buộc, đúng chữ hoa: `APPROVE` (duyệt, task 263) hoặc `REJECT` (từ chối, task 262)|
 |comment|Nhận xét. Bắt buộc khi từ chối hoặc yêu cầu bổ sung; tối đa 2.000 ký tự, không chứa ký tự NUL; để trống hoặc không có ký tự nhìn thấy được (chỉ gồm khoảng trắng, kể cả U+00A0, xuống dòng, hoặc ký tự vô hình như U+200B) coi như không có; nhận xét có ký tự nhìn thấy được giữ nguyên xuống dòng|
 |expectedRevision|Bắt buộc, số nguyên dương: `revision` của tiến độ duyệt người duyệt đang xem, tức số thứ tự của sự kiện mới nhất trong lịch sử duyệt (1 ngay sau lần gửi duyệt đầu tiên, tăng 1 sau mỗi quyết định hoặc lần gửi duyệt; task 267 trả số này ở `GET /requisitions/{id}/approvals`). Lệch với lịch sử hiện tại (bấm hai lần, người khác vừa quyết định) thì trả 409 để tải lại|
 
@@ -129,6 +129,16 @@ Quyền ở matcher: `REQUISITIONS_WRITE_ALL` hoặc `REQUISITIONS_WRITE_SCOPED`
 Hai lỗi 409 đứng trước lỗi 403 ở bước 11 có chủ ý: hai người cùng giữ vai trò của một cấp cùng bấm thì người sau nhận thông báo tải lại, không phải lỗi quyền (giao diện chuyển mọi 403 sang `/unauthorized`).
 
 Khóa dòng phòng ban làm việc đổi người phụ trách hoặc phòng ban cha của phòng ban đó phải chờ quyết định này, hoặc quyết định thấy thay đổi đã lưu. Tài khoản người gọi được đọc khi đang khóa, nên vai trò bị gỡ trong lúc chờ cũng được thấy. Hai quyết định cùng lúc cho một cấp chạy lần lượt trên dòng yêu cầu: chỉ một quyết định được ghi. Database còn chặn hai quyết định cho cùng một cấp của một lượt.
+
+### Chuyển cấp và hoàn tất
+
+| Hành động | Cấp hiện tại | Kết quả |
+|---|---|---|
+|`APPROVE`|Chưa phải cấp cuối của lượt|Yêu cầu vẫn `PENDING_APPROVAL`, cấp kế tiếp chờ duyệt|
+|`APPROVE`|Cấp cuối|Yêu cầu sang `APPROVED` (Đã duyệt)|
+|`REJECT`|Bất kỳ|Yêu cầu sang `REJECTED`, lượt duyệt kết thúc|
+
+Task 263: duyệt xong một cấp thì tự chuyển sang cấp kế tiếp, cấp cuối duyệt thì yêu cầu sang `APPROVED`. Mỗi người chỉ duyệt một cấp trong một lượt, nên người đã duyệt cấp 1 không duyệt tiếp cấp 2 dù giữ cả vai trò của cấp 2. Lượt duyệt đang chạy giữ các cấp của phiên bản cấu hình lúc gửi: HR đổi người duyệt trong phiên bản mới thì người mới chỉ duyệt các lượt sau. Yêu cầu đã duyệt vẫn được tính vào định biên và vẫn được phân công recruiter; không sửa, không gửi lại.
 
 ## Ai được xem yêu cầu
 
