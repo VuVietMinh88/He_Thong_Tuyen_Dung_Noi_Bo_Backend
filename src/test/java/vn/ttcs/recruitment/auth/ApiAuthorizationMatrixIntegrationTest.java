@@ -89,6 +89,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String REQUISITIONS_WRITE_ALL = "REQUISITIONS_WRITE_ALL";
     private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
     private static final String JOB_POSTINGS_WRITE_ALL = "JOB_POSTINGS_WRITE_ALL";
+    private static final String HEADCOUNT_PLANS_READ_ALL = "HEADCOUNT_PLANS_READ_ALL";
+    private static final String HEADCOUNT_PLANS_WRITE_ALL = "HEADCOUNT_PLANS_WRITE_ALL";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -169,12 +171,20 @@ class ApiAuthorizationMatrixIntegrationTest {
             // The JSON sample carries no file part, so an allowed call stops at IMPORT_FILE_REQUIRED.
             endpoint("POST", "/api/v1/accounts/import/preview", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             // The import itself stops at IMPORT_FILE_REQUIRED too, so an allowed call creates nothing.
-            endpoint("POST", "/api/v1/accounts/import", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("POST", "/api/v1/accounts/import", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
+            // Task 273: headcount plans. The remaining lookup without departmentId stops at 400 for every allowed
+            // caller, before the department scope of REQUISITIONS_READ_SCOPED is checked.
+            endpoint("GET", "/api/v1/headcount-plans", permission(HEADCOUNT_PLANS_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/headcount-plans/remaining",
+                    anyOf(HEADCOUNT_PLANS_READ_ALL, REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 400),
+            endpoint("GET", "/api/v1/headcount-plans/{id}", permission(HEADCOUNT_PLANS_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/headcount-plans", permission(HEADCOUNT_PLANS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/headcount-plans/{id}", permission(HEADCOUNT_PLANS_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
-            "company_profile", "company_profile_images", "user_avatars");
+            "company_profile", "company_profile_images", "user_avatars", "headcount_plans");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;

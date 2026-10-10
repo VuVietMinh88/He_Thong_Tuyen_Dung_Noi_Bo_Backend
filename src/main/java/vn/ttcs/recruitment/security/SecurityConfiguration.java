@@ -162,6 +162,18 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/requisitions/*")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 273: what is left of a plan is shown on the requisition form, so requisition readers
+                        // may ask too; HeadcountPlanService limits SCOPED readers to their departments and shows the
+                        // salary budget to HEADCOUNT_PLANS_READ_ALL only. Listed before "/*", which it would match.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/headcount-plans/remaining")
+                                .hasAnyAuthority("PERM_HEADCOUNT_PLANS_READ_ALL", "PERM_REQUISITIONS_READ_ALL",
+                                        "PERM_REQUISITIONS_READ_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/headcount-plans", "/api/v1/headcount-plans/*")
+                                .hasAuthority("PERM_HEADCOUNT_PLANS_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/headcount-plans")
+                                .hasAuthority("PERM_HEADCOUNT_PLANS_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/headcount-plans/*")
+                                .hasAuthority("PERM_HEADCOUNT_PLANS_WRITE_ALL")
                         // Task 197: deleting a department is a department write like POST and PUT.
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/departments/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")

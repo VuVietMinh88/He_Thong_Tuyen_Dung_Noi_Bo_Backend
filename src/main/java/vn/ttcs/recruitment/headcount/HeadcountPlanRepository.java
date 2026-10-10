@@ -31,6 +31,17 @@ public class HeadcountPlanRepository {
             FROM headcount_plans
             """;
 
+    // Task 273: lists show the newest year first, then the departments by code.
+    private static final String WITH_DEPARTMENT = """
+            SELECT p.id, p.department_id, p.plan_year, p.headcount_limit, p.salary_budget, p.created_at,
+                   p.updated_at, p.updated_by, d.code AS department_code, d.name AS department_name
+            FROM headcount_plans p JOIN departments d ON d.id = p.department_id
+            """;
+    private static final String NEWEST_YEAR_FIRST = " ORDER BY p.plan_year DESC, d.code, p.id ";
+
+    // Task 273: a plan with the code and name of its department, as lists and details show it.
+    public record PlanWithDepartment(HeadcountPlan plan, String departmentCode, String departmentName) { }
+
     private final NamedParameterJdbcTemplate jdbc;
     private final BusinessCalendar calendar;
 
@@ -60,6 +71,34 @@ public class HeadcountPlanRepository {
         return one(SELECT + " WHERE department_id = :departmentId AND plan_year = :year FOR UPDATE",
                 departmentAndYear(departmentId, year));
     }
+
+    public Optional<PlanWithDepartment> findWithDepartment(UUID id) {
+        return jdbc.query(WITH_DEPARTMENT + " WHERE p.id = :id", new MapSqlParameterSource("id", id),
+                (row, number) -> mapWithDepartment(row)).stream().findFirst();
+    }
+
+    // Task 273: one page of plans, optionally only one year and/or one department. Returns the page and the total.
+    public PlanSearch search(Integer year, UUID departmentId, int page, int size) {
+        var parameters = new MapSqlParameterSource();
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1 ");
+        if (year != null) {
+            parameters.addValue("year", year);
+            where.append(" AND p.plan_year = :year ");
+        }
+        if (departmentId != null) {
+            parameters.addValue("departmentId", departmentId);
+            where.append(" AND p.department_id = :departmentId ");
+        }
+        long total = jdbc.queryForObject("""
+                SELECT count(*) FROM headcount_plans p JOIN departments d ON d.id = p.department_id
+                """ + where, parameters, Long.class);
+        parameters.addValue("size", size).addValue("offset", (long) page * size);
+        var items = jdbc.query(WITH_DEPARTMENT + where + NEWEST_YEAR_FIRST + " LIMIT :size OFFSET :offset",
+                parameters, (row, number) -> mapWithDepartment(row));
+        return new PlanSearch(items, total);
+    }
+
+    public record PlanSearch(List<PlanWithDepartment> items, long total) { }
 
     // headcount_plans_department_year_key rejects a second plan for the same department and year (SQLState 23505).
     public void insert(HeadcountPlan plan) {
@@ -139,6 +178,10 @@ public class HeadcountPlanRepository {
     // OffsetDateTime in UTC is sent as TIMESTAMPTZ, independent of the session or JVM time zone.
     private static OffsetDateTime timestamp(Instant instant) {
         return instant.atOffset(ZoneOffset.UTC);
+    }
+
+    private static PlanWithDepartment mapWithDepartment(ResultSet row) throws SQLException {
+        return new PlanWithDepartment(map(row), row.getString("department_code"), row.getString("department_name"));
     }
 
     private static HeadcountPlan map(ResultSet row) throws SQLException {
