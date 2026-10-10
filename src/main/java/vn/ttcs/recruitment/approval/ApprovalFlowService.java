@@ -84,8 +84,8 @@ public class ApprovalFlowService {
             throw invalid(Map.of("departmentId", "Phòng ban không tồn tại hoặc đã ngừng áp dụng."));
         var id = flows.forDepartment(request.departmentId()).orElseThrow(ApprovalFlowService::notFound);
         var flow = flows.find(id, null).orElseThrow(ApprovalFlowService::notFound);
-        var selected = flow.steps().stream().filter(s -> s.salaryThreshold() == null
-                || request.proposedSalary().compareTo(s.salaryThreshold()) > 0).toList();
+        // Task 256: the same rule submit uses (strictly above a threshold adds that level).
+        var selected = List.copyOf(flow.steps().subList(0, ApprovalChain.levelCount(flow.steps(), request.proposedSalary())));
         return new ApprovalFlowView(flow.id(), flow.departmentId(), flow.version(), flow.name(), flow.createdBy(), flow.createdAt(), selected);
     }
 

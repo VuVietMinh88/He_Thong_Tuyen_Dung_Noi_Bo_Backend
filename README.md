@@ -49,6 +49,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [positions](docs/api/positions.md)
 - [profile](docs/api/profile.md)
 - [recruitment-catalogs](docs/api/recruitment-catalogs.md)
+- [requisition-approvals](docs/api/requisition-approvals.md)
 - [requisition-recruiters](docs/api/requisition-recruiters.md)
 - [requisitions](docs/api/requisitions.md)
 

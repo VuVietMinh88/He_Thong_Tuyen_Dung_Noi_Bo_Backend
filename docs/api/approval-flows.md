@@ -65,9 +65,16 @@ proposedSalary là số nguyên VND không âm tối đa 15 chữ số. Client d
 20.000.001 chọn cấp 1 và 2; 50.000.001 chọn cả ba. Response giữ ID/phiên bản, chỉ trả các steps khớp.
 Phòng ban ngừng áp dụng không được lưu cấu hình mới hoặc xem thử; vẫn đọc được lịch sử.
 
-Việc gắn chuỗi duyệt vào yêu cầu tuyển dụng và lưu bản chụp cho yêu cầu đang chạy nằm ngoài
-phạm vi API này. API xem thử không tạo yêu cầu, không chọn người từ vai trò và không tạo bản
-chụp phiên xử lý.
+Từ task 256, gửi duyệt một yêu cầu tuyển dụng dùng đúng quy tắc chọn cấp của xem thử (`ApprovalChain`):
+lương đề xuất tối đa của yêu cầu **lớn hơn** ngưỡng thì thêm cấp đó. Chuỗi duyệt được gắn vào yêu cầu
+khi gửi duyệt, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md). API xem thử vẫn không tạo
+yêu cầu, không chọn người từ vai trò và không tạo bản chụp.
+
+**Lưu ý khi cấu hình (task 256).** Người tạo và người gửi yêu cầu không tự duyệt yêu cầu đó, và mỗi người
+chỉ duyệt một cấp trong một lượt duyệt. Cấp có vai trò `HIRING_MANAGER` hoặc `RECRUITER` chỉ do người giữ
+vai trò đó **và** phụ trách phòng ban của yêu cầu (hoặc phòng ban cấp trên) duyệt. Vì vậy, với cấu hình ví dụ
+ở trên, yêu cầu do chính trưởng bộ phận của phòng ban tạo chỉ gửi duyệt được khi phòng ban cấp trên có một
+trưởng bộ phận khác; nếu không, gửi duyệt trả 409 `APPROVAL_LEVEL_UNAVAILABLE`.
 
 ## Lỗi và database
 
