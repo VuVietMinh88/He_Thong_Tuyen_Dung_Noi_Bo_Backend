@@ -33,7 +33,8 @@ import java.util.stream.Collectors;
  * primary recruiter and up to 10 supporting recruiters, hands the requisition over to another primary, and removes
  * supporting recruiters. A department head (REQUISITIONS_WRITE_SCOPED) may not. Anyone who may read the requisition
  * may read who is assigned, and only they: a write answers with the team, so the writer must be a reader too. The
- * rules of the team itself are in RequisitionAssignment.
+ * rules of the team itself are in RequisitionAssignment. Task 286 records every change (before/after, who, when,
+ * note) in requisition_recruiter_changes.
  */
 @Service
 public class RequisitionRecruiterService {
@@ -47,6 +48,7 @@ public class RequisitionRecruiterService {
     private final RequisitionService requisitionService;
     private final RecruitmentRequisitionRepository requisitions;
     private final RequisitionRecruiterRepository recruiters;
+    private final RequisitionRecruiterChangeRepository changes;
     private final AccountRepository accounts;
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
@@ -54,11 +56,13 @@ public class RequisitionRecruiterService {
 
     public RequisitionRecruiterService(RequisitionService requisitionService,
                                        RecruitmentRequisitionRepository requisitions,
-                                       RequisitionRecruiterRepository recruiters, AccountRepository accounts,
+                                       RequisitionRecruiterRepository recruiters,
+                                       RequisitionRecruiterChangeRepository changes, AccountRepository accounts,
                                        AuthSessionRepository sessions, PermissionService permissions, Clock clock) {
         this.requisitionService = requisitionService;
         this.requisitions = requisitions;
         this.recruiters = recruiters;
+        this.changes = changes;
         this.accounts = accounts;
         this.sessions = sessions;
         this.permissions = permissions;
@@ -102,7 +106,7 @@ public class RequisitionRecruiterService {
         // nothing changes, like saving a department with its current manager.
         if (!team.holds(request.recruiterId(), role)) {
             requireEligible(writer.lockedAccount(request.recruiterId()));
-            recruiters.apply(id, team.assign(request.recruiterId(), role), writer.actorId(), now());
+            apply(id, team.assign(request.recruiterId(), role), writer.actorId(), request.note());
         }
         return view(id, true);
     }
@@ -115,8 +119,25 @@ public class RequisitionRecruiterService {
         RecruitmentRequisition requisition = lockRequisition(jwt, writer, id);
         requireAssignable(requisition);
         recruiters.findByRequisition(id).unassign(request.recruiterId())
-                .ifPresent(change -> recruiters.apply(id, change, writer.actorId(), now()));
+                .ifPresent(change -> apply(id, change, writer.actorId(), request.note()));
         return view(id, true);
+    }
+
+    // Task 286: the history of recruiter changes of this requisition, newest first. Same access as GET /assignment.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<RecruiterChangeView> history(Jwt jwt, UUID id) {
+        requisitionService.get(jwt, id);
+        return changes.findByRequisition(id);
+    }
+
+    // Task 286: the team and its history change together, under the requisition lock and with the same moment, so
+    // replaying the history always ends in the current team. No-ops and refused requests never reach this point.
+    // Recording a handover references the old primary's account (FOR KEY SHARE), which never waits for the
+    // FOR NO KEY UPDATE locks of other writes, so no check is needed after it.
+    private void apply(UUID id, RecruiterChange change, UUID actorId, String note) {
+        Instant at = now();
+        recruiters.apply(id, change, actorId, at);
+        changes.record(id, change, actorId, at, note);
     }
 
     private RequisitionAssignmentView view(UUID id, boolean showEligibility) {

@@ -1,11 +1,11 @@
 # API phân công recruiter cho yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-283 (lưu recruiter chính và hỗ trợ) và TKNHTTDNB1-284 (API phân công và bàn giao), story TKNHTTDNB1-35 (S3-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-283 (lưu recruiter chính và hỗ trợ), TKNHTTDNB1-284 (API phân công và bàn giao) và TKNHTTDNB1-286 (lịch sử thay đổi người tuyển dụng), story TKNHTTDNB1-35 (S3-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`.
 
 Tiêu chí của story:
 
 - "Phân công một recruiter chính và nhiều recruiter hỗ trợ": đã có (283, 284).
-- "Có ghi lịch sử chuyển giao khi đổi người phụ trách": thuộc task 286.
+- "Có ghi lịch sử chuyển giao khi đổi người phụ trách": đã có (286, mục "Lịch sử phân công").
 - "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao": thuộc task 285, chưa làm vì chưa có module ứng viên.
 
 ## Quyền
@@ -15,6 +15,7 @@ Tiêu chí của story:
 |`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}`|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
 |`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó như `GET /assignment`|HR_MANAGER, ADMIN|
 |`POST /requisitions/{id}/unassign`|Như `POST /assign`|HR_MANAGER, ADMIN|
+|`GET /requisitions/{id}/assignment-history`|Như `GET /assignment`|Như `GET /assignment`|
 
 - Chỉ người có `REQUISITIONS_WRITE_ALL` được phân công. Trưởng bộ phận (`REQUISITIONS_WRITE_SCOPED`) bị 403, vì bảng vai trò ghi việc "phân công recruiter" thuộc về Trưởng phòng Nhân sự. Không thêm mã quyền mới.
 - Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó như `GET /requisitions/{id}`, giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
@@ -66,7 +67,7 @@ Tiêu chí của story:
 |---|---|
 |recruiterId|Bắt buộc. UUID tài khoản. Chuỗi không phải UUID (ví dụ `"HR01"`) là `INVALID_JSON`|
 |role|Không bắt buộc. `PRIMARY` (recruiter chính) hoặc `SUPPORTING` (recruiter hỗ trợ), đúng chữ hoa. Không gửi hoặc `null` nghĩa là `PRIMARY`, nên body `{recruiterId, note}` mà frontend đang gửi là giao hoặc chuyển giao recruiter chính|
-|note|Không bắt buộc. Tối đa 1.000 ký tự, không chứa ký tự NUL. Hiện được kiểm và nhận, nhưng chưa được lưu: lịch sử lưu ghi chú là task 286|
+|note|Không bắt buộc. Tối đa 1.000 ký tự, không chứa ký tự NUL. Lý do của lần thay đổi, lưu vào lịch sử (task 286); trống thì lưu `null`|
 
 Trường khác (ví dụ `assignedBy`) trả `INVALID_JSON`.
 
@@ -84,6 +85,42 @@ Trường khác (ví dụ `assignedBy`) trả `INVALID_JSON`.
 ## Bỏ recruiter hỗ trợ
 
 `POST /requisitions/{id}/unassign` với body `{ "recruiterId": "...", "note": "..." }` (không có `role`) trả 200 với phân công mới. Người không được phân công thì không đổi gì. Recruiter chính **không bỏ được**, chỉ chuyển giao: 409 `REQUISITION_PRIMARY_RECRUITER_REQUIRED`.
+
+## Lịch sử phân công (task 286)
+
+Mỗi lần nhóm recruiter **thực sự** thay đổi, backend ghi thêm một dòng vào bảng `requisition_recruiter_changes` (V17), trong cùng transaction và với cùng thời điểm như thay đổi đó. Lần gọi không đổi gì và lần gọi bị từ chối không ghi gì. Lịch sử chỉ được thêm: không có API sửa hay xóa.
+
+`GET /requisitions/{id}/assignment-history` trả **mảng JSON** (không bọc trong `items`), mới nhất trước; mảng rỗng `[]` khi chưa có thay đổi. Quyền và thứ tự lỗi giống `GET /assignment`.
+
+```json
+[
+  {
+    "id": "0b6f...",
+    "revision": 2,
+    "changeType": "PRIMARY_HANDED_OVER",
+    "recruiterId": "00000000-0000-0000-0000-000000000011",
+    "assignedTo": "Trần Anh Tuấn",
+    "previousRecruiterId": "00000000-0000-0000-0000-000000000013",
+    "previousAssignedTo": "Nguyễn Thị Phương",
+    "assignedById": "00000000-0000-0000-0000-000000000001",
+    "assignedBy": "Nguyễn Thị Hoa",
+    "assignedAt": "2026-10-10T03:15:30.123456Z",
+    "note": "Chuyển giao do HR cũ nghỉ phép"
+  }
+]
+```
+
+| `changeType` | Ý nghĩa | `assignedTo` | `previousAssignedTo` |
+|---|---|---|---|
+|`PRIMARY_ASSIGNED`|Giao recruiter chính lần đầu|Recruiter chính mới|`null`|
+|`PRIMARY_HANDED_OVER`|Chuyển giao (kể cả nâng recruiter hỗ trợ lên chính)|Recruiter chính mới|Recruiter chính cũ|
+|`SUPPORTING_ADDED`|Thêm recruiter hỗ trợ|Người được thêm|`null`|
+|`SUPPORTING_REMOVED`|Bỏ recruiter hỗ trợ|Người bị bỏ|`null`|
+
+- `assignedTo`, `assignedBy`, `assignedAt`, `note` đúng là các trường frontend đang hiển thị. Riêng với `SUPPORTING_REMOVED`, `assignedTo` là người **bị bỏ**, nên giao diện nên ghi nhãn theo `changeType`.
+- `revision` là số thứ tự 1, 2, 3… của mỗi yêu cầu, theo đúng thứ tự các thay đổi xảy ra. Danh sách xếp theo `revision`, không theo thời gian, vì hai thay đổi có thể cùng thời điểm. Áp lần lượt các dòng từ `revision` 1 sẽ ra đúng nhóm hiện tại.
+- Tên người được đọc lúc trả, nên tài khoản đổi tên thì hiện tên mới.
+- Phân công được lưu trước khi có V17 (nếu task 284 được phát hành trước) được V17 ghi bổ sung mỗi người một dòng, recruiter chính trước, không có người tiền nhiệm và ghi chú.
 
 ## Ai được phân công
 
@@ -141,9 +178,10 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 
 Frontend nhánh `UI` (`src/services/recruiterAssignmentService.ts`, `AssignRecruiterModal.tsx`) cần sửa:
 
-- Đường dẫn `/job-requisitions/{id}/assign` thành `/requisitions/{id}/assign`. Body `{recruiterId, note}` đã khớp.
+- Đường dẫn `/job-requisitions/{id}/assign` thành `/requisitions/{id}/assign`, `/job-requisitions/{id}/assignment-history` thành `/requisitions/{id}/assignment-history`. Body `{recruiterId, note}` đã khớp; lịch sử vẫn có bốn trường `assignedTo`, `assignedBy`, `assignedAt`, `note` mà giao diện đang đọc.
 - `recruiterId` phải là UUID thật. Danh sách chọn lấy từ `GET /accounts?role=RECRUITER&size=100` (cần `USER_ADMIN_READ_ALL`, có ở HR_MANAGER và ADMIN), thay cho danh sách giả, rồi giữ người có `status` là `ACTIVE` hoặc `TEMPORARILY_LOCKED`. Không lọc `status=ACTIVE` trên URL: bộ lọc đó bỏ mất người đang bị khóa tạm vì nhập sai mật khẩu, trong khi backend vẫn cho giao người này. `status` chỉ nhận một giá trị mỗi lần gọi.
 - Chỉ hiện nút "Phân công" khi người dùng có `REQUISITIONS_WRITE_ALL` (người đó cũng phải xem được yêu cầu; nút nằm trong trang chi tiết yêu cầu nên điều này đã đúng). Không dựa vào quyền sửa yêu cầu nói chung, vì Trưởng bộ phận sẽ bấm được rồi bị 403 và bị đưa sang `/unauthorized`.
+- Lịch sử: thêm `changeType` (và `previousAssignedTo`) vào `AssignmentHistoryItem`, rồi ghi nhãn mỗi dòng theo `changeType`: giao recruiter chính, chuyển giao từ `previousAssignedTo` sang `assignedTo`, thêm hỗ trợ, bỏ hỗ trợ. `AssignRecruiterModal.tsx` hiện ghi "Giao cho:" cho mọi dòng, nên một lần bỏ recruiter hỗ trợ sẽ hiện thành "Giao cho" chính người vừa bị bỏ.
 - Để hiện và quản lý recruiter hỗ trợ: gọi `GET /requisitions/{id}/assignment`, gửi `role: "SUPPORTING"` khi thêm hỗ trợ, gọi `POST /requisitions/{id}/unassign` khi bỏ.
 
 ## Giả định chờ BA/PO
@@ -155,4 +193,6 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - người cũ rời khỏi yêu cầu khi chuyển giao;
 - chỉ phân công được ở `DRAFT`;
 - không giới hạn theo phòng ban;
-- recruiter được giao chưa xem được yêu cầu.
+- recruiter được giao chưa xem được yêu cầu;
+- lịch sử chỉ ghi lần thay đổi thật, không ghi lần gọi không đổi gì hay bị từ chối (task 286);
+- phân công lưu trước V17 được ghi bổ sung thành dòng lịch sử không có người tiền nhiệm và ghi chú (task 286).

@@ -84,6 +84,7 @@ class RequisitionRecruiterLockIntegrationTest {
         clock.set(START);
         jdbc.update("INSERT INTO role_permissions (role_code, permission_code) "
                 + "VALUES ('HR_MANAGER', 'REQUISITIONS_WRITE_ALL') ON CONFLICT DO NOTHING");
+        jdbc.update("DELETE FROM requisition_recruiter_changes");
         jdbc.update("DELETE FROM requisition_recruiters");
         jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
@@ -141,6 +142,7 @@ class RequisitionRecruiterLockIntegrationTest {
             expect(assign(Map.of("recruiterId", r.get(1), "role", "SUPPORTING"), hrToken), 200);
         }
         int before = rows();
+        int historyBefore = historyRows();
         String sql = held.equals("requisition")
                 ? "SELECT pg_backend_pid() FROM recruitment_requisitions WHERE id = ? FOR SHARE"
                 : "SELECT pg_backend_pid() FROM user_accounts WHERE id = ? FOR SHARE";
@@ -176,8 +178,9 @@ class RequisitionRecruiterLockIntegrationTest {
                 }
             }
         }
-        // assign: nobody, then r0. unassign: r0 and r1, then r0.
+        // assign: nobody, then r0. unassign: r0 and r1, then r0. Task 286: one more history row only on success.
         assertThat(rows()).isEqualTo(expected == 200 ? 1 : before);
+        assertThat(historyRows()).isEqualTo(historyBefore + (expected == 200 ? 1 : 0));
     }
 
     @Test
@@ -229,8 +232,15 @@ class RequisitionRecruiterLockIntegrationTest {
         assertThat(results).allMatch(status -> status == 200);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_recruiters WHERE assignment_role = 'PRIMARY'",
                 Integer.class)).isOne();
-        assertThat(jdbc.queryForObject("SELECT recruiter_id FROM requisition_recruiters", UUID.class))
-                .isIn(r.get(1), r.get(2));
+        UUID last = jdbc.queryForObject("SELECT recruiter_id FROM requisition_recruiters", UUID.class);
+        assertThat(last).isIn(r.get(1), r.get(2));
+        // Task 286: the two handovers are revisions 2 and 3, the second one replacing the first one's new primary.
+        var history = jdbc.queryForList("SELECT revision, recruiter_id, previous_recruiter_id "
+                + "FROM requisition_recruiter_changes ORDER BY revision");
+        assertThat(history).hasSize(3);
+        assertThat(history.get(2).get("recruiter_id")).isEqualTo(last);
+        assertThat(history.get(2).get("previous_recruiter_id")).isEqualTo(history.get(1).get("recruiter_id"));
+        assertThat(history.get(1).get("previous_recruiter_id")).isEqualTo(r.get(0));
     }
 
     // The reason for commands (assign one person, remove one person) instead of saving the whole team: two HR users
@@ -260,6 +270,16 @@ class RequisitionRecruiterLockIntegrationTest {
         assertThat(results.get(1)).isEqualTo(200);
         assertThat(jdbc.queryForList("SELECT recruiter_id::text || ':' || assignment_role FROM requisition_recruiters",
                 String.class)).containsExactly(r.get(1) + ":PRIMARY");
+        // Task 286: the history tells the same story, ending in the handover from r0 to r1.
+        String handover = "PRIMARY_HANDED_OVER:" + r.get(1) + ":" + r.get(0);
+        List<String> history = jdbc.queryForList("SELECT change_type || ':' || recruiter_id || ':' "
+                + "|| COALESCE(previous_recruiter_id::text, '-') FROM requisition_recruiter_changes ORDER BY revision",
+                String.class);
+        if (results.get(0) == 200) {
+            assertThat(history).endsWith("SUPPORTING_REMOVED:" + r.get(1) + ":-", handover).hasSize(4);
+        } else {
+            assertThat(history).endsWith(handover).hasSize(3);
+        }
     }
 
     // Holds the requisition row so both requests reach it, then lets them run one after the other.
@@ -283,6 +303,10 @@ class RequisitionRecruiterLockIntegrationTest {
             }
         }
         return statuses;
+    }
+
+    private int historyRows() {
+        return jdbc.queryForObject("SELECT count(*) FROM requisition_recruiter_changes", Integer.class);
     }
 
     private int rows() {
