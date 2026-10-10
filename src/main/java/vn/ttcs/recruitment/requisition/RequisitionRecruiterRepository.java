@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 // Task 283: the recruiters of each requisition (V16). JDBC, not JPA: a handover deletes the old primary row before it
@@ -34,6 +35,27 @@ public class RequisitionRecruiterRepository {
                         row.getObject("assigned_by", UUID.class),
                         row.getObject("assigned_at", OffsetDateTime.class).toInstant()));
         return RequisitionAssignment.of(requisitionId, rows);
+    }
+
+    // Task 284: the recruiters with the names to show, primary first, supporting in the order they were added.
+    // Names are read now, not stored: a renamed account shows its new name.
+    public record AssignedRecruiterRow(UUID recruiterId, RequisitionRecruiterRole role, String fullName,
+                                       UUID assignedById, String assignedByName, Instant assignedAt) { }
+
+    public List<AssignedRecruiterRow> findAssigned(UUID requisitionId) {
+        return jdbc.query("""
+                SELECT r.recruiter_id, r.assignment_role, a.full_name, r.assigned_by, b.full_name AS assigned_by_name,
+                       r.assigned_at
+                FROM requisition_recruiters r
+                JOIN user_accounts a ON a.id = r.recruiter_id
+                JOIN user_accounts b ON b.id = r.assigned_by
+                WHERE r.requisition_id = :requisitionId
+                ORDER BY r.assignment_role, r.assigned_at, r.recruiter_id
+                """, new MapSqlParameterSource("requisitionId", requisitionId),
+                (row, number) -> new AssignedRecruiterRow(row.getObject("recruiter_id", UUID.class),
+                        RequisitionRecruiterRole.valueOf(row.getString("assignment_role")), row.getString("full_name"),
+                        row.getObject("assigned_by", UUID.class), row.getString("assigned_by_name"),
+                        row.getObject("assigned_at", OffsetDateTime.class).toInstant()));
     }
 
     /**
