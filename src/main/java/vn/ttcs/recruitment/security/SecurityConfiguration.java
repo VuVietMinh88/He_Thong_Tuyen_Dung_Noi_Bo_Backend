@@ -158,7 +158,8 @@ public class SecurityConfiguration {
                         // Requisitions: ALL and SCOPED callers both reach RequisitionService, which uses AccessScope.
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
-                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*",
+                                "/api/v1/requisitions/*/headcount-overrides")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/requisitions/*")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")

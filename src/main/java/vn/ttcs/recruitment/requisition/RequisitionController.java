@@ -40,6 +40,13 @@ public class RequisitionController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.get(jwt, id));
     }
 
+    // Task 275: the HR exceptions to the headcount plan recorded for this requisition.
+    @GetMapping("/{id}/headcount-overrides")
+    public ResponseEntity<HeadcountOverrideList> headcountOverrides(@AuthenticationPrincipal Jwt jwt,
+                                                                    @PathVariable UUID id) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.headcountOverrides(jwt, id));
+    }
+
     @PostMapping
     public ResponseEntity<RequisitionView> create(@AuthenticationPrincipal Jwt jwt,
                                                   @Valid @RequestBody RequisitionRequest request) {
