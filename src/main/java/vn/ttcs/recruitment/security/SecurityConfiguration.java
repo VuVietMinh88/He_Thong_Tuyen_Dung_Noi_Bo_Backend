@@ -158,6 +158,10 @@ public class SecurityConfiguration {
                         // Requisitions: ALL and SCOPED callers both reach RequisitionService, which uses AccessScope.
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 278: a copy is a new draft; RequisitionService also checks that the caller may read
+                        // the source (REQUISITIONS_READ_* and its department).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/copy")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*",
                                 "/api/v1/requisitions/*/headcount-overrides")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
