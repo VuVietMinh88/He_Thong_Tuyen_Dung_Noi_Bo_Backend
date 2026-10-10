@@ -61,6 +61,43 @@ public class RequisitionApprovalRepository {
                 .addValue("comment", comment));
     }
 
+    // Task 261: a level of the round decided: who, when, the outcome and the comment (required to reject or to ask for
+    // more information, which V19 checks too). One decision per level of a round (requisition_workflow_events_one_
+    // decision_idx); the caller holds the requisition lock and has checked the level is the current one.
+    public void appendDecision(UUID requisitionId, int round, ApprovalOutcome outcome, UUID actorId, Instant at,
+                               String comment) {
+        append(requisitionId, new MapSqlParameterSource()
+                .addValue("eventType", outcome.type().name())
+                .addValue("statusBefore", outcome.before().name())
+                .addValue("statusAfter", outcome.after().name())
+                .addValue("roundNumber", round)
+                .addValue("levelNumber", outcome.level())
+                .addValue("flowId", null)
+                .addValue("flowVersion", null)
+                .addValue("levelCount", null)
+                .addValue("salaryBasis", null)
+                .addValue("actorId", actorId)
+                .addValue("occurredAt", at)
+                .addValue("comment", comment));
+    }
+
+    // Task 261: the chain of a round, levels 1 to levelCount of its sealed flow version, with the names shown for them.
+    public List<ChainLevelRow> findChainLevels(UUID flowId, int version, int levelCount) {
+        return jdbc.query("""
+                SELECT s.position, s.salary_threshold IS NOT NULL AS added, s.approver_user_id, u.full_name AS approver_name,
+                       s.approver_role, r.display_name AS role_name
+                FROM approval_flow_steps s
+                LEFT JOIN user_accounts u ON u.id = s.approver_user_id
+                LEFT JOIN roles r ON r.code = s.approver_role
+                WHERE s.flow_id = :flowId AND s.version = :version AND s.position <= :levelCount
+                ORDER BY s.position
+                """, new MapSqlParameterSource("flowId", flowId).addValue("version", version)
+                .addValue("levelCount", levelCount), (row, number) -> new ChainLevelRow(
+                new ApprovalLevel(row.getInt("position"), row.getObject("approver_user_id", UUID.class),
+                        row.getString("approver_role"), row.getBoolean("added")),
+                row.getString("approver_name"), row.getString("role_name")));
+    }
+
     // Every event of one requisition, oldest first by revision (not by time: two events may share a timestamp).
     public List<ApprovalEvent> findEvents(UUID requisitionId) {
         return jdbc.query(SELECT_EVENTS + " WHERE e.requisition_id = :requisitionId ORDER BY e.revision",
