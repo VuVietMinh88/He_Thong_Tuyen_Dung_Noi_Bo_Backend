@@ -6,7 +6,7 @@ Tiêu chí của story:
 
 - Khai báo chỉ tiêu headcount và ngân sách lương theo phòng ban, theo năm (272, 273).
 - Yêu cầu tuyển dụng mới hiển thị số headcount còn lại của phòng ban (273: `GET /headcount-plans/remaining`).
-- Vượt chỉ tiêu là cảnh báo chặn, cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do (task 274 và 275, chưa có trong tài liệu này).
+- Vượt chỉ tiêu là cảnh báo chặn (task 274: lưu yêu cầu tuyển dụng vượt định biên trả 409, xem [API yêu cầu tuyển dụng](requisitions.md#kiểm-tra-định-biên-task-274)), cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do (task 275).
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
@@ -110,7 +110,7 @@ Backend khóa dòng định biên `FOR UPDATE` trước khi sửa, nên hai lầ
 
 ## Số còn lại cho biểu mẫu yêu cầu tuyển dụng
 
-`GET /headcount-plans/remaining?departmentId=...&year=2026` trả phần còn lại của một phòng ban trong một năm, dùng để hiển thị trên form tạo/sửa yêu cầu. `year` không bắt buộc, mặc định là năm hiện tại theo múi giờ nghiệp vụ; nên gửi năm của ngày cần người đang chọn trên form, vì yêu cầu được tính vào năm đó.
+`GET /headcount-plans/remaining?departmentId=...&year=2026` trả phần còn lại của một phòng ban trong một năm, dùng để hiển thị trên form tạo/sửa yêu cầu. `year` không bắt buộc, mặc định là năm hiện tại theo múi giờ nghiệp vụ; nên gửi năm của ngày cần người đang chọn trên form, vì yêu cầu được tính vào năm đó. Khi **sửa** một nháp: nháp chưa có ngày cần người được tính vào năm tạo nháp (năm của `createdAt` theo giờ Việt Nam), và `headcountUsed` đã gồm cả số người của chính nháp đó nếu nó cùng phòng ban, cùng năm; giao diện nên cộng lại số người của nháp khi hiển thị "còn lại cho nháp này".
 
 Response cho HR_MANAGER:
 

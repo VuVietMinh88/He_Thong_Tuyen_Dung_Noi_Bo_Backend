@@ -18,6 +18,9 @@ import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.department.DepartmentRepository;
+import vn.ttcs.recruitment.headcount.HeadcountDemand;
+import vn.ttcs.recruitment.headcount.HeadcountExcess;
+import vn.ttcs.recruitment.headcount.HeadcountQuota;
 import vn.ttcs.recruitment.position.PositionRepository;
 import vn.ttcs.recruitment.position.SalaryBandComparison;
 import vn.ttcs.recruitment.position.SalaryBandService;
@@ -53,13 +56,15 @@ public class RequisitionService {
     private final AuthService auth;
     private final PermissionService permissions;
     private final SalaryBandService salaryBands;
+    private final HeadcountQuota headcountQuota;
     private final BusinessCalendar calendar;
     private final Clock clock;
 
     public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
                               DepartmentRepository departments, AccountRepository accounts,
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              SalaryBandService salaryBands, BusinessCalendar calendar, Clock clock) {
+                              SalaryBandService salaryBands, HeadcountQuota headcountQuota,
+                              BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
         this.departments = departments;
@@ -68,6 +73,7 @@ public class RequisitionService {
         this.auth = auth;
         this.permissions = permissions;
         this.salaryBands = salaryBands;
+        this.headcountQuota = headcountQuota;
         this.calendar = calendar;
         this.clock = clock;
     }
@@ -79,6 +85,7 @@ public class RequisitionService {
     // Task 246 adds: the position and the department must still be active. Task 247 adds: a proposal outside the
     // position's standard salary band needs a justification. Task 248 adds: the needed-by date is not in the past.
     // Task 249 adds: a SCOPED caller may only choose a department they manage.
+    // Task 274 adds, last: the draft must fit in the headcount plan of its department and year.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Writer writer = lockWriter(jwt);
@@ -91,10 +98,12 @@ public class RequisitionService {
         Caller caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
+        Instant createdAt = now();
+        requireWithinHeadcountPlan(jwt, writer, demand(request, createdAt), null, null);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
                 request.headcount(), request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
-                request.candidateRequirements(), caller.id(), now());
+                request.candidateRequirements(), caller.id(), createdAt);
         return RequisitionView.from(requisitions.saveAndFlush(requisition));
     }
 
@@ -136,7 +145,7 @@ public class RequisitionService {
 
     // Task 245: saves the draft again with the new content. Order of checks: may I change this requisition
     // (404, 403, still a draft), then is the new content valid (same checks as create, including the department
-    // scope of task 249 for the department in the body).
+    // scope of task 249 for the department in the body), then (task 274) does it still fit in the headcount plan.
     @Transactional
     public RequisitionView update(Jwt jwt, UUID id, RequisitionRequest request) {
         Writer writer = lockWriter(jwt);
@@ -158,6 +167,7 @@ public class RequisitionService {
         caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
+        requireWithinHeadcountPlan(jwt, writer, demand(request, requisition.getCreatedAt()), demand(requisition), id);
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
                 request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
@@ -327,6 +337,34 @@ public class RequisitionService {
                 || isOutsideStandardBand(request.positionId(), request.proposedSalaryMax())) {
             throw invalidField("SALARY_JUSTIFICATION_REQUIRED", "salaryJustification", JUSTIFICATION_REQUIRED_MESSAGE);
         }
+    }
+
+    // Task 274: a save that asks more of the plan than it has left is refused with 409 (HeadcountQuota). Runs last,
+    // after every 400 and 403 of this save, and after the department row is locked FOR SHARE: the plan is then locked
+    // FOR UPDATE until this transaction commits, so parallel saves for the same department and year are counted one
+    // after the other. Without a plan for that department and year nothing is checked and nothing is locked.
+    // That plan lock can wait for another save of the same department and year, and meanwhile the access token may
+    // expire or the permission may be removed, so the caller is checked again before the 409 is decided.
+    private void requireWithinHeadcountPlan(Jwt jwt, Writer writer, HeadcountDemand demand, HeadcountDemand previous,
+                                            UUID requisitionId) {
+        Optional<HeadcountExcess> excess = headcountQuota.check(demand, previous, requisitionId);
+        requireStillWriter(jwt, writer);
+        excess.ifPresent(found -> {
+            throw HeadcountQuota.exceeded(found);
+        });
+    }
+
+    // What the body asks of the plan. createdAt decides the plan year while neededBy is empty.
+    private HeadcountDemand demand(RequisitionRequest request, Instant createdAt) {
+        return HeadcountDemand.of(request.departmentId(), request.neededBy(), calendar.dateOf(createdAt),
+                request.headcount(), request.proposedSalaryMin(), request.proposedSalaryMax());
+    }
+
+    // What the saved requisition asks of its plan before this save.
+    private HeadcountDemand demand(RecruitmentRequisition requisition) {
+        return HeadcountDemand.of(requisition.getDepartmentId(), requisition.getNeededBy(),
+                calendar.dateOf(requisition.getCreatedAt()), requisition.getHeadcount(),
+                requisition.getProposedSalaryMin(), requisition.getProposedSalaryMax());
     }
 
     // compare() returns only BELOW/WITHIN/ABOVE, so this service never handles the band amounts at all.
