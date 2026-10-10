@@ -1,8 +1,11 @@
 package vn.ttcs.recruitment.account;
 
 import jakarta.mail.MessagingException;
+import jakarta.mail.SendFailedException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.MailException;
 import org.springframework.mail.MailPreparationException;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
@@ -51,5 +54,22 @@ public class AccountInvitationMailSender {
             throw new MailPreparationException("Could not prepare account activation email.");
         }
         sender.send(message);
+    }
+
+    /**
+     * True when the mail server answered and permanently refused the recipient address: an SMTP 5xx reply to
+     * RCPT TO, for example for a mailbox that does not exist. Only that address is the problem then. Every other
+     * failure (no connection, login refused, timeout, a temporary 4xx reply) means the mail server is not working.
+     */
+    public static boolean refusedRecipient(MailException failure) {
+        if (failure instanceof MailSendException sendFailure) {
+            for (Exception cause : sendFailure.getFailedMessages().values()) {
+                if (cause instanceof SendFailedException refused && refused.getInvalidAddresses() != null
+                        && refused.getInvalidAddresses().length > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }
