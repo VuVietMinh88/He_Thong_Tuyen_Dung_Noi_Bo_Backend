@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -28,6 +29,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -82,7 +84,7 @@ public class PositionService {
 
     @Transactional
     public PositionView create(Jwt jwt, PositionRequest request) {
-        Set<String> granted = requireWriteAccess(jwt, CATALOG_WRITE);
+        Set<String> granted = requireStillWriter(jwt, lockWriter(jwt, CATALOG_WRITE));
         requireValidSalaryBand(request);
         if (positions.existsByCode(request.code())) {
             throw duplicateCode();
@@ -99,9 +101,14 @@ public class PositionService {
 
     @Transactional
     public PositionView update(Jwt jwt, UUID id, PositionRequest request) {
-        Set<String> granted = requireWriteAccess(jwt, CATALOG_WRITE);
+        Writer writer = requireWriteAccess(jwt, CATALOG_WRITE);
         requireValidSalaryBand(request);
-        Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
+        Optional<Position> locked = positions.findByIdForUpdate(id);
+        // The row lock can wait for another edit of the same position, and meanwhile the access token may expire or
+        // a permission may be removed, so the caller is checked again after the lock and before the 404, like
+        // DepartmentService.lockDepartment (task 198). The permissions read now also decide the response.
+        Set<String> granted = requireStillWriter(jwt, writer);
+        Position position = locked.orElseThrow(PositionService::notFound);
         if (positions.existsByCodeAndIdNot(request.code(), id)) {
             throw duplicateCode();
         }
@@ -120,12 +127,16 @@ public class PositionService {
     // Checks in order: position exists (404), framework exists (400), framework is ACTIVE (409).
     @Transactional
     public PositionView useCompetencyFramework(Jwt jwt, UUID id, UUID frameworkId) {
-        Set<String> granted = requireWriteAccess(jwt, FRAMEWORK_WRITE);
+        Writer writer = requireWriteAccess(jwt, FRAMEWORK_WRITE);
         // Same row lock as update(), so a catalog edit of the same position runs before or after this one.
-        Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
+        // Both row locks can wait, so the caller is checked again after each of them (see update()).
+        Optional<Position> lockedPosition = positions.findByIdForUpdate(id);
+        requireStillWriter(jwt, writer);
+        Position position = lockedPosition.orElseThrow(PositionService::notFound);
         // FOR SHARE: the status read here cannot change before this transaction commits (see findByIdForShare).
-        CompetencyFramework framework = frameworks.findByIdForShare(frameworkId)
-                .orElseThrow(PositionService::unknownFramework);
+        Optional<CompetencyFramework> sharedFramework = frameworks.findByIdForShare(frameworkId);
+        Set<String> granted = requireStillWriter(jwt, writer);
+        CompetencyFramework framework = sharedFramework.orElseThrow(PositionService::unknownFramework);
         // Interview evaluation forms are scored with this framework, so it must be complete (weights total 100%).
         // An ACTIVE framework never goes back to DRAFT and every edit keeps its total at 100%
         // (CompetencyFrameworkService), so a framework in use by positions always stays complete.
@@ -142,8 +153,10 @@ public class PositionService {
     // A position without a framework simply stays without one, so calling this twice is harmless.
     @Transactional
     public PositionView removeCompetencyFramework(Jwt jwt, UUID id) {
-        Set<String> granted = requireWriteAccess(jwt, FRAMEWORK_WRITE);
-        Position position = positions.findByIdForUpdate(id).orElseThrow(PositionService::notFound);
+        Writer writer = requireWriteAccess(jwt, FRAMEWORK_WRITE);
+        Optional<Position> locked = positions.findByIdForUpdate(id);
+        Set<String> granted = requireStillWriter(jwt, writer);
+        Position position = locked.orElseThrow(PositionService::notFound);
         position.useCompetencyFramework(null, now());
         return PositionView.from(position, canSeeSalaryBand(granted));
     }
@@ -159,9 +172,18 @@ public class PositionService {
         return granted;
     }
 
-    // required: the permission codes this write needs, all of them (CATALOG_WRITE or FRAMEWORK_WRITE).
-    // Returns the caller's current permission codes, which also decide whether the salary band is shown.
-    private Set<String> requireWriteAccess(Jwt jwt, List<String> required) {
+    // The caller of a write after lockWriter: the account id, the session row this transaction has locked and the
+    // permission codes the write needs, all of them (CATALOG_WRITE or FRAMEWORK_WRITE).
+    private record Writer(UUID actorId, AuthSession session, List<String> required) { }
+
+    // The first check of every write: locks the caller's account and session, then checks the caller once.
+    private Writer requireWriteAccess(Jwt jwt, List<String> required) {
+        Writer writer = lockWriter(jwt, required);
+        requireStillWriter(jwt, writer);
+        return writer;
+    }
+
+    private Writer lockWriter(Jwt jwt, List<String> required) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -177,15 +199,24 @@ public class PositionService {
         var session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
 
-        // The request may have waited for those locks. Recheck the token, session and permission now.
+        return new Writer(actorId, session, required);
+    }
+
+    // May the caller still write? Called once the account and session locks are held (the request may have waited
+    // for them), and again after every row lock the write waits for. From the first call on this transaction holds
+    // the caller's account and session rows, so an admin lock, a logout or a role change through the account API
+    // waits for it. Time still passes (token or session expiry) and the grants in role_permissions can still change
+    // (a migration locks no account), so all three are checked every time, with the permissions read again from the
+    // database. Returns the caller's current permission codes, which also decide whether the salary band is shown.
+    private Set<String> requireStillWriter(Jwt jwt, Writer writer) {
         var now = clock.instant();
         requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!writer.session().getUserId().equals(writer.actorId()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        Set<String> granted = permissions.forUser(actorId);
-        if (!granted.containsAll(required)) {
-            throw new AccessDeniedException("This position write requires " + String.join(" and ", required));
+        Set<String> granted = permissions.forUser(writer.actorId());
+        if (!granted.containsAll(writer.required())) {
+            throw new AccessDeniedException("This position write requires " + String.join(" and ", writer.required()));
         }
         return granted;
     }
