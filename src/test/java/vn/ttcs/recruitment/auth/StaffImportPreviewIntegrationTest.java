@@ -188,6 +188,24 @@ class StaffImportPreviewIntegrationTest {
         assertThat(json.readTree(upload(adminToken, "danh-sach-nhan-su.xlsx", file).body())).isEqualTo(body);
     }
 
+    // A cell with nothing but Unicode spaces (U+2003 em space, U+3000 ideographic space, a tab) is empty, as in
+    // POST /accounts where @NotBlank refuses such a name. String.trim() keeps U+2003 and U+3000, so a required cell
+    // like that once passed the preview and the import created an account with a blank name.
+    @Test
+    void cellsWithOnlyUnicodeSpacesAreEmpty() throws Exception {
+        byte[] file = staffFile(row("a@example.com", "\u2003", "RECRUITER", "\u3000", "\t", "\u2003 \u3000"));
+
+        JsonNode first = rows(expectOk(upload(adminToken, "khoang-trang.xlsx", file))).get(0);
+
+        assertThat(first.path("fullName").isNull()).isTrue();
+        assertThat(first.path("departmentCode").isNull()).isTrue();
+        assertThat(first.path("phone").isNull()).isTrue();
+        assertThat(first.path("displayTitle").isNull()).isTrue();
+        assertThat(first.path("valid").asBoolean()).isFalse();
+        assertThat(first.path("errors")).extracting(error -> error.path("cell").asText() + " " + error.path("code").asText())
+                .containsExactly("B2 REQUIRED");
+    }
+
     @Test
     void numericAndBooleanCellsAreReadAsTheTextExcelShows() throws Exception {
         byte[] file = xlsx(workbook -> fill(workbook.createSheet("Nhân sự"),
