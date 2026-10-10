@@ -31,10 +31,10 @@ import static org.assertj.core.api.Assertions.tuple;
 // be kept in step by hand.
 class RolePermissionSeedMigrationTest {
     private static final Timestamp CREATED_AT = Timestamp.from(Instant.parse("2026-10-06T00:00:00Z"));
-    // The ten V3 modules, then SALARY_RANGES from V7_1.
+    // The ten V3 modules, then SALARY_RANGES from V7_1 and HEADCOUNT_PLANS from V14.
     private static final List<String> MODULES = List.of("ORGANIZATION", "REQUISITIONS", "JOB_POSTINGS",
             "CANDIDATES", "INTERVIEWS", "EVALUATIONS", "OFFERS", "NOTIFICATIONS", "REPORTS", "USER_ADMIN",
-            "SALARY_RANGES");
+            "SALARY_RANGES", "HEADCOUNT_PLANS");
 
     private static final Set<String> SELF_SERVICE = Set.of(
             "SELF_PROFILE_READ", "SELF_PROFILE_WRITE", "SELF_SECURITY_WRITE");
@@ -63,7 +63,8 @@ class RolePermissionSeedMigrationTest {
                     "NOTIFICATIONS_READ_ALL", "NOTIFICATIONS_WRITE_ALL",
                     "REPORTS_READ_ALL", "REPORTS_WRITE_ALL",
                     "USER_ADMIN_READ_ALL",
-                    "SALARY_RANGES_READ_ALL", "SALARY_RANGES_WRITE_ALL"),
+                    "SALARY_RANGES_READ_ALL", "SALARY_RANGES_WRITE_ALL",
+                    "HEADCOUNT_PLANS_READ_ALL", "HEADCOUNT_PLANS_WRITE_ALL"),
             "RECRUITER", internalRole(
                     "ORGANIZATION_READ_ALL",
                     "REQUISITIONS_READ_SCOPED", "REQUISITIONS_WRITE_SCOPED",
@@ -173,8 +174,23 @@ class RolePermissionSeedMigrationTest {
                         tuple("HR_MANAGER", "SALARY_RANGES_READ_ALL"),
                         tuple("HR_MANAGER", "SALARY_RANGES_WRITE_ALL"));
         // The totals stated in sections 2 and 5.2 of the matrix document.
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM permissions", Integer.class)).isEqualTo(47);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM role_permissions", Integer.class)).isEqualTo(104);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM permissions", Integer.class)).isEqualTo(51);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM role_permissions", Integer.class)).isEqualTo(106);
+    }
+
+    @Test
+    void onlyTheHrManagerIsGrantedAnyHeadcountPlanPermission() {
+        // Story S3-04 (task 272): the HR manager declares the plans and alone may confirm going over them.
+        // ADMIN is left out, the same choice as for salary bands.
+        assertThat(jdbc.queryForList("""
+                SELECT rp.role_code, rp.permission_code
+                FROM role_permissions rp JOIN permissions p ON p.code = rp.permission_code
+                WHERE p.module_code = 'HEADCOUNT_PLANS'
+                """))
+                .extracting("role_code", "permission_code")
+                .containsExactlyInAnyOrder(
+                        tuple("HR_MANAGER", "HEADCOUNT_PLANS_READ_ALL"),
+                        tuple("HR_MANAGER", "HEADCOUNT_PLANS_WRITE_ALL"));
     }
 
     @Test

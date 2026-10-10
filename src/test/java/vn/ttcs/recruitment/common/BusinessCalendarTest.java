@@ -37,6 +37,26 @@ class BusinessCalendarTest {
         assertThat(calendar.today()).isEqualTo(expected);
     }
 
+    // Task 272: dateOf gives the business date of any stored moment, and startOf the moment that date begins.
+    @ParameterizedTest(name = "{0} in {1}: {2}, starting at {3}")
+    @CsvSource({
+            // 23:59:59 on 31 Dec 2026 in Vietnam: still 2026 there.
+            "2026-12-31T16:59:59Z, Asia/Ho_Chi_Minh, 2026-12-31, 2026-12-30T17:00:00Z",
+            // 00:00 on 1 Jan 2027 in Vietnam while UTC is still in 2026.
+            "2026-12-31T17:00:00Z, Asia/Ho_Chi_Minh, 2027-01-01, 2026-12-31T17:00:00Z",
+            // An offset zone works the same way.
+            "2026-12-31T17:00:00Z, +07:00, 2027-01-01, 2026-12-31T17:00:00Z",
+            "2026-12-31T17:00:00Z, UTC, 2026-12-31, 2026-12-31T00:00:00Z"
+    })
+    void dateOfAndStartOfUseTheBusinessZone(Instant moment, String zone, LocalDate date, Instant startOfDate) {
+        var calendar = new BusinessCalendar(Clock.fixed(Instant.EPOCH, CLOCK_ZONE), ZoneId.of(zone));
+
+        assertThat(calendar.dateOf(moment)).isEqualTo(date);
+        assertThat(calendar.startOf(date)).isEqualTo(startOfDate);
+        assertThat(calendar.dateOf(calendar.startOf(date))).isEqualTo(date);
+        assertThat(calendar.dateOf(calendar.startOf(date).minusNanos(1))).isEqualTo(date.minusDays(1));
+    }
+
     // The zone comes from the property app.business-zone; an offset such as +07:00 is accepted too.
     @Test
     void theZoneIsReadFromTheApplicationProperty() {

@@ -4,9 +4,9 @@
 
 Tài liệu phục vụ Jira TKNHTTDNB1-119 "Xác định danh sách Role và Permission" và TKNHTTDNB1-120 "Xác định quyền của từng Role" thuộc story TKNHTTDNB1-14. Cả hai task yêu cầu kết hợp với BA/PO.
 
-**Trạng thái: đề xuất của nhóm backend, chờ BA/PO xác nhận. Đây chưa phải bản chốt.** Nội dung mô tả đúng những gì database đang cấp (Flyway V3, V5 và V7_1) và những gì server đang kiểm. Sau khi BA/PO trả lời các câu hỏi ở mục 8, backend sẽ điều chỉnh bằng migration mới theo mục 4.
+**Trạng thái: đề xuất của nhóm backend, chờ BA/PO xác nhận. Đây chưa phải bản chốt.** Nội dung mô tả đúng những gì database đang cấp (Flyway V3, V5, V7_1 và V14) và những gì server đang kiểm. Sau khi BA/PO trả lời các câu hỏi ở mục 8, backend sẽ điều chỉnh bằng migration mới theo mục 4.
 
-Nguồn: bảng `2. User Roles` của đặc tả "HỆ THỐNG TUYỂN DỤNG NỘI BỘ", Jira TKNHTTDNB1-14 và TKNHTTDNB1-205. Cơ chế kiểm quyền được mô tả trong [thiết kế phân quyền](authorization.md). Test `RolePermissionSeedMigrationTest` so dữ liệu seed với hằng `EXPECTED_GRANTS` viết tay trong test, là bản chép lại mục 5.1 và 5.2. Migration đổi quyền mà chưa sửa `EXPECTED_GRANTS` sẽ làm test thất bại. `ApiAuthorizationMatrixIntegrationTest` đọc lại chính hằng này để biết vai trò nào được gọi API nào, nên quyền mong đợi chỉ được viết ở một chỗ. Test không đọc file này, nên người đổi ma trận phải tự cập nhật tài liệu trong cùng thay đổi (mục 4).
+Nguồn: bảng `2. User Roles` của đặc tả "HỆ THỐNG TUYỂN DỤNG NỘI BỘ", Jira TKNHTTDNB1-14, TKNHTTDNB1-205 và story S3-04 (TKNHTTDNB1-33, task 272). Cơ chế kiểm quyền được mô tả trong [thiết kế phân quyền](authorization.md). Test `RolePermissionSeedMigrationTest` so dữ liệu seed với hằng `EXPECTED_GRANTS` viết tay trong test, là bản chép lại mục 5.1 và 5.2. Migration đổi quyền mà chưa sửa `EXPECTED_GRANTS` sẽ làm test thất bại. `ApiAuthorizationMatrixIntegrationTest` đọc lại chính hằng này để biết vai trò nào được gọi API nào, nên quyền mong đợi chỉ được viết ở một chỗ. Test không đọc file này, nên người đổi ma trận phải tự cập nhật tài liệu trong cùng thay đổi (mục 4).
 
 ## 1. Bảy vai trò
 
@@ -33,7 +33,7 @@ Mã quyền nghiệp vụ có dạng `<MODULE>_<READ|WRITE>_<ALL|SCOPED>`, ví d
 - `ALL`: mọi bản ghi của module.
 - `SCOPED`: chỉ những bản ghi gắn với người dùng. Ý nghĩa cụ thể theo từng module ở bảng dưới. Server bắt buộc phải lọc dữ liệu theo phạm vi này; frontend không tự lọc thay.
 
-Có 11 module × 2 thao tác × 2 phạm vi = 44 mã: V3 tạo 40 mã của mười module đầu, V7_1 thêm 4 mã của `SALARY_RANGES`. Database tạo đủ 44 mã, kể cả các mã chưa vai trò nào được cấp, ví dụ `ORGANIZATION_READ_SCOPED`. Khi cần cấp thêm quyền, chỉ cần thêm dòng `role_permissions`.
+Có 12 module × 2 thao tác × 2 phạm vi = 48 mã: V3 tạo 40 mã của mười module đầu, V7_1 thêm 4 mã của `SALARY_RANGES`, V14 thêm 4 mã của `HEADCOUNT_PLANS`. Database tạo đủ 48 mã, kể cả các mã chưa vai trò nào được cấp, ví dụ `ORGANIZATION_READ_SCOPED`. Khi cần cấp thêm quyền, chỉ cần thêm dòng `role_permissions`.
 
 | Module | Dòng trong bảng nguồn | `SCOPED` nghĩa là (đề xuất) | API backend hiện có |
 |---|---|---|---|
@@ -48,6 +48,7 @@ Có 11 module × 2 thao tác × 2 phạm vi = 44 mã: V3 tạo 40 mã của mư�
 |`REPORTS`|Báo cáo & dashboard|Recruiter: số liệu vị trí được phân công. Hiring Manager: số liệu vị trí mình sở hữu|Chưa có|
 |`USER_ADMIN`|Người dùng & nhật ký|Chưa vai trò nào dùng|Tài khoản, vai trò, khóa tài khoản (145–166)|
 |`SALARY_RANGES`|Không có dòng riêng; tách khỏi "Danh mục tổ chức & vị trí" theo Jira 205 (V7_1)|Chưa định nghĩa, chưa vai trò nào dùng; server coi như không có quyền|Dải lương `salaryMin`/`salaryMax` của chức danh (205)|
+|`HEADCOUNT_PLANS`|Không có dòng riêng; mô tả vai trò HR Manager có "ngân sách headcount" (story S3-04, V14)|Chưa định nghĩa, chưa vai trò nào dùng; server coi như không có quyền|Bảng định biên và ngân sách lương theo phòng ban, năm (272)|
 
 Cột `SCOPED` là đề xuất của backend. Module đầu tiên kiểm `SCOPED` theo từng bản ghi là yêu cầu tuyển dụng (task 245, 249): backend tạm hiểu `REQUISITIONS_*_SCOPED` là yêu cầu của phòng ban người gọi phụ trách (`departments.manager_user_id`), tính cả phòng ban con cháu, cho cả ba vai trò HIRING_MANAGER, RECRUITER, APPROVER; người tạo không quyết định quyền xem. Từ task 249, phòng ban ghi vào body khi tạo/sửa cũng phải thuộc phạm vi đó. Các module khác chưa có API dùng `SCOPED`. Xem [API yêu cầu tuyển dụng](../api/requisitions.md).
 
@@ -59,7 +60,7 @@ Cột `SCOPED` là đề xuất của backend. Module đầu tiên kiểm `SCOPE
 |`SELF_PROFILE_WRITE`|Sửa hồ sơ cá nhân của chính mình|V5|
 |`SELF_SECURITY_WRITE`|Đăng xuất, đổi mật khẩu|V3|
 
-Ba mã này được cấp cho cả sáu vai trò nội bộ và không cấp cho `CANDIDATE`. Bảng `permissions` có tổng cộng 47 mã (44 mã nghiệp vụ và 3 mã tự phục vụ).
+Ba mã này được cấp cho cả sáu vai trò nội bộ và không cấp cho `CANDIDATE`. Bảng `permissions` có tổng cộng 51 mã (48 mã nghiệp vụ và 3 mã tự phục vụ).
 
 ## 3. Chuyển ký hiệu bảng nguồn sang mã quyền
 
@@ -76,8 +77,8 @@ V3 xử lý `W` giống `W*`, vì chú thích của bảng nguồn ghi `W` là "
 
 ## 4. Cách thay đổi ma trận
 
-1. Tạo migration mới trong `database/migrations`, dùng số phiên bản lớn hơn migration mới nhất đang có (hiện là V13). **Không sửa các migration đã có (V1–V13)**, đặc biệt V3, V5 và V7_1. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
-2. Thay đổi quyền bằng `INSERT`/`DELETE` trên `role_permissions`. Chỉ thêm dòng vào `permissions` khi cần mã mới, như V7_1 đã thêm bốn mã `SALARY_RANGES_*` cho dải lương.
+1. Tạo migration mới trong `database/migrations`, dùng số phiên bản lớn hơn migration mới nhất đang có (hiện là V14). **Không sửa các migration đã có (V1–V14)**, đặc biệt V3, V5, V7_1 và V14. Các migration này đã chạy trên database của các thành viên; sửa lại sẽ làm Flyway báo lỗi checksum.
+2. Thay đổi quyền bằng `INSERT`/`DELETE` trên `role_permissions`. Chỉ thêm dòng vào `permissions` khi cần mã mới, như V7_1 đã thêm bốn mã `SALARY_RANGES_*` cho dải lương và V14 thêm bốn mã `HEADCOUNT_PLANS_*` cho định biên.
 
    ```sql
    -- Ví dụ minh họa, không phải quyết định đã chốt
@@ -95,7 +96,7 @@ Sau khi migrate, quyền mới có hiệu lực ở yêu cầu kế tiếp. Ngư
 
 ### 5.1 Ký hiệu nguồn và quyền đã seed
 
-Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_WRITE_SCOPED`. Mã đầy đủ là tên module ghép với hậu tố, ví dụ `CANDIDATES` + RS = `CANDIDATES_READ_SCOPED`. Cột ADMIN lấy theo ghi chú "Admin toàn quyền mọi module" của bảng nguồn, trừ dải lương (mục 7.9).
+Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_WRITE_SCOPED`. Mã đầy đủ là tên module ghép với hậu tố, ví dụ `CANDIDATES` + RS = `CANDIDATES_READ_SCOPED`. Cột ADMIN lấy theo ghi chú "Admin toàn quyền mọi module" của bảng nguồn, trừ dải lương (mục 7.9) và định biên (mục 7.12).
 
 | Module | CANDIDATE | INTERVIEWER | HIRING_MANAGER | RECRUITER | APPROVER | HR_MANAGER | ADMIN |
 |---|---|---|---|---|---|---|---|
@@ -110,18 +111,19 @@ Viết tắt: RA = `_READ_ALL`, WA = `_WRITE_ALL`, RS = `_READ_SCOPED`, WS = `_W
 |`REPORTS`|–|–|R* · RS|R* · RS|R · RA|F · RA, WA|F · RA, WA|
 |`USER_ADMIN`|–|–|–|–|–|R · RA|F · RA, WA|
 |`SALARY_RANGES`|–|–|–|–|–|**F** · RA, WA|**–**|
+|`HEADCOUNT_PLANS`|–|–|–|–|–|**F** · RA, WA|**–**|
 |Tự phục vụ (`SELF_*`)|–|3 mã|3 mã|3 mã|3 mã|3 mã|3 mã|
 
-Ô in đậm là khác biệt so với bảng nguồn; lý do ở mục 7.1 (Recruiter – hồ sơ ứng viên) và 7.9 (dải lương). Bảng nguồn không có dòng dải lương riêng: theo Jira 205, chỉ HR_MANAGER được cấp, và ADMIN không được cấp dù ghi chú "Admin toàn quyền mọi module".
+Ô in đậm là khác biệt so với bảng nguồn; lý do ở mục 7.1 (Recruiter – hồ sơ ứng viên), 7.9 (dải lương) và 7.12 (định biên). Bảng nguồn không có dòng dải lương riêng: theo Jira 205, chỉ HR_MANAGER được cấp, và ADMIN không được cấp dù ghi chú "Admin toàn quyền mọi module".
 
 ### 5.2 Danh sách mã chính xác trong `role_permissions`
 
-Ba mã tự phục vụ `SELF_PROFILE_READ`, `SELF_PROFILE_WRITE`, `SELF_SECURITY_WRITE` có trong mọi vai trò nội bộ và được tính vào cột tổng. Tổng cộng có 104 dòng (102 dòng của V3/V5 và 2 dòng của V7_1).
+Ba mã tự phục vụ `SELF_PROFILE_READ`, `SELF_PROFILE_WRITE`, `SELF_SECURITY_WRITE` có trong mọi vai trò nội bộ và được tính vào cột tổng. Tổng cộng có 106 dòng (102 dòng của V3/V5, 2 dòng của V7_1 và 2 dòng của V14).
 
 | Vai trò | Tổng | Mã quyền nghiệp vụ |
 |---|---|---|
 |`ADMIN`|23|`ORGANIZATION_READ_ALL`, `ORGANIZATION_WRITE_ALL`, `REQUISITIONS_READ_ALL`, `REQUISITIONS_WRITE_ALL`, `JOB_POSTINGS_READ_ALL`, `JOB_POSTINGS_WRITE_ALL`, `CANDIDATES_READ_ALL`, `CANDIDATES_WRITE_ALL`, `INTERVIEWS_READ_ALL`, `INTERVIEWS_WRITE_ALL`, `EVALUATIONS_READ_ALL`, `EVALUATIONS_WRITE_ALL`, `OFFERS_READ_ALL`, `OFFERS_WRITE_ALL`, `NOTIFICATIONS_READ_ALL`, `NOTIFICATIONS_WRITE_ALL`, `REPORTS_READ_ALL`, `REPORTS_WRITE_ALL`, `USER_ADMIN_READ_ALL`, `USER_ADMIN_WRITE_ALL`|
-|`HR_MANAGER`|24|Giống `ADMIN` nhưng không có `USER_ADMIN_WRITE_ALL`; có thêm `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` (V7_1)|
+|`HR_MANAGER`|26|Giống `ADMIN` nhưng không có `USER_ADMIN_WRITE_ALL`; có thêm `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` (V7_1) và `HEADCOUNT_PLANS_READ_ALL`, `HEADCOUNT_PLANS_WRITE_ALL` (V14)|
 |`RECRUITER`|18|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_SCOPED`, `JOB_POSTINGS_WRITE_SCOPED`, `CANDIDATES_READ_SCOPED`, `CANDIDATES_WRITE_SCOPED`, `INTERVIEWS_READ_ALL`, `INTERVIEWS_WRITE_ALL`, `EVALUATIONS_READ_ALL`, `OFFERS_READ_SCOPED`, `OFFERS_WRITE_SCOPED`, `NOTIFICATIONS_READ_ALL`, `NOTIFICATIONS_WRITE_ALL`, `REPORTS_READ_SCOPED`|
 |`HIRING_MANAGER`|13|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_ALL`, `CANDIDATES_READ_SCOPED`, `INTERVIEWS_READ_SCOPED`, `EVALUATIONS_READ_SCOPED`, `OFFERS_READ_SCOPED`, `NOTIFICATIONS_READ_SCOPED`, `REPORTS_READ_SCOPED`|
 |`APPROVER`|12|`ORGANIZATION_READ_ALL`, `REQUISITIONS_READ_SCOPED`, `REQUISITIONS_WRITE_SCOPED`, `JOB_POSTINGS_READ_ALL`, `CANDIDATES_READ_ALL`, `EVALUATIONS_READ_ALL`, `OFFERS_READ_SCOPED`, `OFFERS_WRITE_SCOPED`, `REPORTS_READ_ALL`|
@@ -220,6 +222,7 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 9. **Dải lương có module quyền riêng `SALARY_RANGES` (V7_1, task 205).** Bảng nguồn đặt "vị trí" trong dòng "Danh mục tổ chức & vị trí", tức module `ORGANIZATION`, mà cả sáu vai trò nội bộ đều có `ORGANIZATION_READ_ALL`; quyền đó không đủ để che dải lương. V7_1 thêm bốn mã `SALARY_RANGES_*` và chỉ cấp `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` cho HR_MANAGER, theo Jira 205 "chỉ Trưởng phòng Nhân sự xem được dải lương". ADMIN cố ý không được cấp, khác ghi chú "Admin toàn quyền mọi module"; vì lương là trường bắt buộc khi tạo/sửa chức danh, ADMIN cũng không tạo/sửa được chức danh. Người thiếu `SALARY_RANGES_READ_ALL` nhận response chức danh không có khóa `salaryMin`/`salaryMax` (mục 6, dòng 27–30). Xem câu hỏi 4.
 10. **Quyền `SCOPED` mới được kiểm theo từng bản ghi ở yêu cầu tuyển dụng.** Các API ứng viên, offer, báo cáo chưa tồn tại. Yêu cầu tuyển dụng (dòng 42–45, task 245 và 249) giới hạn người `SCOPED` ở phòng ban mình phụ trách, kể cả phòng ban con, khi xem, sửa và khi chọn phòng ban lúc tạo (dòng 42) hoặc sửa (dòng 45); RECRUITER và APPROVER thường không phụ trách phòng ban nào nên không thấy và không tạo được yêu cầu nào cho tới khi có luồng phân công/duyệt (câu hỏi 2).
 11. **Trang giới thiệu công ty thuộc module `JOB_POSTINGS`.** Bảng nguồn không có dòng riêng cho cổng tuyển dụng; backend xếp trang giới thiệu (story S2-09, mục 6 dòng 53–59) vào tin tuyển dụng. Đọc bản trong trình soạn, xem trước, lưu, tải ảnh và xem ảnh chưa lưu đều cần `JOB_POSTINGS_WRITE_ALL` (ADMIN, HR_MANAGER). Trang dùng chung cho cả công ty nên `JOB_POSTINGS_WRITE_SCOPED` của Recruiter không đủ, và `JOB_POSTINGS_READ_ALL` (Hiring Manager, Approver) chỉ xem trang qua API công khai. Nếu BA/PO muốn Recruiter soạn trang, cần cấp `JOB_POSTINGS_WRITE_ALL` hoặc thêm mã quyền riêng bằng migration mới.
+12. **Định biên có module quyền riêng `HEADCOUNT_PLANS` (V14, task 272).** Bảng định biên chứa ngân sách lương nên không dùng `ORGANIZATION` (sáu vai trò nội bộ đều đọc được) hay `REQUISITIONS`. V14 thêm bốn mã `HEADCOUNT_PLANS_*` và chỉ cấp `HEADCOUNT_PLANS_READ_ALL`, `HEADCOUNT_PLANS_WRITE_ALL` cho HR_MANAGER, vì story S3-04 ghi "cần Trưởng phòng Nhân sự xác nhận ghi đè". ADMIN cố ý không được cấp, giống dải lương. Xem câu hỏi 13.
 
 ## 8. Câu hỏi cần BA/PO xác nhận
 
@@ -235,6 +238,7 @@ Mọi URL không có trong bảng đều bị từ chối mặc định. Khi b�
 10. **Menu theo vai trò (Jira 130, việc của BA/PO).** Mỗi vai trò thấy những menu nào, và mỗi menu dựa trên mã quyền nào?
 11. **Tài khoản không vai trò.** Giữ hành vi ở mục 7.4, hay bắt buộc mỗi tài khoản phải có ít nhất một vai trò?
 12. **Nhiều vai trò.** Xác nhận quy tắc cộng quyền ở mục 7.3, ví dụ một người vừa là Hiring Manager vừa là Interviewer.
+13. **Định biên và ngân sách (story S3-04).** **Trạng thái: backend đã tạm áp dụng (task 272, V14), chờ BA/PO xác nhận.** Chỉ HR_MANAGER khai báo và xem bảng định biên. Cách tính tạm thời: mỗi phòng ban có một chỉ tiêu cho mỗi năm, không cộng dồn phòng ban con; yêu cầu tuyển dụng tính vào năm của ngày cần người, chưa có ngày thì tính vào năm tạo; bản nháp đã giữ chỗ ngay khi lưu; ngân sách lương là số tiền cả năm, so với số người × mức lương đề xuất cao nhất (thiếu thì lấy mức thấp nhất, chưa có thì 0) × 12 tháng; phòng ban chưa có chỉ tiêu cho năm đó thì không bị giới hạn. Cần xác nhận: ADMIN có cần quản lý định biên không; Trưởng bộ phận có được xem ngân sách còn lại không; ngân sách tính theo năm hay theo tháng; phòng ban cha có giới hạn cả phòng ban con không; và bản nháp có nên giữ chỗ không.
 
 ## 9. Ghi chú tích hợp frontend
 
