@@ -271,6 +271,24 @@ class ApiAuthorizationMatrixIntegrationTest {
     }
 
     @Test
+    void approvalHistoryHasNoEditOrDeleteRoute() {
+        // Task 268: the approval history is append-only, so no handler may offer to change or remove it.
+        Set<String> editing = new TreeSet<>();
+        handlerMapping.getHandlerMethods().forEach((info, handler) -> {
+            for (String pattern : info.getPatternValues()) {
+                boolean approval = pattern.contains("/approvals") || pattern.contains("/approval-inbox")
+                        || pattern.contains("/submit");
+                info.getMethodsCondition().getMethods().stream()
+                        .filter(method -> method == RequestMethod.PUT || method == RequestMethod.PATCH
+                                || method == RequestMethod.DELETE)
+                        .filter(method -> approval)
+                        .forEach(method -> editing.add(method.name() + " " + pattern));
+            }
+        });
+        assertThat(editing).as("approval routes that edit or delete").isEmpty();
+    }
+
+    @Test
     void everyApplicationApiIsDeclaredInTheAuthorizationTable() {
         String applicationPackage = RecruitmentApplication.class.getPackageName();
         Set<String> mapped = new TreeSet<>();
@@ -555,7 +573,11 @@ class ApiAuthorizationMatrixIntegrationTest {
         String token = actors.get(Identity.ADMIN).token();
         for (String route : List.of("PATCH /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
                 "DELETE /api/v1/positions/" + UNKNOWN_ID, "PATCH /api/v1/profile", "GET /api/v1/roles",
-                "GET /api/v1/internal/accounts")) {
+                "GET /api/v1/internal/accounts",
+                // Task 268: a saved approval decision or comment is never edited or deleted.
+                "PUT /api/v1/requisitions/" + UNKNOWN_ID + "/approvals",
+                "PATCH /api/v1/requisitions/" + UNKNOWN_ID + "/approvals",
+                "DELETE /api/v1/requisitions/" + UNKNOWN_ID + "/approvals")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

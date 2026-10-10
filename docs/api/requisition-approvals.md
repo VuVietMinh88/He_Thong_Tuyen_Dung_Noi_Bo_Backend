@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt), story TKNHTTDNB1-31 (S3-02). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -103,6 +103,16 @@ Task 261: mỗi quyết định của một cấp được ghi thêm một dòng
 - nhận xét, giữ nguyên xuống dòng. Từ chối và yêu cầu bổ sung bắt buộc có nhận xét (database cũng kiểm).
 
 Mỗi cấp của một lượt chỉ có một quyết định (`requisition_workflow_events_one_decision_idx`). Tiến độ của lượt (cấp nào đã duyệt, đang chờ cấp nào) không lưu riêng mà tính từ các dòng này: các cấp duyệt lần lượt, lượt còn mở khi mọi quyết định đến giờ đều là duyệt và chưa đủ số cấp.
+
+## Lịch sử không sửa, không xóa
+
+Task 268 ("Lịch sử không sửa và không xoá được"):
+
+- Không có API sửa hay xóa quyết định, nhận xét hay lượt duyệt. `PUT`, `PATCH`, `DELETE` trên các đường dẫn duyệt trả 403 với mọi vai trò, kể cả ADMIN; test ma trận quyền kiểm không có route nào như vậy.
+- Backend chỉ thêm và đọc dòng lịch sử (`RequisitionApprovalRepository`), không có entity JPA nên không thể vô tình ghi đè.
+- Database chặn cả SQL viết tay: trigger `requisition_workflow_events_append_only` (V20) từ chối mọi `UPDATE` và `DELETE` trên bảng lịch sử.
+- Khóa ngoại `RESTRICT` giữ yêu cầu, tài khoản và phiên bản cấu hình mà lịch sử tham chiếu; phiên bản cấu hình đã niêm phong cũng không sửa được (V18).
+- Ngoại lệ có chủ ý: `TRUNCATE` (chỉ chủ bảng chạy được, test dùng để dọn dữ liệu) không chạy trigger theo dòng, giống V18. Muốn chặn cả việc này thì ứng dụng phải chạy bằng tài khoản database không phải chủ bảng.
 
 ## Khóa và đồng thời
 
