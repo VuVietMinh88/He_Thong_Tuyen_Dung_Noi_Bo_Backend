@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -28,6 +29,10 @@ public class BusinessCalendar {
     // A date read earlier is not refreshed: if the caller then waits for another lock, or simply commits, after
     // midnight, the date it used is already yesterday at commit time.
     public LocalDate today() {
-        return LocalDate.ofInstant(clock.instant(), zone);
+        return dateOf(clock.instant());
+    }
+
+    public LocalDate dateOf(Instant instant) {
+        return LocalDate.ofInstant(instant, zone);
     }
 }

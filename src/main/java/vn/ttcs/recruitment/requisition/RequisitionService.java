@@ -117,7 +117,9 @@ public class RequisitionService {
             }
             result = requisitions.findByStatusInAndDepartmentIdIn(statuses, managed, pageable);
         }
-        return new RequisitionPage(result.getContent().stream().map(RequisitionView::from).toList(),
+        LocalDate today = calendar.today();
+        return new RequisitionPage(result.getContent().stream()
+                .map(requisition -> RequisitionListItemView.from(requisition, calendar, today)).toList(),
                 page, size, result.getTotalElements(), result.getTotalPages());
     }
 

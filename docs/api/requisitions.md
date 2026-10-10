@@ -139,7 +139,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 
 **Đồng thời:** dòng chức danh và dòng phòng ban được đọc bằng `SELECT active ... FOR SHARE` trong transaction ghi (mức cô lập mặc định READ COMMITTED). Khóa chia sẻ giữ đến khi tạo/sửa xong, nên `PUT /positions/{id}` hoặc `PUT /departments/{id}` của HR (ví dụ ngừng áp dụng) phải chờ, không thể chen vào giữa lúc kiểm và lúc lưu. Ngược lại, nếu HR đang ngừng áp dụng dở dang, yêu cầu tạo/sửa chờ HR xong rồi dùng giá trị mới: HR commit thì trả `*_INACTIVE`, HR hủy thì lưu bình thường. Nhiều yêu cầu dùng cùng chức danh/phòng ban vẫn chạy song song vì khóa chia sẻ không chặn nhau. `DELETE /departments/{id}` (task 197) khóa dòng phòng ban `FOR UPDATE`: đang có yêu cầu tạo/sửa chọn phòng đó thì lệnh xóa chờ rồi trả 409 `DEPARTMENT_HAS_OPEN_REQUISITIONS`; lệnh xóa chạy trước thì yêu cầu tạo/sửa chờ xóa xong rồi nhận 400 `INVALID_REQUISITION_DEPARTMENT`.
 
-Response của tạo (cũng là cấu trúc của chi tiết, mỗi item trong danh sách và response của sửa):
+Response của tạo (cũng là cấu trúc của chi tiết và response của sửa):
 
 ```json
 {
@@ -173,7 +173,11 @@ UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `nul
 |page|Từ 0, mặc định 0; `page × size` (số dòng bỏ qua) không được vượt 2.147.483.647|
 |size|Từ 1 đến 100, mặc định 20|
 
-Response: `{items, page, size, totalElements, totalPages}`; mỗi item có đúng cấu trúc của response tạo ở trên. Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database.
+Response: `{items, page, size, totalElements, totalPages}`; mỗi item có 15 trường của response tạo ở trên và thêm `daysOpen`, `daysUntilNeededBy`, `overdue`. Ba trường tính toán chỉ có trong item danh sách; tạo, chi tiết và sửa giữ cấu trúc response cũ.
+
+`daysOpen` là số ngày từ ngày tạo tới hôm nay (ngày tạo tính là 0). `daysUntilNeededBy` là số ngày từ hôm nay tới `neededBy`, âm khi đã trễ và `null` nếu chưa có ngày cần người. `overdue` chỉ là `true` khi `neededBy` trước hôm nay; đến hạn hôm nay chưa trễ. Các ngày được tính theo `app.business-zone`, mặc định `Asia/Ho_Chi_Minh`, tại thời điểm đọc danh sách.
+
+Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database.
 
 `status` sai (ví dụ `draft` chữ thường hoặc `SUBMITTED`), `page`/`size` không phải số nguyên trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; `page` âm, `size` nhỏ hơn 1 hoặc lớn hơn 100, hoặc `page × size` lớn hơn 2.147.483.647 (ví dụ `page=21474837&size=100`) trả 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.".
 
@@ -221,7 +225,7 @@ Kết quả Jira: so sánh với dải chuẩn của chức danh và yêu cầu 
 }
 ```
 
-**Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response thành công giữ đúng 15 trường như trên, không có `salaryMin`/`salaryMax` của chức danh và không có cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
+**Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response tạo, chi tiết và sửa giữ đúng 15 trường như trên; item danh sách thêm ba trường thời gian nhưng không có `salaryMin`/`salaryMax` của chức danh hoặc cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
 
 Thứ tự: đây là bước 8 của tạo và phần cuối bước 7 của sửa ở trên, chạy sau mọi bước kiểm khác. Chức danh không tồn tại hoặc đã ngừng áp dụng trả `INVALID_REQUISITION_POSITION`/`REQUISITION_POSITION_INACTIVE` trước, không bao giờ trả 404 `POSITION_NOT_FOUND` hay 409 `POSITION_INACTIVE` của `SalaryBandService`. Giải trình dài hơn 2.000 ký tự là `VALIDATION_ERROR` ở bước 2, không phải `SALARY_JUSTIFICATION_REQUIRED`. Người thiếu quyền, sửa nháp ngoài phạm vi hoặc chọn phòng ban ngoài phạm vi (task 249) nhận 403 trước khi lương được so.
 
