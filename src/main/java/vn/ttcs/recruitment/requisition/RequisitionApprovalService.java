@@ -4,9 +4,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
@@ -19,6 +21,9 @@ import vn.ttcs.recruitment.security.PermissionService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,6 +37,7 @@ import java.util.UUID;
  */
 @Service
 public class RequisitionApprovalService {
+    private final RequisitionService requisitionService;
     private final RecruitmentRequisitionRepository requisitions;
     private final RequisitionApprovalRepository approvals;
     private final ApprovalParticipants participants;
@@ -40,13 +46,16 @@ public class RequisitionApprovalService {
     private final AccountRepository accounts;
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
+    private final AuthService auth;
     private final Clock clock;
 
-    public RequisitionApprovalService(RecruitmentRequisitionRepository requisitions,
+    public RequisitionApprovalService(RequisitionService requisitionService,
+                                      RecruitmentRequisitionRepository requisitions,
                                       RequisitionApprovalRepository approvals, ApprovalParticipants participants,
                                       ApproverDirectory directory, DepartmentRepository departments,
                                       AccountRepository accounts, AuthSessionRepository sessions,
-                                      PermissionService permissions, Clock clock) {
+                                      PermissionService permissions, AuthService auth, Clock clock) {
+        this.requisitionService = requisitionService;
         this.requisitions = requisitions;
         this.approvals = approvals;
         this.participants = participants;
@@ -55,7 +64,122 @@ public class RequisitionApprovalService {
         this.accounts = accounts;
         this.sessions = sessions;
         this.permissions = permissions;
+        this.auth = auth;
         this.clock = clock;
+    }
+
+    /**
+     * Task 267: the chain of the latest round with the state of each level, who the requisition waits for, whether
+     * the caller may decide now, and every event of every round, newest first (story S3-03). Access is exactly that of
+     * GET /requisitions/{id}: read permission (401/403), the requisition exists (404), then department scope or a part
+     * in its approval (403). One REPEATABLE_READ snapshot, no locks.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ApprovalProgressView progress(Jwt jwt, UUID id) {
+        requisitionService.get(jwt, id);
+        var requisition = requisitions.findById(id).orElseThrow(RequisitionApprovalService::notFound);
+        Account caller = accounts.findById(UUID.fromString(jwt.getSubject())).orElseThrow();
+        String createdByName = accounts.findById(requisition.getCreatedBy()).map(Account::getFullName).orElse(null);
+        List<ApprovalEvent> events = approvals.findEvents(id);
+        List<ApprovalProgressView.HistoryEntry> history = events.reversed().stream().map(event ->
+                new ApprovalProgressView.HistoryEntry(event.id(), event.revision(), event.round(), event.level(),
+                        event.type(), event.statusBefore(), event.statusAfter(), event.actorId(), event.actorName(),
+                        event.occurredAt(), event.comment(), event.flowVersion(), event.levelCount(),
+                        event.salaryBasis())).toList();
+        int revision = ApprovalRound.lastRevision(events);
+        var latest = ApprovalRound.latest(events);
+        if (latest.isEmpty()) {
+            return new ApprovalProgressView(id, requisition.getStatus(), requisition.getCreatedBy(), createdByName,
+                    revision, null, null, null, null, null, null, null, List.of(), null,
+                    new ApprovalProgressView.Actions(false), history);
+        }
+        ApprovalRound round = latest.get();
+        List<ChainLevelRow> chain = approvals.findChainLevels(round.flowId(), round.flowVersion(), round.levelCount());
+        List<ApprovalLevel> levels = chain.stream().map(ChainLevelRow::level).toList();
+        var context = round.context(requisition, directory.companyWideRoles(), levels);
+        boolean waiting = requisition.getStatus() == RequisitionStatus.PENDING_APPROVAL && round.open();
+        Integer current = waiting ? round.currentLevel() : null;
+        List<ApprovalProgressView.Level> levelViews = chain.stream().map(row -> {
+            ApprovalEvent decision = round.decisions().get(row.level().position());
+            String state = decision != null ? decision.type().name()
+                    : Integer.valueOf(row.level().position()).equals(current) ? "PENDING" : "NOT_REACHED";
+            boolean user = row.level().approverUserId() != null;
+            return new ApprovalProgressView.Level(row.level().position(), row.stepName(), user ? "USER" : "ROLE",
+                    row.level().approverUserId(), row.level().approverRole(), row.approverRoleName(),
+                    row.level().addedBySalaryLimit(), state,
+                    decision != null ? decision.actorName() : user ? row.approverName() : row.approverRoleName(),
+                    decision != null ? decision.actorId() : null, decision != null ? decision.comment() : null,
+                    decision != null ? decision.occurredAt() : null);
+        }).toList();
+        ApprovalProgressView.WaitingOn waitingOn = null;
+        boolean canDecide = false;
+        if (waiting) {
+            ApprovalLevel level = levels.get(current - 1);
+            var people = directory.admitted(level, context).stream()
+                    .map(person -> new ApprovalProgressView.Person(person.id(), person.fullName())).toList();
+            waitingOn = new ApprovalProgressView.WaitingOn("APPROVAL_LEVEL", current, chain.get(current - 1).stepName(),
+                    !people.isEmpty(), people);
+            canDecide = ApproverRule.admits(level, context, directory.candidate(caller));
+        } else if (requisition.getStatus() == RequisitionStatus.RETURNED) {
+            waitingOn = new ApprovalProgressView.WaitingOn("REQUESTER", null, "Người tạo yêu cầu", null,
+                    List.of(new ApprovalProgressView.Person(requisition.getCreatedBy(), createdByName)));
+        }
+        return new ApprovalProgressView(id, requisition.getStatus(), requisition.getCreatedBy(), createdByName,
+                revision, round.round(), new ApprovalProgressView.Flow(round.flowId(), round.flowVersion(),
+                approvals.findFlowName(round.flowId(), round.flowVersion())), round.levelCount(), current,
+                round.submittedBy(), round.submittedByName(), round.submittedAt(), levelViews, waitingOn,
+                new ApprovalProgressView.Actions(canDecide), history);
+    }
+
+    /**
+     * Task 267: the approver inbox: every requisition waiting for a level the caller may decide now (ApproverRule, the
+     * same rule as the decision), waiting longest first, paged like GET /requisitions. Notifications come later (S8),
+     * so this is how an approver finds work. A caller without a REQUISITIONS write permission decides nothing and gets
+     * an empty page. The selection runs in memory over the requisitions waiting for approval, which suits tens of them.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public RequisitionPage inbox(Jwt jwt, int page, int size) {
+        var now = clock.instant();
+        if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        Account caller = auth.requireActiveAccount(jwt);
+        Set<String> granted = permissions.forUser(caller.getId());
+        AccessScope.read(granted, PermissionModule.REQUISITIONS).orDeny();
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.");
+        }
+        List<RequisitionView> items = new ArrayList<>();
+        if (AccessScope.write(granted, PermissionModule.REQUISITIONS) != AccessScope.NONE) {
+            ApproverCandidate me = directory.candidate(caller, granted);
+            Set<String> companyWideRoles = directory.companyWideRoles();
+            Map<UUID, List<ApprovalEvent>> events = approvals.findEventsOfPendingRequisitions();
+            Map<String, List<ApprovalLevel>> chains = new HashMap<>();
+            record Waiting(RecruitmentRequisition requisition, Instant since) { }
+            List<Waiting> mine = new ArrayList<>();
+            for (RecruitmentRequisition requisition : requisitions.findByStatus(RequisitionStatus.PENDING_APPROVAL)) {
+                var round = ApprovalRound.latest(events.getOrDefault(requisition.getId(), List.of()))
+                        .filter(ApprovalRound::open);
+                if (round.isEmpty()) {
+                    continue;
+                }
+                ApprovalRound open = round.get();
+                List<ApprovalLevel> levels = chains.computeIfAbsent(open.flowId() + "/" + open.flowVersion() + "/"
+                        + open.levelCount(), key -> approvals.findChainLevels(open.flowId(), open.flowVersion(),
+                        open.levelCount()).stream().map(ChainLevelRow::level).toList());
+                var context = open.context(requisition, companyWideRoles, levels);
+                if (ApproverRule.admits(levels.get(open.currentLevel() - 1), context, me)) {
+                    mine.add(new Waiting(requisition, open.waitingSince()));
+                }
+            }
+            mine.sort(Comparator.comparing(Waiting::since).thenComparing(waiting -> waiting.requisition().getId()));
+            mine.stream().skip((long) page * size).limit(size)
+                    .forEach(waiting -> items.add(RequisitionView.from(waiting.requisition())));
+            long total = mine.size();
+            return new RequisitionPage(items, page, size, total, (total + size - 1) / size);
+        }
+        return new RequisitionPage(items, page, size, 0, 0);
     }
 
     /**

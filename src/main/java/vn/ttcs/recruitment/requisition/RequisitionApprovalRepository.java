@@ -9,7 +9,10 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -21,7 +24,7 @@ import java.util.UUID;
 @Repository
 public class RequisitionApprovalRepository {
     private static final String SELECT_EVENTS = """
-            SELECT e.id, e.revision, e.event_type, e.status_before, e.status_after, e.round_number, e.level_number,
+            SELECT e.id, e.requisition_id, e.revision, e.event_type, e.status_before, e.status_after, e.round_number, e.level_number,
                    e.flow_id, e.flow_version, e.level_count, e.salary_basis, e.actor_id, a.full_name AS actor_name,
                    e.occurred_at, e.comment
             FROM requisition_workflow_events e
@@ -96,6 +99,25 @@ public class RequisitionApprovalRepository {
                 new ApprovalLevel(row.getInt("position"), row.getObject("approver_user_id", UUID.class),
                         row.getString("approver_role"), row.getBoolean("added")),
                 row.getString("approver_name"), row.getString("role_name")));
+    }
+
+    // Task 267: the name of a flow version, shown with the round's chain.
+    public String findFlowName(UUID flowId, int version) {
+        return jdbc.queryForObject("SELECT name FROM approval_flow_versions WHERE flow_id = :flowId AND version = :version",
+                new MapSqlParameterSource("flowId", flowId).addValue("version", version), String.class);
+    }
+
+    // Task 267: the history of every requisition that waits for approval, by requisition then revision (inbox).
+    public Map<UUID, List<ApprovalEvent>> findEventsOfPendingRequisitions() {
+        Map<UUID, List<ApprovalEvent>> byRequisition = new LinkedHashMap<>();
+        jdbc.query(SELECT_EVENTS + """
+                 WHERE e.requisition_id IN (SELECT id FROM recruitment_requisitions WHERE status = 'PENDING_APPROVAL')
+                ORDER BY e.requisition_id, e.revision
+                """, new MapSqlParameterSource(), (java.sql.ResultSet row) -> {
+            UUID requisitionId = row.getObject("requisition_id", UUID.class);
+            byRequisition.computeIfAbsent(requisitionId, id -> new ArrayList<>()).add(event(row, 0));
+        });
+        return byRequisition;
     }
 
     // Every event of one requisition, oldest first by revision (not by time: two events may share a timestamp).
