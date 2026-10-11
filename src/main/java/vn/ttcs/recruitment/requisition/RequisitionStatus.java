@@ -22,6 +22,8 @@ package vn.ttcs.recruitment.requisition;
 // (JobPostingService.SOURCE_STATUSES; the public portal shows a posting only while its requisition is in that set).
 // JobPostingSourceStatusTest does not compile until the new status is given its group there. Closing postings with
 // their requisition is task 292.
+// Task 297: decide whether a requisition in the new status can still be overdue in GET /requisitions
+// (RequisitionListItemView.OVERDUE_STATUSES). RequisitionOverdueStatusTest does not compile until it is.
 public enum RequisitionStatus {
     // Saved by its department, not sent for approval yet (or copied).
     DRAFT,

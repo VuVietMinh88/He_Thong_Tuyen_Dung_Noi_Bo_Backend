@@ -1,6 +1,7 @@
 package vn.ttcs.recruitment.requisition;
 
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -26,13 +29,20 @@ public class RequisitionController {
         this.service = service;
     }
 
-    // An unknown status (for example "draft" in lower case) fails as 400 VALIDATION_ERROR in ApiExceptionHandler.
+    // Task 297 (story S3-08): every filter is optional and only narrows what the caller may already see. A malformed value
+    // (an unknown or lower-case status, a bad UUID, a date that is not yyyy-MM-dd) fails as 400 VALIDATION_ERROR in
+    // ApiExceptionHandler; an empty value is the same as none.
     @GetMapping
     public ResponseEntity<RequisitionPage> list(@AuthenticationPrincipal Jwt jwt,
-            @RequestParam(required = false) RequisitionStatus status,
+            @RequestParam(required = false) List<RequisitionStatus> status,
+            @RequestParam(required = false) UUID departmentId,
+            @RequestParam(required = false) UUID recruiterId,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.list(jwt, status, page, size));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.list(jwt,
+                RequisitionListFilter.of(status, departmentId, recruiterId, startDate, endDate), page, size));
     }
 
     @GetMapping("/{id}")

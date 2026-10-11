@@ -1,8 +1,14 @@
 # API yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn), TKNHTTDNB1-248 (ngày cần người không ở quá khứ) và TKNHTTDNB1-249 (kiểm tra quyền và phòng ban của người tạo yêu cầu), story TKNHTTDNB1-29 (S2-10); TKNHTTDNB1-274 (kiểm tra định biên khi lưu) và TKNHTTDNB1-275 (HR cho phép vượt định biên có lý do), story TKNHTTDNB1-33 (S3-04); TKNHTTDNB1-278 (sao chép yêu cầu tuyển dụng) và TKNHTTDNB1-279 (bản sao bắt đầu ở trạng thái nháp), story TKNHTTDNB1-34 (S3-05). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED`, `NEEDED_BY_IN_PAST` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn), TKNHTTDNB1-248 (ngày cần người không ở quá khứ) và TKNHTTDNB1-249 (kiểm tra quyền và phòng ban của người tạo yêu cầu), story TKNHTTDNB1-29 (S2-10); TKNHTTDNB1-274 (kiểm tra định biên khi lưu) và TKNHTTDNB1-275 (HR cho phép vượt định biên có lý do), story TKNHTTDNB1-33 (S3-04); TKNHTTDNB1-278 (sao chép yêu cầu tuyển dụng) và TKNHTTDNB1-279 (bản sao bắt đầu ở trạng thái nháp), story TKNHTTDNB1-34 (S3-05); TKNHTTDNB1-297 (API danh sách theo bộ lọc) và TKNHTTDNB1-298 (số ngày mở, số ngày còn tới hạn và cờ trễ hạn; TRAN DUC LUONG), story TKNHTTDNB1-37 (S3-08). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED`, `NEEDED_BY_IN_PAST` dùng `Cache-Control: no-store`.
 
-Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Task 249 bắt phòng ban ghi vào yêu cầu (khi tạo, và khi sửa) phải thuộc phạm vi người gọi (mục "Phạm vi dữ liệu"). Sau task 249, phần backend cho các tiêu chí của story S2-10 đã có; trong story còn task 250 (kết nối giao diện, phía frontend) và 251 (test tạo và lưu nháp). Sprint 3 thêm: kiểm định biên khi lưu (task 274, mục "Kiểm tra định biên"), HR xác nhận vượt định biên và `GET /requisitions/{id}/headcount-overrides` (task 275), sao chép yêu cầu `POST /requisitions/{id}/copy` (task 278, 279, mục "Sao chép yêu cầu"). Phân công recruiter chính và hỗ trợ cho một yêu cầu (task 283, 284) và lịch sử thay đổi phân công (task 286) nằm ở [API phân công recruiter](requisition-recruiters.md). Gửi duyệt (task 257) và luồng duyệt nằm ở [API duyệt yêu cầu tuyển dụng](requisition-approvals.md). Tin tuyển dụng tạo từ yêu cầu đã duyệt (task 303) nằm ở [API tin tuyển dụng](job-postings.md).
+Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Task 249 bắt phòng ban ghi vào yêu cầu (khi tạo, và khi sửa) phải thuộc phạm vi người gọi (mục "Phạm vi dữ liệu"). Sau task 249, phần backend cho các tiêu chí của story S2-10 đã có; trong story còn task 250 (kết nối giao diện, phía frontend) và 251 (test tạo và lưu nháp). Sprint 3 thêm: kiểm định biên khi lưu (task 274, mục "Kiểm tra định biên"), HR xác nhận vượt định biên và `GET /requisitions/{id}/headcount-overrides` (task 275), sao chép yêu cầu `POST /requisitions/{id}/copy` (task 278, 279, mục "Sao chép yêu cầu"). Phân công recruiter chính và hỗ trợ cho một yêu cầu (task 283, 284) và lịch sử thay đổi phân công (task 286) nằm ở [API phân công recruiter](requisition-recruiters.md). Gửi duyệt (task 257) và luồng duyệt nằm ở [API duyệt yêu cầu tuyển dụng](requisition-approvals.md). Tin tuyển dụng tạo từ yêu cầu đã duyệt (task 303) nằm ở [API tin tuyển dụng](job-postings.md). Task 297 thêm bộ lọc theo trạng thái, phòng ban, recruiter chính và khoảng ngày cần người cho `GET /requisitions` (mục "Danh sách"). Task 298 thêm `daysOpen`, `daysUntilNeededBy`, `overdue` vào item danh sách.
+
+Tiêu chí của story S3-08:
+
+- "Lọc theo trạng thái, phòng ban, recruiter phụ trách, khoảng thời gian": đã có (297, mục "Danh sách"). Bộ lọc chỉ thu hẹp những gì người gọi vốn được xem.
+- "Mỗi dòng hiển thị số ngày mở và số ngày còn lại tới ngày cần người": đã có (298, `daysOpen` và `daysUntilNeededBy`).
+- "Yêu cầu quá ngày cần người được đánh dấu nổi bật": đã có (298 `overdue`; 297 giới hạn cờ ở yêu cầu còn đang tuyển). Làm nổi bật trên màn hình là việc của frontend (task 296).
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
@@ -171,21 +177,73 @@ UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `nul
 
 ## Danh sách
 
-`GET /requisitions?status=DRAFT&page=0&size=20` trả các yêu cầu người gọi được xem theo mục "Phạm vi dữ liệu", trả **200**.
+`GET /requisitions?status=DRAFT&page=0&size=20` trả các yêu cầu người gọi được xem theo mục "Phạm vi dữ liệu", trả **200**. Từ task 297 danh sách lọc được theo trạng thái, phòng ban, recruiter chính và khoảng ngày cần người. Mọi bộ lọc đều không bắt buộc và được kết hợp bằng AND; gửi giá trị rỗng (ví dụ `departmentId=`) giống như không gửi. Tên tham số đúng như frontend đang gửi.
 
-| Tham số | Ý nghĩa |
-|---|---|
-|status|Không bắt buộc. Mã trạng thái đúng chữ hoa: `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `REJECTED` (task 257, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md)). Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|
-|page|Từ 0, mặc định 0; `page × size` (số dòng bỏ qua) không được vượt 2.147.483.647|
-|size|Từ 1 đến 100, mặc định 20|
+| Tham số | Ý nghĩa | Giá trị sai |
+|---|---|---|
+|status|Không bắt buộc. Mã trạng thái đúng chữ hoa: `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `REJECTED` (task 257, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md)). Nhận nhiều giá trị (task 297): lặp lại tham số (`status=DRAFT&status=APPROVED`) hoặc ngăn bằng dấu phẩy (`status=DRAFT,APPROVED`), không trộn hai cách trong một yêu cầu. Phần tử rỗng (`status=DRAFT,`) bị bỏ qua. Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ." (mã sai, chữ thường, hoặc `PENDING`, `OPEN`, `CLOSED`)|
+|departmentId|Không bắt buộc. UUID của phòng ban: chỉ yêu cầu của **đúng** phòng ban đó, không gồm phòng ban con (task 297)|Không phải UUID: như dòng trên|
+|recruiterId|Không bắt buộc. UUID tài khoản: yêu cầu mà người này đang là **recruiter chính** (`PRIMARY`, [API phân công recruiter](requisition-recruiters.md)). Recruiter hỗ trợ không khớp; sau bàn giao chỉ recruiter chính mới khớp (task 297)|Không phải UUID: như dòng trên|
+|startDate, endDate|Không bắt buộc. Khoảng **ngày cần người** (`neededBy`), dạng `yyyy-MM-dd`, tính cả hai đầu; gửi một đầu cũng được. Khi có ít nhất một đầu, yêu cầu chưa có ngày cần người bị loại (task 297)|Sai định dạng (`2026-02-30`, `11/10/2026`, `2026-10-11T00:00`, `2026-10-11+07:00`): như dòng trên. `startDate` sau `endDate`, hoặc năm ngoài 1–9999 (`0000-01-01`, `+10000-01-01`): 400 `VALIDATION_ERROR` "Khoảng ngày cần người không hợp lệ."|
+|page|Từ 0, mặc định 0; `page × size` (số dòng bỏ qua) không được vượt 2.147.483.647|Không phải số nguyên: 400 "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; ngoài giới hạn: 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ."|
+|size|Từ 1 đến 100, mặc định 20|Như dòng trên|
 
-Response: `{items, page, size, totalElements, totalPages}`; mỗi item có 15 trường của response tạo ở trên và thêm `daysOpen`, `daysUntilNeededBy`, `overdue`. Ba trường tính toán chỉ có trong item danh sách; tạo, chi tiết và sửa giữ cấu trúc response cũ.
+Ví dụ:
+
+```http
+GET /api/v1/requisitions?status=APPROVED&status=RETURNED&departmentId=6f2c…&recruiterId=1c9e…&startDate=2026-10-01&endDate=2026-12-31&page=0&size=20
+```
+
+```json
+{
+  "items": [
+    {
+      "id": "…",
+      "positionId": "…",
+      "departmentId": "6f2c…",
+      "headcount": 2,
+      "reason": "NEW_HEADCOUNT",
+      "proposedSalaryMin": 20000000,
+      "proposedSalaryMax": 22000000,
+      "salaryJustification": null,
+      "neededBy": "2026-10-08",
+      "jobDescription": "…",
+      "candidateRequirements": "…",
+      "status": "APPROVED",
+      "createdBy": "…",
+      "createdAt": "2026-09-26T03:00:00.123456Z",
+      "updatedAt": "2026-09-26T03:00:00.123456Z",
+      "daysOpen": 15,
+      "daysUntilNeededBy": -3,
+      "overdue": true
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+**Bộ lọc chỉ thu hẹp.** Điều kiện phạm vi của mục "Phạm vi dữ liệu" luôn nằm trong câu SQL, bộ lọc chỉ thêm điều kiện AND. Người `SCOPED` vẫn chỉ thấy yêu cầu của phòng ban mình phụ trách (kể cả phòng ban con): lọc theo phòng ban ngoài phạm vi, phòng ban không tồn tại, hoặc recruiter không tồn tại hay không phụ trách yêu cầu nào trong phạm vi đều trả **200 với trang rỗng**, không bao giờ 403. Ô chọn phòng ban của frontend liệt kê mọi phòng ban, và frontend đưa mọi 403 sang `/unauthorized`, nên trang rỗng là câu trả lời đúng. Lọc theo recruiter không cho recruiter xem thêm: RECRUITER (`REQUISITIONS_READ_SCOPED`, thường không phụ trách phòng ban nào) lọc theo chính mình vẫn nhận trang rỗng; xem theo phân công là task 285. Người tham gia duyệt (task 262) cũng không thấy thêm gì trong danh sách.
+
+**Ngày.** `startDate`, `endDate` và `neededBy` đều là ngày theo lịch (không có giờ), nên phép so sánh không phụ thuộc múi giờ. Hai đầu được tính: `startDate=2026-11-01&endDate=2026-11-30` gồm cả yêu cầu cần người ngày 1/11 và ngày 30/11; `startDate` bằng `endDate` là đúng một ngày. Định dạng là `yyyy-MM-dd` nghiêm ngặt: ngày không có thật (`2026-02-30`), có giờ hoặc có múi giờ đều bị từ chối. Năm phải từ 1 đến 9999: năm khác có thể đọc được (`0000-01-01`, `+10000-01-01`) nhưng bị từ chối trước khi tới PostgreSQL.
+
+**Hai lời nhắn 400.** "Tham số đường dẫn hoặc bộ lọc không hợp lệ." là giá trị không đọc được (trạng thái không tồn tại, UUID sai, ngày sai định dạng, `page`/`size` không phải số nguyên). "Khoảng ngày cần người không hợp lệ." là hai ngày đọc được nhưng `startDate` sau `endDate`, hoặc năm ngoài 1–9999. Cả hai đều là mã `VALIDATION_ERROR`, có `Cache-Control: no-store`.
+
+**Tham số sai tên.** Spring bỏ qua tham số sai tên: lọc không có tác dụng, không báo lỗi. Ví dụ `?department=…` (thiếu `Id`) trả mọi yêu cầu trong phạm vi.
+
+Thứ tự kiểm tra: quyền ở `SecurityConfiguration` (401/403); đọc tham số (400 "Tham số…"); tài khoản, phiên và quyền đọc trong database (401/403); `page`/`size` (400 "Trang…"); khoảng ngày (400 "Khoảng ngày…"); người `SCOPED` không phụ trách phòng ban nào nhận trang rỗng; sau cùng mới truy vấn.
+
+Response: `{items, page, size, totalElements, totalPages}`; mỗi item có 15 trường của response tạo ở trên và thêm `daysOpen`, `daysUntilNeededBy`, `overdue`. Ba trường tính toán chỉ có trong item danh sách; tạo, chi tiết, sửa và hộp chờ duyệt ([API duyệt](requisition-approvals.md)) giữ cấu trúc response cũ.
 
 `daysOpen` là số ngày từ ngày tạo tới hôm nay (ngày tạo tính là 0). `daysUntilNeededBy` là số ngày từ hôm nay tới `neededBy`, âm khi đã trễ và `null` nếu chưa có ngày cần người. `overdue` chỉ là `true` khi `neededBy` trước hôm nay; đến hạn hôm nay chưa trễ. Các ngày được tính theo `app.business-zone`, mặc định `Asia/Ho_Chi_Minh`, tại thời điểm đọc danh sách.
 
-Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database.
+`overdue` chỉ có thể `true` khi trạng thái là `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED`; `REJECTED` luôn `false` dù `daysUntilNeededBy` âm (task 297). `daysOpen` vẫn đếm từ ngày tạo với mọi trạng thái.
 
-`status` sai (ví dụ `draft` chữ thường hoặc `SUBMITTED`), `page`/`size` không phải số nguyên trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; `page` âm, `size` nhỏ hơn 1 hoặc lớn hơn 100, hoặc `page × size` lớn hơn 2.147.483.647 (ví dụ `page=21474837&size=100`) trả 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.".
+Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database. `totalElements` và `totalPages` tính sau khi lọc.
+
+`status` sai (ví dụ `draft` chữ thường hoặc `SUBMITTED`), `departmentId`/`recruiterId` không phải UUID, `startDate`/`endDate` không đúng `yyyy-MM-dd`, `page`/`size` không phải số nguyên trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; `page` âm, `size` nhỏ hơn 1 hoặc lớn hơn 100, hoặc `page × size` lớn hơn 2.147.483.647 (ví dụ `page=21474837&size=100`) trả 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ."; `startDate` sau `endDate` hoặc năm ngoài 1–9999 trả 400 `VALIDATION_ERROR` "Khoảng ngày cần người không hợp lệ.".
 
 ## Chi tiết
 
@@ -358,7 +416,8 @@ Hạn JWT, phiên và quyền ghi được kiểm lại sau các khóa dòng ch�
 
 | HTTP | Mã | Trường hợp |
 |---|---|---|
-|400|VALIDATION_ERROR|Body: thiếu `positionId`/`departmentId`/`headcount`/`reason`, số lượng ngoài 1–999, lý do tuyển không phải `REPLACEMENT`/`NEW_HEADCOUNT`, lương âm hoặc vượt 1.000.000.000.000, văn bản quá dài hoặc chứa ký tự NUL; lỗi theo trường nằm trong `fieldErrors`. Sao chép (task 278): nội dung bản gốc không còn qua được kiểm tra của body tạo mới, `fieldErrors` nêu trường của bản gốc. Tham số: `{id}` không phải UUID, `status`/`page`/`size` sai định dạng, `page` âm, `size` ngoài 1–100, `page × size` vượt 2.147.483.647|
+|400|VALIDATION_ERROR|Body: thiếu `positionId`/`departmentId`/`headcount`/`reason`, số lượng ngoài 1–999, lý do tuyển không phải `REPLACEMENT`/`NEW_HEADCOUNT`, lương âm hoặc vượt 1.000.000.000.000, văn bản quá dài hoặc chứa ký tự NUL; lỗi theo trường nằm trong `fieldErrors`. Sao chép (task 278): nội dung bản gốc không còn qua được kiểm tra của body tạo mới, `fieldErrors` nêu trường của bản gốc. Tham số: `{id}` không phải UUID, `status`/`departmentId`/`recruiterId`/`startDate`/`endDate`/`page`/`size` sai định dạng (task 297 thêm bốn bộ lọc), `page` âm, `size` ngoài 1–100, `page × size` vượt 2.147.483.647|
+|400|VALIDATION_ERROR|Danh sách (task 297): `startDate` sau `endDate`, hoặc năm của một trong hai ngày ngoài 1–9999; lời nhắn "Khoảng ngày cần người không hợp lệ."|
 |400|INVALID_JSON|JSON sai; UUID hoặc ngày không đúng định dạng (ví dụ `2026-02-30`); lương hoặc `headcount` không phải số nguyên JSON (ví dụ `1.5`, `"2"`) hoặc vượt 2.147.483.647; `reason` là object/mảng; có trường ngoài hợp đồng|
 |400|REQUISITION_SALARY_RANGE_INVALID|`proposedSalaryMin` lớn hơn `proposedSalaryMax`; `fieldErrors.proposedSalaryMax` có lời nhắn cho form|
 |400|NEEDED_BY_IN_PAST|`neededBy` trước ngày hôm nay theo múi giờ nghiệp vụ `app.business-zone` (mặc định `Asia/Ho_Chi_Minh`); `fieldErrors.neededBy`|
@@ -389,4 +448,32 @@ Ví dụ lỗi dải lương đề xuất ngược:
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh; API xóa phòng ban (task 197) không xóa phòng còn yêu cầu tuyển dụng chưa đóng. Dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai). Task 249 cũng không thêm migration và không đổi quyền: phạm vi phòng ban dùng lại truy vấn đệ quy ở trên với cột `manager_user_id`, `parent_id` của V5 và `department_id` của V13; nó phụ thuộc người gọi và cây phòng ban lúc lưu nên chỉ API kiểm, không phải CHECK hay khóa ngoại. Task 274 cũng không thêm migration và không đổi quyền: dùng bảng `headcount_plans` của V14 (task 272) và tính số đã dùng từ chính bảng `recruitment_requisitions`. Task 275 thêm V15 (bảng `requisition_headcount_overrides`, lịch sử ngoại lệ chỉ được thêm) và dùng lại quyền `HEADCOUNT_PLANS_WRITE_ALL` của V14, không thêm quyền mới. Task 278 không thêm migration và không đổi quyền: bản sao là một dòng mới của `recruitment_requisitions`, bản gốc chỉ được đọc.
+Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh; API xóa phòng ban (task 197) không xóa phòng còn yêu cầu tuyển dụng chưa đóng. Dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai). Task 249 cũng không thêm migration và không đổi quyền: phạm vi phòng ban dùng lại truy vấn đệ quy ở trên với cột `manager_user_id`, `parent_id` của V5 và `department_id` của V13; nó phụ thuộc người gọi và cây phòng ban lúc lưu nên chỉ API kiểm, không phải CHECK hay khóa ngoại. Task 274 cũng không thêm migration và không đổi quyền: dùng bảng `headcount_plans` của V14 (task 272) và tính số đã dùng từ chính bảng `recruitment_requisitions`. Task 275 thêm V15 (bảng `requisition_headcount_overrides`, lịch sử ngoại lệ chỉ được thêm) và dùng lại quyền `HEADCOUNT_PLANS_WRITE_ALL` của V14, không thêm quyền mới. Task 278 không thêm migration và không đổi quyền: bản sao là một dòng mới của `recruitment_requisitions`, bản gốc chỉ được đọc. Task 297 không thêm migration; dùng chỉ mục phòng ban/trạng thái của V13 và khóa chính hoặc `requisition_recruiters_recruiter_id_idx` của V16; ba trường của task 298 tính khi đọc. `created_at` và `needed_by` không có chỉ mục: với vài chục tới vài trăm yêu cầu, quét bảng rồi sắp xếp lấy một trang là đủ nhanh. Câu SQL của danh sách (`RequisitionListRepository`) chỉ ghép các đoạn cố định, mọi giá trị lọc đều là tham số bind, nên giá trị lọc không bao giờ thành SQL. Câu đó trả id của một trang và tổng số; `RequisitionService.list` đọc các yêu cầu theo id bằng JPA trong cùng transaction REPEATABLE READ, nên phạm vi, tổng số, id và nội dung đến từ một snapshot.
+
+## Ghi chú cho frontend
+
+Frontend nhánh `UI` (`src/services/business.service.ts`, `RequisitionList.tsx`) đã có màn danh sách và bộ lọc (task 295, 296):
+
+| Frontend hiện tại | Backend | Cần sửa? |
+|---|---|---|
+|`getRequisitions` gửi `status`, `departmentId`, `recruiterId`, `startDate`, `endDate`, `page`, `size` và bỏ tham số rỗng|Đúng tên và ý nghĩa; `startDate`/`endDate` là ngày cần người, dạng `yyyy-MM-dd`, tính cả hai đầu|Không|
+|`STATUSES` = `DRAFT, PENDING, APPROVED, REJECTED, OPEN, CLOSED, CANCELLED`|`DRAFT, PENDING_APPROVAL, RETURNED, APPROVED, REJECTED`; trạng thái tạm dừng, đã tuyển đủ và đã hủy của story S3-07 thêm ở task 293. `PENDING`, `OPEN`, `CLOSED` trả 400|**Có** (một dòng)|
+|`status` chỉ gửi một giá trị|Nhận nhiều giá trị (`status=A&status=B` hoặc `status=A,B`)|Tùy chọn|
+|Tự tính `openDays`/`daysLeft`/`isOverdue` bằng date-fns theo giờ của trình duyệt|Dùng `daysOpen`, `daysUntilNeededBy` (`null` là chưa có ngày cần người) và `overdue` của item (ngày nghiệp vụ giờ Việt Nam; `false` với yêu cầu không còn đang tuyển, ví dụ bị từ chối). Thêm ba trường vào một kiểu `RequisitionListItem` (kiểu `Requisition` hiện chưa có). `GET /requisitions/{id}` không có ba trường này|Nên sửa|
+|`recruiterId` đã khai báo nhưng chưa có ô chọn|Recruiter chính hiện tại; danh sách chọn lấy từ `GET /accounts?role=RECRUITER` (chỉ HR_MANAGER và ADMIN có `USER_ADMIN_READ_ALL`)|Tùy chọn|
+|Ô chọn phòng ban liệt kê mọi phòng ban|Đúng phòng ban đã chọn, không gồm phòng ban con; ngoài phạm vi trả bảng rỗng, không bao giờ 403|Không|
+|—|Spring bỏ qua tham số sai tên: lọc không có tác dụng, không báo lỗi|Lưu ý|
+
+## Giả định chờ BA/PO
+
+Các quy tắc của task 297 và 298 là giả định của backend, liệt kê ở câu hỏi 17 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md). Gồm:
+
+- khoảng ngày lọc theo ngày cần người (`neededBy`), tính cả hai đầu, tham số `startDate`/`endDate` như frontend; yêu cầu chưa có ngày cần người bị loại khi có một đầu; chưa lọc theo ngày tạo;
+- "recruiter phụ trách" là recruiter chính hiện tại; recruiter hỗ trợ không khớp; sau bàn giao chỉ người mới khớp;
+- lọc phòng ban chỉ đúng phòng ban đó, không gồm phòng con;
+- bộ lọc chỉ thu hẹp phạm vi: lọc phòng ban ngoài phạm vi nhận trang rỗng (không 403); lọc theo recruiter không cho recruiter xem thêm (task 285);
+- lọc được nhiều trạng thái một lúc;
+- trễ hạn chỉ với yêu cầu còn đang tuyển (nháp, chờ duyệt, cần bổ sung, đã duyệt) khi ngày cần người đã qua; đến hạn hôm nay chưa trễ; bị từ chối không bao giờ trễ, và các trạng thái tạm dừng, đã tuyển đủ, đã hủy của story S3-07 (task 293) cũng không. Điều này thu hẹp định nghĩa của task 298 (TRAN DUC LUONG) cho các trạng thái chưa có lúc bạn ấy làm;
+- "số ngày mở" tính từ ngày tạo (ngày tạo = 0) với mọi trạng thái và vẫn tăng sau khi kết thúc;
+- hộp chờ duyệt giữ 15 trường của yêu cầu như trước (task 267); ba trường thời gian chỉ có ở danh sách;
+- chưa có bộ lọc "chỉ yêu cầu trễ hạn".

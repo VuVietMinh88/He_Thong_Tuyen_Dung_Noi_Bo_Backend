@@ -2,9 +2,6 @@ package vn.ttcs.recruitment.requisition;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -39,15 +36,14 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class RequisitionService {
-    // Newest first; the id only keeps the order stable when two requisitions share the same creation time.
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-
     // Task 247: the same text is the message and the form error of salaryJustification. It says only that the
     // proposal is outside the standard band, never the band itself: most callers lack SALARY_RANGES_READ_ALL.
     private static final String JUSTIFICATION_REQUIRED_MESSAGE =
@@ -63,6 +59,7 @@ public class RequisitionService {
             RequisitionStatus.RETURNED);
 
     private final RecruitmentRequisitionRepository requisitions;
+    private final RequisitionListRepository listing;
     private final PositionRepository positions;
     private final DepartmentRepository departments;
     private final AccountRepository accounts;
@@ -79,14 +76,16 @@ public class RequisitionService {
     private final BusinessCalendar calendar;
     private final Clock clock;
 
-    public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
-                              DepartmentRepository departments, AccountRepository accounts,
-                              AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
+    public RequisitionService(RecruitmentRequisitionRepository requisitions, RequisitionListRepository listing,
+                              PositionRepository positions, DepartmentRepository departments,
+                              AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
+                              PermissionService permissions,
                               SalaryBandService salaryBands, HeadcountQuota headcountQuota,
                               ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
                               ApprovalParticipants participants, ApproverDirectory approverDirectory,
                               Validator validator, BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
+        this.listing = listing;
         this.positions = positions;
         this.departments = departments;
         this.accounts = accounts;
@@ -209,34 +208,40 @@ public class RequisitionService {
         return RequisitionView.from(requisition);
     }
 
-    // Task 245: one page of the requisitions the caller may see, newest first. status = null means every status.
-    // REPEATABLE_READ: the managed departments, the count and the page all come from the same snapshot.
+    // Task 245: one page of the requisitions the caller may see, newest first. Task 297: filtered by status, department,
+    // primary recruiter and needed-by dates, each only narrowing the department scope. Task 298: items add daysOpen,
+    // daysUntilNeededBy and overdue against one business today per page. REPEATABLE_READ: the managed departments, the
+    // count, the ids and the requisitions all come from one snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public RequisitionPage list(Jwt jwt, RequisitionStatus status, int page, int size) {
+    public RequisitionPage list(Jwt jwt, RequisitionListFilter filter, int page, int size) {
         Caller caller = requireReadAccess(jwt);
-        // Spring Data JPA turns page * size into an int OFFSET and fails with a 500 above Integer.MAX_VALUE,
-        // so such a page is rejected here as a normal 400. The long multiplication itself cannot overflow.
+        // Kept from task 245: page × size above Integer.MAX_VALUE is the API's limit (a normal 400). The long
+        // multiplication itself cannot overflow.
         if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                     "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.");
         }
-        List<RequisitionStatus> statuses = status == null ? List.of(RequisitionStatus.values()) : List.of(status);
-        var pageable = PageRequest.of(page, size, NEWEST_FIRST);
-        Page<RecruitmentRequisition> result;
-        if (caller.scope() == AccessScope.ALL) {
-            result = requisitions.findByStatusIn(statuses, pageable);
-        } else {
-            // SCOPED: the department filter is part of the SQL query, so other departments never leave the database.
-            Set<UUID> managed = departments.findManagedDepartmentIds(caller.id());
-            if (managed.isEmpty()) {
-                return new RequisitionPage(List.of(), page, size, 0, 0);
-            }
-            result = requisitions.findByStatusInAndDepartmentIdIn(statuses, managed, pageable);
+        if (!filter.neededByRangeValid()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Khoảng ngày cần người không hợp lệ.");
         }
+        // SCOPED: the department filter is part of the SQL query, so other departments never leave the database.
+        Set<UUID> scope = listScope(caller);
+        if (scope != null && scope.isEmpty()) {
+            return new RequisitionPage(List.of(), page, size, 0, 0);
+        }
+        var found = listing.search(filter, scope, page, size);
+        Map<UUID, RecruitmentRequisition> byId = requisitions.findAllById(found.ids()).stream()
+                .collect(Collectors.toMap(RecruitmentRequisition::getId, requisition -> requisition));
         LocalDate today = calendar.today();
-        return new RequisitionPage(result.getContent().stream()
-                .map(requisition -> RequisitionListItemView.from(requisition, calendar, today)).toList(),
-                page, size, result.getTotalElements(), result.getTotalPages());
+        var items = found.ids().stream().map(id -> RequisitionListItemView.from(
+                Objects.requireNonNull(byId.get(id), "same snapshot"), calendar, today)).toList();
+        return new RequisitionPage(items, page, size, found.total(), (found.total() + size - 1) / size);
+    }
+
+    // Task 297: the departments whose requisitions the caller may list: null for READ_ALL, else the departments the
+    // caller manages with their sub-departments (task 249). Task 285 widens this in one place.
+    private Set<UUID> listScope(Caller caller) {
+        return caller.scope() == AccessScope.ALL ? null : departments.findManagedDepartmentIds(caller.id());
     }
 
     // Task 262: also open to the people of the requisition's approval (ApprovalParticipants), so that an approver who
