@@ -54,6 +54,13 @@ final class JobPostingTestSupport {
     // 2026, JOB_DESCRIPTION and REQUIREMENTS) is submitted by the creator and approved by hrToken. The department needs
     // a flow whose only level is HR_MANAGER (api.flow), and the creator must never be the HR manager who decides.
     UUID approvedRequisition(UUID position, UUID department, String creatorToken, String hrToken) throws Exception {
+        return approvedRequisition(position, department, creatorToken, hrToken, JOB_DESCRIPTION, REQUIREMENTS);
+    }
+
+    // Task 304: the same with other texts, for texts the requisition API accepts and a posting does not (HTML,
+    // Windows line breaks).
+    UUID approvedRequisition(UUID position, UUID department, String creatorToken, String hrToken,
+                             String jobDescription, String candidateRequirements) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("positionId", position);
         body.put("departmentId", department);
@@ -62,8 +69,8 @@ final class JobPostingTestSupport {
         body.put("proposedSalaryMin", 20_000_000L);
         body.put("proposedSalaryMax", 22_000_000L);
         body.put("neededBy", "2026-12-01");
-        body.put("jobDescription", JOB_DESCRIPTION);
-        body.put("candidateRequirements", REQUIREMENTS);
+        body.put("jobDescription", jobDescription);
+        body.put("candidateRequirements", candidateRequirements);
         UUID id = UUID.fromString(api.expect(api.request("POST", "/api/v1/requisitions", json.writeValueAsString(body),
                 creatorToken), 201).path("id").asText());
         api.expect(api.request("POST", "/api/v1/requisitions/" + id + "/submit", null, creatorToken), 200);

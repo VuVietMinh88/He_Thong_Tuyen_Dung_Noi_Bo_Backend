@@ -69,8 +69,9 @@ public class JobPostingService {
      * itself is never written.
      * Checks in order: write and read access (401/403, before any lookup), the requisition exists (400, a form error
      * of requisitionId), it is assigned to a SCOPED caller (403), it is approved (409), it has no posting yet (409),
-     * the catalog values exist in their own catalog (400). Creating a posting does not need a REQUISITIONS permission:
-     * a recruiter may compose postings of requisitions they cannot read (task 285).
+     * the application deadline is not in the past (400, task 304), the catalog values exist in their own catalog and
+     * are still in use (400). Creating a posting does not need a REQUISITIONS permission: a recruiter may compose
+     * postings of requisitions they cannot read (task 285).
      */
     @Transactional // READ COMMITTED: FOR SHARE after a wait must see new commits
     public JobPostingView create(Jwt jwt, JobPostingCreateRequest request) {
@@ -104,8 +105,8 @@ public class JobPostingService {
     /**
      * Saves the draft again with the whole new content (PUT). Checks in order: write and read access (401/403), the
      * posting exists (404), it is in the caller's scope (403), it is editable (409), the caller saw its latest revision
-     * (409), its requisition is still approved (409), the catalog values (400). A successful save makes the caller an
-     * author of the posting.
+     * (409), its requisition is still approved (409), the application deadline and the catalog values (400). A
+     * successful save makes the caller an author of the posting.
      */
     @Transactional
     public JobPostingView update(Jwt jwt, UUID id, JobPostingRequest request) {
@@ -164,31 +165,56 @@ public class JobPostingService {
 
     // The body's content, with the title, the job description and the candidate requirements it leaves out taken from
     // the requisition. The copy is plain text read through JDBC; nothing is written back to the requisition.
+    // Task 304: the copied texts get \n line breaks like a text typed into the posting (the requisition API keeps
+    // \r\n). They are not checked for plain text: a requisition may contain HTML, and the recruiter cannot read the
+    // requisition to retype it. The copy is stored as it is, and the next save of the posting reports it. The position
+    // name has no spaces at its ends already (V7 valid_position_name).
     private static JobPostingContent inherit(JobPostingCreateRequest request, SourceRequisition source) {
         return new JobPostingContent(
                 request.title() != null ? request.title() : source.positionName(),
-                request.jobDescription() != null ? request.jobDescription() : source.jobDescription(),
+                request.jobDescription() != null ? request.jobDescription()
+                        : JobPostingText.normalizeLineBreaks(source.jobDescription()),
                 request.candidateRequirements() != null ? request.candidateRequirements()
-                        : source.candidateRequirements(),
+                        : JobPostingText.normalizeLineBreaks(source.candidateRequirements()),
                 request.benefits(), request.workLocationId(), request.employmentTypeId(),
                 request.applicationDeadline(), Boolean.TRUE.equals(request.showSalary()));
     }
 
-    // The rules a save needs besides the body checks. today: the business date, read once the requisition (create) or
-    // the posting (update) is locked; the deadline rule of task 304 compares with it.
+    // The rules a save needs besides the body checks, in this order. today: the business date, read once the
+    // requisition (create) or the posting (update) is locked.
+    // Task 304: candidates cannot apply before today, so the deadline is today or later. "Today" is the date in the
+    // business time zone (BusinessCalendar, Vietnam by default), not in UTC: at 2026-10-11T17:30Z it is already
+    // 2026-10-12 in Vietnam, so 2026-10-11 is refused. Today itself is allowed, and a draft may leave the deadline
+    // empty. It is compared on every save, so a draft whose deadline has passed is saved again only with a new date or
+    // none. It runs before the FOR SHARE locks on the catalog values, so the deadline error comes first; a wait on
+    // those locks past midnight can still save yesterday's date (sending for review checks it again, task 308).
     // The catalog values are read FOR SHARE, work location first: HR cannot delete or deactivate them before this
-    // transaction commits, and a delete committed while this request waited is seen here as a 400, never as a 500
-    // from the foreign key. An inactive value is still accepted (task 304 refuses it).
+    // transaction commits, and a delete or deactivation committed while this request waited is seen here as a 400,
+    // never as a 500 from the foreign key. Task 304: a value HR stopped using (active = false) cannot be chosen; a
+    // draft that already holds one is saved again only after the author picks another value (or HR turns it back on).
     private void requireSaveable(JobPostingContent content, LocalDate today) {
-        if (content.workLocationId() != null && catalogItems.findActiveForShare(content.workLocationId(),
-                RecruitmentCatalogType.WORK_LOCATION.name()).isEmpty()) {
-            throw invalidField("INVALID_JOB_POSTING_WORK_LOCATION", "workLocationId",
-                    "Địa điểm làm việc không tồn tại.");
+        LocalDate deadline = content.applicationDeadline();
+        if (deadline != null && deadline.isBefore(today)) {
+            throw invalidField("JOB_POSTING_DEADLINE_IN_PAST", "applicationDeadline",
+                    "Hạn nộp hồ sơ không được trước ngày hôm nay.");
         }
-        if (content.employmentTypeId() != null && catalogItems.findActiveForShare(content.employmentTypeId(),
-                RecruitmentCatalogType.EMPLOYMENT_TYPE.name()).isEmpty()) {
-            throw invalidField("INVALID_JOB_POSTING_EMPLOYMENT_TYPE", "employmentTypeId",
-                    "Hình thức làm việc không tồn tại.");
+        if (content.workLocationId() != null) {
+            boolean active = catalogItems.findActiveForShare(content.workLocationId(),
+                    RecruitmentCatalogType.WORK_LOCATION.name()).orElseThrow(() -> invalidField(
+                    "INVALID_JOB_POSTING_WORK_LOCATION", "workLocationId", "Địa điểm làm việc không tồn tại."));
+            if (!active) {
+                throw invalidField("JOB_POSTING_WORK_LOCATION_INACTIVE", "workLocationId",
+                        "Địa điểm làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác.");
+            }
+        }
+        if (content.employmentTypeId() != null) {
+            boolean active = catalogItems.findActiveForShare(content.employmentTypeId(),
+                    RecruitmentCatalogType.EMPLOYMENT_TYPE.name()).orElseThrow(() -> invalidField(
+                    "INVALID_JOB_POSTING_EMPLOYMENT_TYPE", "employmentTypeId", "Hình thức làm việc không tồn tại."));
+            if (!active) {
+                throw invalidField("JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE", "employmentTypeId",
+                        "Hình thức làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác.");
+            }
         }
     }
 

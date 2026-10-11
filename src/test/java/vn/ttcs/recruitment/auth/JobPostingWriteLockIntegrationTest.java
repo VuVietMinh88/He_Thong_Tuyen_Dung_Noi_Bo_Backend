@@ -44,7 +44,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 
 // Task 303: what a save of a posting does when it has to wait for a lock. The caller is a recruiter assigned to the
-// requisition; whatever changed while it waited is checked once the lock is granted.
+// requisition; whatever changed while it waited is checked once the lock is granted. Task 304: a catalog value HR
+// stopped using while the save waited is refused like one deleted meanwhile.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -133,7 +134,7 @@ class JobPostingWriteLockIntegrationTest {
             "create, requisition, token-expired+rejected, 401", "update, posting, permission-lost+edited, 403",
             "update, catalog, deleted-meanwhile, 400", "update, catalog, token-expired, 401",
             "create, catalog, token-expired, 401", "create, catalog, permission-lost, 403",
-            "update, requisition, requisition-rejected, 409"
+            "update, requisition, requisition-rejected, 409", "update, catalog, deactivated, 400"
     })
     void theComposerIsCheckedAgainAfterEachLockWait(String action, String held, String change, int expected)
             throws Exception {
@@ -211,6 +212,8 @@ class JobPostingWriteLockIntegrationTest {
                             recruiterId);
                     case "deleted-meanwhile" -> execute(connection,
                             "DELETE FROM recruitment_catalog_items WHERE id = ?", chosen);
+                    case "deactivated" -> execute(connection,
+                            "UPDATE recruitment_catalog_items SET active = FALSE WHERE id = ?", chosen);
                     default -> { }
                 }
                 connection.commit();
@@ -223,7 +226,8 @@ class JobPostingWriteLockIntegrationTest {
         switch (expected) {
             case 401 -> assertThat(body.path("code").asText()).isEqualTo("SESSION_INVALID");
             case 403 -> assertThat(body.path("code").asText()).isEqualTo("FORBIDDEN");
-            case 400 -> assertThat(body.path("code").asText()).isEqualTo("INVALID_JOB_POSTING_WORK_LOCATION");
+            case 400 -> assertThat(body.path("code").asText()).isEqualTo(change.equals("deactivated")
+                    ? "JOB_POSTING_WORK_LOCATION_INACTIVE" : "INVALID_JOB_POSTING_WORK_LOCATION");
             case 409 -> assertThat(body.path("code").asText()).isEqualTo(switch (change) {
                 case "posting-created-meanwhile" -> "JOB_POSTING_ALREADY_EXISTS";
                 case "requisition-rejected", "draft-position-changed" -> "JOB_POSTING_REQUISITION_NOT_APPROVED";
