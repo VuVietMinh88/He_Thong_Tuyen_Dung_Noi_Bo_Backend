@@ -103,7 +103,7 @@ Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình
 | `GET /api/v1/auth/me` | `Authorization: Bearer <accessToken>` | 200, tài khoản hiện tại |
 | `POST /api/v1/auth/refresh` | Body `{"refreshToken":"<token>"}` | 200, token mới |
 | `POST /api/v1/auth/logout` | `Authorization: Bearer <accessToken>` | 204, không body |
-| `POST /api/v1/auth/change-password` | Bearer token; body `currentPassword`, `newPassword` | 200, giữ phiên hiện tại và thu hồi phiên khác |
+| `POST /api/v1/auth/change-password` | Bearer token; body `currentPassword`, `newPassword` | 200, thu hồi mọi phiên và yêu cầu đăng nhập lại |
 | `GET /api/v1/auth/permissions` | Bearer token | 200, danh sách quyền hiện hành |
 
 Đổi mật khẩu khi đang đăng nhập:
@@ -112,7 +112,9 @@ Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình
 {"currentPassword":"<mật khẩu hiện tại>","newPassword":"<mật khẩu mới>"}
 ```
 
-Mật khẩu mới cần ít nhất 8 ký tự, có chữ và số, tối đa 72 byte UTF-8 để BCrypt xử lý đầy đủ. Mật khẩu hiện tại sai trả 400 `CURRENT_PASSWORD_INCORRECT`; dữ liệu không đạt yêu cầu trả 400 `VALIDATION_ERROR`; thiếu/hết hạn Access Token trả 401. Thành công trả `{"message":"Đổi mật khẩu thành công. Các phiên đăng nhập khác đã được thu hồi."}` với `Cache-Control: no-store`. Refresh token của phiên hiện tại tiếp tục dùng được; các phiên khác bị từ chối ngay. Liên kết đặt lại mật khẩu đang còn hiệu lực của tài khoản cũng bị vô hiệu hóa.
+Mật khẩu mới cần ít nhất 8 ký tự, có chữ và số, tối đa 72 byte UTF-8 để BCrypt xử lý đầy đủ. Mật khẩu hiện tại sai trả 400 `CURRENT_PASSWORD_INCORRECT`; dữ liệu không đạt yêu cầu trả 400 `VALIDATION_ERROR`; thiếu/hết hạn Access Token trả 401. Thành công trả `{"message":"Đổi mật khẩu thành công. Vui lòng đăng nhập lại."}` với `Cache-Control: no-store`. Access và refresh token của mọi phiên, gồm phiên đang đổi mật khẩu, đều bị từ chối ngay. Liên kết đặt lại mật khẩu đang còn hiệu lực cũng bị vô hiệu hóa. Lỗi validation/mật khẩu hiện tại không thu hồi phiên.
+
+Sau response thành công, frontend xóa token và dữ liệu đăng nhập, hủy khả năng lưu token từ request refresh cũ còn đang chạy, rồi chuyển về `/login?passwordChanged=1`. Không gọi thêm logout bằng token đã bị thu hồi.
 
 `GET /api/v1/auth/permissions` trả `{"permissions":["..."]}` với `Cache-Control: no-store`. Mỗi quyền có mã gồm module, thao tác `READ`/`WRITE` và phạm vi `ALL`/`SCOPED`, ví dụ `CANDIDATES_READ_SCOPED`. Quyền được đọc lại từ PostgreSQL ở mỗi yêu cầu đã xác thực; frontend dùng danh sách này để hiển thị, còn backend quyết định quyền truy cập thực tế. Xem [thiết kế phân quyền](../architecture/authorization.md).
 

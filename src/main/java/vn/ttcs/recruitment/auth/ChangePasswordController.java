@@ -24,7 +24,7 @@ public class ChangePasswordController {
                                                    @Valid @RequestBody ChangePasswordRequest request) {
         service.changePassword(jwt, request);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(new Message("Đổi mật khẩu thành công. Các phiên đăng nhập khác đã được thu hồi."));
+                .body(new Message("Đổi mật khẩu thành công. Vui lòng đăng nhập lại."));
     }
 
     public record Message(String message) { }

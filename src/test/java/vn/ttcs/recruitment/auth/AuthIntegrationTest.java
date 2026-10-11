@@ -145,7 +145,7 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void changingPasswordKeepsCallerSessionButRevokesOtherSessions() throws Exception {
+    void changingPasswordRevokesCallerAndOtherSessions() throws Exception {
         JsonNode caller = successfulLogin();
         JsonNode other = successfulLogin();
         String newPassword = "ChangedPassword123!";
@@ -156,10 +156,10 @@ class AuthIntegrationTest {
         assertThat(changed.headers().firstValue("Cache-Control")).contains("no-store");
         assertThat(changed.body()).doesNotContain(PASSWORD, newPassword);
         assertThat(request("GET", "/api/v1/auth/me", null,
-                caller.path("accessToken").asText()).statusCode()).isEqualTo(200);
+                caller.path("accessToken").asText()).statusCode()).isEqualTo(401);
         assertThat(request("GET", "/api/v1/auth/me", null,
                 other.path("accessToken").asText()).statusCode()).isEqualTo(401);
-        assertThat(refresh(caller.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(caller.path("refreshToken").asText()).statusCode()).isEqualTo(401);
         assertThat(refresh(other.path("refreshToken").asText()).statusCode()).isEqualTo(401);
         assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
         assertThat(login(EMAIL, newPassword).statusCode()).isEqualTo(200);

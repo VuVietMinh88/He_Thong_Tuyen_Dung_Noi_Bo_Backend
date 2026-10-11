@@ -24,6 +24,7 @@ Phiên hoạt động khi `revoked_at IS NULL` và `now < expires_at`, đồng t
 | GET `/me` hoặc gọi API | Kiểm tra phiên; không tự kéo dài thời hạn refresh |
 | Refresh thành công | Giữ session ID, thay hash refresh, kéo dài hạn7 ngày từ lần refresh; cấp access JWT15 phút |
 | Refresh cũ/không hợp lệ | Trả401, không gia hạn hay thay hash đang hợp lệ |
+| Đổi mật khẩu khi đang đăng nhập | Thu hồi tất cả phiên của tài khoản, gồm phiên gửi yêu cầu; frontend xóa token và quay về đăng nhập |
 | Logout | Đặt revoked_at trên phiên hiện tại; không ảnh hưởng phiên thiết bị khác |
 | Phiên hết hạn/thu hồi | Không cấp token mới qua refresh; người dùng đăng nhập lại để tạo phiên mới |
 
@@ -51,6 +52,8 @@ Rotation làm token cũ hết hiệu lực. Phiên hiện tại chỉ lưu hash 
 | Không có quyền |403 `FORBIDDEN` | Không refresh để chữa lỗi phân quyền |
 
 Khi access hết hạn, client gửi refresh rồi retry request ban đầu tối đa một lần. Khi logout với access hết hạn, refresh trước rồi logout bằng access mới; nếu refresh thất bại thì phiên không còn dùng được và client xóa token. Mất mạng/5xx không đồng nghĩa refresh token bị thu hồi: xử lý lỗi kết nối riêng, không lặp refresh vô hạn.
+
+Sau đổi mật khẩu thành công, client xóa access/refresh token và thông tin user, chuyển `/login?passwordChanged=1`. Response refresh cũ đến muộn không được lưu token trở lại. Đổi mật khẩu thất bại do validation hoặc sai mật khẩu hiện tại không làm mất phiên.
 
 Việc giữ bản nháp phiếu đánh giá, chọn nơi lưu token và điều phối các tab do các task frontend 97/101/102 thực hiện. Backend không lưu hoặc xóa dữ liệu đang nhập trong trình duyệt, cũng không replay thao tác ghi nghiệp vụ thay client.
 
