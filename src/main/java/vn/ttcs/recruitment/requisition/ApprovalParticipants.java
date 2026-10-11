@@ -14,8 +14,10 @@ import java.util.function.Supplier;
  * approval. An approver (an APPROVER, or the head of a parent department) usually manages none of the requisition's
  * departments, yet must read what they decide. A participant is someone who decided a level of the requisition (in
  * any round, for as long as the requisition exists), or someone a level is routed to (ApproverRule.targets) that a
- * round actually reached: a level not reached yet opens nothing. Targets rather than "may decide now" on purpose: two
- * holders of a role clicking the same level both read it, and the second gets a 409 it can show, not a 403.
+ * round actually reached: a level not reached yet opens nothing; a level that waited when HR cancelled the requisition
+ * counts as reached (task 293, ApprovalRound.interrupted), so its approvers can still read what they were asked to
+ * decide and a late decision answers 409. Targets rather than "may decide now" on purpose: two holders of a role
+ * clicking the same level both read it, and the second gets a 409 it can show, not a 403.
  * Write scope is never widened: deciding is authorized by ApproverRule, not by department scope.
  */
 @Component

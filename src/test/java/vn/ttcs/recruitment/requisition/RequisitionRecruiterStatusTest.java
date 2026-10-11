@@ -13,8 +13,8 @@ class RequisitionRecruiterStatusTest {
     @EnumSource(RequisitionStatus.class)
     void everyStatusIsClassifiedForRecruiterChanges(RequisitionStatus status) {
         boolean assignable = switch (status) {
-            case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED -> true;
-            case REJECTED -> false;
+            case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED, PAUSED -> true;
+            case REJECTED, FILLED, CANCELLED -> false;
         };
 
         assertThat(RequisitionRecruiterService.ASSIGNABLE_STATUSES.contains(status)).isEqualTo(assignable);

@@ -227,8 +227,9 @@ class RequisitionReadUpdateIntegrationTest {
     }
 
     // Task 297: overdue (task 298) only while the requisition is still being staffed. The status is set with SQL: V19
-    // allows every status and the table has no trigger. This test cannot read RequisitionListItemView.OVERDUE_STATUSES
-    // (package-private), so it carries its own switch, which a new status also has to pass.
+    // and V24 allow every status and the table has no trigger. This test cannot read
+    // RequisitionListItemView.OVERDUE_STATUSES (package-private), so it carries its own switch, which a new status also
+    // has to pass.
     @ParameterizedTest
     @EnumSource(RequisitionStatus.class)
     void onlyRequisitionsStillBeingStaffedBecomeOverdue(RequisitionStatus status) throws Exception {
@@ -238,7 +239,7 @@ class RequisitionReadUpdateIntegrationTest {
         jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", status.name(), id);
         boolean expected = switch (status) {
             case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED -> true;
-            case REJECTED -> false;
+            case REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
 
         clock.set(Instant.parse("2026-10-08T17:30:00Z")); // 00:30 in Vietnam the day after the needed-by date.

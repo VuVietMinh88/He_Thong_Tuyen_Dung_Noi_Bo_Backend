@@ -12,12 +12,16 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.requisition.RequisitionApprovalRepository;
+import vn.ttcs.recruitment.requisition.RequisitionStatus;
+import vn.ttcs.recruitment.requisition.RequisitionStatusChange;
 
 import java.security.SecureRandom;
 import java.sql.Timestamp;
@@ -25,13 +29,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static vn.ttcs.recruitment.auth.ApprovalTestSupport.step;
 
-// Task 267: the approval progress and history of a requisition (story S3-03).
+// Task 267: the approval progress and history of a requisition (story S3-03). Task 293: with HR's status changes.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -50,6 +55,7 @@ class RequisitionApprovalProgressIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private RequisitionApprovalRepository approvals;
 
     private ApprovalTestSupport api;
     private String passwordHash;
@@ -62,6 +68,7 @@ class RequisitionApprovalProgressIntegrationTest {
     private String salesHeadToken;
     private UUID approverA;
     private String approverAToken;
+    private UUID approverB;
     private String approverBToken;
     private String interviewerToken;
     private UUID it;
@@ -89,7 +96,7 @@ class RequisitionApprovalProgressIntegrationTest {
         itHeadId = account("it@example.test", "Trưởng IT", Role.HIRING_MANAGER);
         UUID salesHead = account("sales@example.test", "Trưởng Kinh doanh", Role.HIRING_MANAGER);
         approverA = account("a@example.test", "Giám đốc A", Role.APPROVER);
-        account("b@example.test", "Giám đốc B", Role.APPROVER);
+        approverB = account("b@example.test", "Giám đốc B", Role.APPROVER);
         account("interviewer@example.test", "Người phỏng vấn", Role.INTERVIEWER);
         hrToken = api.token("hr@example.test");
         itHeadToken = api.token("it@example.test");
@@ -225,6 +232,90 @@ class RequisitionApprovalProgressIntegrationTest {
         assertThat(api.code(api.request("GET", BASE + UUID.randomUUID() + "/approvals", null, hrToken), 404))
                 .isEqualTo("REQUISITION_NOT_FOUND");
         assertThat(api.request("GET", BASE + id + "/approvals", null, null).statusCode()).isEqualTo(401);
+    }
+
+    // Task 293: a status change is one more row of the history, with its reason, and takes the next revision. It is
+    // written here like the API of task 290 will write it: the history row and the status in one transaction.
+    @Test
+    void aStatusChangeIsShownInTheHistoryWithItsReason() throws Exception {
+        api.flow(it, hrId, START, step(1, null, null, "HR_MANAGER"));
+        UUID id = api.submitted(position, it, 22_000_000L, itHeadToken, itHeadToken);
+        api.expect(api.decide(id, "APPROVE", null, 1, hrToken), 200);
+        changeStatus(id, RequisitionStatusChange.PAUSE, RequisitionStatus.APPROVED,
+                START.plusSeconds(90).plusNanos(123_456_000), "Chờ ngân sách\nquý 4");
+
+        JsonNode progress = progress(id, itHeadToken);
+        assertThat(progress.path("status").asText()).isEqualTo("PAUSED");
+        assertThat(progress.path("revision").asInt()).isEqualTo(3);
+        assertThat(texts(progress.path("history"), "action")).containsExactly("PAUSED", "APPROVED", "SUBMITTED");
+        JsonNode paused = progress.path("history").get(0);
+        assertThat(paused.path("revision").asInt()).isEqualTo(3);
+        for (String empty : new String[]{"round", "level", "flowVersion", "levelCount", "salaryBasis"}) {
+            assertThat(paused.path(empty).isNull()).as(empty).isTrue();
+        }
+        assertThat(paused.path("statusBefore").asText()).isEqualTo("APPROVED");
+        assertThat(paused.path("statusAfter").asText()).isEqualTo("PAUSED");
+        assertThat(paused.path("actorId").asText()).isEqualTo(hrId.toString());
+        assertThat(paused.path("actorName").asText()).isEqualTo("Nguyễn Thị Hoa");
+        assertThat(paused.path("occurredAt").asText()).isEqualTo("2026-10-11T03:01:30.123456Z");
+        assertThat(paused.path("comment").asText()).isEqualTo("Chờ ngân sách\nquý 4");
+        // The approved round is unchanged: every level approved, nobody to wait for.
+        assertThat(progress.path("round").asInt()).isEqualTo(1);
+        assertThat(texts(progress.path("levels"), "status")).containsExactly("APPROVED");
+        assertThat(progress.path("currentLevel").isNull()).isTrue();
+        assertThat(progress.path("waitingOn").isNull()).isTrue();
+        assertThat(progress.path("actions").path("canDecide").asBoolean()).isFalse();
+    }
+
+    // Task 293 (D18): HR cancels the requisition while level 1 waits for approver A, who manages no department. The
+    // round is interrupted, not open: level 1 counts as reached, so A still reads what A was asked to decide, and A's
+    // decision on the old page is a 409 to reload (the frontend sends every 403 to /unauthorized). Level 2 was never
+    // reached, so B still reads nothing.
+    @Test
+    void aCancelWhilePendingClosesTheRound() throws Exception {
+        api.flow(it, hrId, START, step(1, null, approverA, null), step(2, 20_000_000L, approverB, null));
+        UUID id = api.submitted(position, it, 22_000_000L, itHeadToken, itHeadToken);
+        assertThat(progress(id, approverAToken).path("actions").path("canDecide").asBoolean()).isTrue();
+        api.forbidden(api.request("GET", BASE + id, null, approverBToken));
+
+        changeStatus(id, RequisitionStatusChange.CANCEL, RequisitionStatus.PENDING_APPROVAL, START.plusSeconds(60),
+                "Không còn nhu cầu");
+
+        JsonNode progress = progress(id, hrToken);
+        assertThat(progress.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(progress.path("revision").asInt()).isEqualTo(2);
+        assertThat(texts(progress.path("levels"), "status")).containsExactly("NOT_REACHED", "NOT_REACHED");
+        assertThat(progress.path("currentLevel").isNull()).isTrue();
+        assertThat(progress.path("waitingOn").isNull()).isTrue();
+        assertThat(progress.path("actions").path("canDecide").asBoolean()).isFalse();
+        assertThat(texts(progress.path("history"), "action")).containsExactly("CANCELLED", "SUBMITTED");
+        assertThat(progress.path("history").get(0).path("statusBefore").asText()).isEqualTo("PENDING_APPROVAL");
+        assertThat(api.expect(api.request("GET", BASE + "approval-inbox", null, approverAToken), 200)
+                .path("totalElements").asLong()).isZero();
+
+        assertThat(api.expect(api.request("GET", BASE + id, null, approverAToken), 200).path("status").asText())
+                .isEqualTo("CANCELLED");
+        assertThat(progress(id, approverAToken).path("actions").path("canDecide").asBoolean()).isFalse();
+        Map<String, Object> rowBefore = jdbc.queryForMap("SELECT * FROM recruitment_requisitions WHERE id = ?", id);
+        assertThat(api.code(api.decide(id, "APPROVE", null, 2, approverAToken), 409))
+                .isEqualTo("REQUISITION_NOT_PENDING_APPROVAL");
+        assertThat(api.code(api.decide(id, "REJECT", "Không phù hợp", 2, hrToken), 409))
+                .isEqualTo("REQUISITION_NOT_PENDING_APPROVAL");
+        assertThat(jdbc.queryForMap("SELECT * FROM recruitment_requisitions WHERE id = ?", id)).isEqualTo(rowBefore);
+        assertThat(api.events(id)).isEqualTo(2);
+
+        api.forbidden(api.request("GET", BASE + id, null, approverBToken));
+        api.forbidden(api.request("GET", BASE + id + "/approvals", null, approverBToken));
+    }
+
+    // What task 290 will do in one transaction, under the requisition lock: the history row, then the new status.
+    private void changeStatus(UUID id, RequisitionStatusChange change, RequisitionStatus before, Instant at,
+                              String reason) {
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            approvals.appendStatusChange(id, change, before, hrId, at, reason);
+            assertThat(jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ? AND status = ?",
+                    change.target().name(), id, before.name())).isOne();
+        });
     }
 
     private JsonNode progress(UUID id, String token) throws Exception {

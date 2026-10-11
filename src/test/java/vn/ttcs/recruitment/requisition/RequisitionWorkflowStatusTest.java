@@ -7,7 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 // Task 257: a new RequisitionStatus makes these switches fail to compile until someone decides whether a requisition
 // in that status may still be edited and sent for approval (RequisitionService.EDITABLE_STATUSES and
-// SUBMITTABLE_STATUSES).
+// SUBMITTABLE_STATUSES). Task 293: a paused requisition is not editable, so it keeps the approved content and resuming
+// it needs no new approval.
 class RequisitionWorkflowStatusTest {
 
     @ParameterizedTest
@@ -15,7 +16,7 @@ class RequisitionWorkflowStatusTest {
     void everyStatusIsClassifiedForEditing(RequisitionStatus status) {
         boolean editable = switch (status) {
             case DRAFT, RETURNED -> true;
-            case PENDING_APPROVAL, APPROVED, REJECTED -> false;
+            case PENDING_APPROVAL, APPROVED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
 
         assertThat(RequisitionService.EDITABLE_STATUSES.contains(status)).isEqualTo(editable);
@@ -26,7 +27,7 @@ class RequisitionWorkflowStatusTest {
     void everyStatusIsClassifiedForSubmitting(RequisitionStatus status) {
         boolean submittable = switch (status) {
             case DRAFT, RETURNED -> true;
-            case PENDING_APPROVAL, APPROVED, REJECTED -> false;
+            case PENDING_APPROVAL, APPROVED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
 
         assertThat(RequisitionService.SUBMITTABLE_STATUSES.contains(status)).isEqualTo(submittable);

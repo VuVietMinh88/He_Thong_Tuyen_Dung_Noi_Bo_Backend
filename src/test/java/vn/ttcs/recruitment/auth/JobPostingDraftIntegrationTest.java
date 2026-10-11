@@ -228,7 +228,7 @@ class JobPostingDraftIntegrationTest {
 
         boolean source = switch (status) {
             case APPROVED -> true;
-            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED -> false;
+            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
         if (source) {
             api.expect(response, 201);
@@ -341,7 +341,7 @@ class JobPostingDraftIntegrationTest {
 
         boolean source = switch (status) {
             case APPROVED -> true;
-            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED -> false;
+            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
         assertThat(api.expect(read, 200).path("actions").path("canEdit").asBoolean()).isEqualTo(source);
         if (source) {

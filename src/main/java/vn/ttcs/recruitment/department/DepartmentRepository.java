@@ -25,11 +25,13 @@ public class DepartmentRepository {
             """ + FROM;
     private static final String ORDER = " ORDER BY d.code, d.id ";
     // Task 197: requisition statuses that still need their department, so the department cannot be deleted. Every
-    // status that is not closed or cancelled belongs here (RequisitionStatus says so too). Task 257: a requisition
-    // waiting for approval, returned for more information or approved is still open; a rejected one is closed (its
-    // foreign key still blocks the deletion, as DEPARTMENT_IN_USE).
-    private static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT", "PENDING_APPROVAL", "RETURNED",
-            "APPROVED");
+    // status that is not filled, rejected or cancelled belongs here (RequisitionStatus says so too). Task 257: a
+    // requisition waiting for approval, returned for more information or approved is still open. Task 293: a paused
+    // requisition is still open; a filled, rejected or cancelled one is closed (its foreign key still blocks the
+    // deletion, as DEPARTMENT_IN_USE). No status change leads from a closed status to an open one, so a deletion that
+    // saw nothing open stays right (OpenRequisitionStatusChangeTest).
+    static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT", "PENDING_APPROVAL", "RETURNED",
+            "APPROVED", "PAUSED");
 
     private final NamedParameterJdbcTemplate jdbc;
 

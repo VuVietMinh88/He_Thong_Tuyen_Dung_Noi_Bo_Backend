@@ -1,0 +1,55 @@
+package vn.ttcs.recruitment.requisition;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static vn.ttcs.recruitment.requisition.RequisitionStatusChange.CANCEL;
+import static vn.ttcs.recruitment.requisition.RequisitionStatusChange.FILL;
+import static vn.ttcs.recruitment.requisition.RequisitionStatusChange.PAUSE;
+import static vn.ttcs.recruitment.requisition.RequisitionStatusChange.RESUME;
+
+// Tasks 293/290: a new RequisitionStatus makes this switch fail to compile until someone decides which status changes
+// of HR may leave a requisition in that status (RequisitionStatusChange.from).
+class RequisitionStatusChangeTest {
+
+    @ParameterizedTest
+    @EnumSource(RequisitionStatus.class)
+    void everyStatusIsClassifiedForEveryChange(RequisitionStatus status) {
+        Set<RequisitionStatusChange> allowed = switch (status) {
+            case DRAFT, PENDING_APPROVAL, RETURNED -> EnumSet.of(CANCEL);
+            case APPROVED -> EnumSet.of(PAUSE, FILL, CANCEL);
+            case PAUSED -> EnumSet.of(RESUME, FILL, CANCEL);
+            case REJECTED, FILLED, CANCELLED -> EnumSet.noneOf(RequisitionStatusChange.class);
+        };
+
+        assertThat(Arrays.stream(RequisitionStatusChange.values()).filter(change -> change.allowedFrom(status)))
+                .containsExactlyInAnyOrderElementsOf(allowed);
+    }
+
+    @Test
+    void onlyResumingNeedsNoReason() {
+        assertThat(Arrays.stream(RequisitionStatusChange.values()).filter(change -> !change.requiresReason()))
+                .containsExactly(RESUME);
+    }
+
+    @Test
+    void eachChangeRecordsItsOwnEventAndTarget() {
+        assertThat(Arrays.stream(RequisitionStatusChange.values()).map(RequisitionStatusChange::target))
+                .containsExactly(RequisitionStatus.PAUSED, RequisitionStatus.APPROVED, RequisitionStatus.FILLED,
+                        RequisitionStatus.CANCELLED);
+        for (RequisitionStatusChange change : RequisitionStatusChange.values()) {
+            // The history says what happened: resuming returns to APPROVED, but its row is RESUMED.
+            String expected = change == RESUME ? "RESUMED" : change.target().name();
+            assertThat(change.eventType().name()).as(change.name()).isEqualTo(expected);
+        }
+        assertThatThrownBy(() -> PAUSE.from().add(RequisitionStatus.DRAFT))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+}
