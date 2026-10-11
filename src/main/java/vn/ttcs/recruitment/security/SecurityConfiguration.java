@@ -274,6 +274,9 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/job-postings",
                                 "/api/v1/public/job-postings/*").permitAll()
+                        // Task 310: the review and publication history is read like the posting.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/history")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

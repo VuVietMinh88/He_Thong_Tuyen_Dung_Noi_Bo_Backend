@@ -660,8 +660,9 @@ class JobPostingReviewIntegrationTest {
             assertThat(second.path("totalPages").asLong()).isEqualTo(3);
         }
         JsonNode item = ok(postings.list("?status=DRAFT", hrToken)).path("items").path(0);
+        // Task 310 added publishedAt: null until the posting is published.
         assertThat(fieldNames(item)).containsExactly("id", "requisitionId", "title", "positionName", "departmentName",
-                "status", "revision", "applicationDeadline", "createdByName", "createdAt", "updatedAt");
+                "status", "revision", "applicationDeadline", "createdByName", "createdAt", "updatedAt", "publishedAt");
         assertThat(item.path("requisitionId").asText()).isEqualTo(postings.row(draft).get("requisition_id").toString());
         assertThat(item.path("title").asText()).isEqualTo("Lập trình viên Java");
         assertThat(item.path("positionName").asText()).isEqualTo("Lập trình viên");
@@ -673,6 +674,9 @@ class JobPostingReviewIntegrationTest {
                 "SELECT full_name FROM user_accounts WHERE id = ?", String.class, adminId));
         assertThat(Instant.parse(item.path("createdAt").asText())).isEqualTo(START);
         assertThat(Instant.parse(item.path("updatedAt").asText())).isEqualTo(START.plusSeconds(180));
+        assertThat(item.path("publishedAt").isNull()).isTrue();
+        JsonNode publishedItem = ok(postings.list("?status=PUBLISHED", hrToken)).path("items").path(0);
+        assertThat(Instant.parse(publishedItem.path("publishedAt").asText())).isEqualTo(START.plusSeconds(120));
     }
 
     // The review actions need JOB_POSTINGS_WRITE_ALL, like the steps (onlyJobPostingsWriteAllReviewsAndPublishes): the

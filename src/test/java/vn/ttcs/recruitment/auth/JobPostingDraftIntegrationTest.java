@@ -58,7 +58,8 @@ class JobPostingDraftIntegrationTest {
             "positionId", "positionName", "departmentId", "departmentName", "headcount", "jobDescription",
             "candidateRequirements", "benefits", "workLocationId", "workLocationName", "employmentTypeId",
             "employmentTypeName", "applicationDeadline", "showSalary", "salaryMin", "salaryMax", "createdById",
-            "createdByName", "createdAt", "updatedAt", "actions", "lastReview");
+            "createdByName", "createdAt", "updatedAt", "actions", "lastReview", "publishedById", "publishedByName",
+            "publishedAt");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -164,6 +165,10 @@ class JobPostingDraftIntegrationTest {
             assertThat(view.path("actions").path(review).asBoolean()).as(review).isFalse();
         }
         assertThat(view.path("lastReview").isNull()).isTrue();
+        // Task 310: a draft has no publication trail.
+        for (String trail : List.of("publishedById", "publishedByName", "publishedAt")) {
+            assertThat(view.path(trail).isNull()).as(trail).isTrue();
+        }
 
         var read = postings.get(id, hrToken);
         assertThat(api.expect(read, 200)).isEqualTo(view);
@@ -555,8 +560,9 @@ class JobPostingDraftIntegrationTest {
         String token = api.token("both@example.test");
 
         postings.forbidden(postings.get(id, token));
-        // Task 309: the preview is an internal read too.
+        // Task 309: the preview is an internal read too, and so is the history of task 310.
         postings.forbidden(postings.preview(id, token));
+        postings.forbidden(postings.history(id, token));
         postings.forbidden(postings.update(id, postings.putBody(posting), token));
         postings.forbidden(postings.create(Map.of("requisitionId", vacant), token));
         assertThat(api.expect(postings.list("", token), 200).path("totalElements").asLong()).isZero();
@@ -570,6 +576,7 @@ class JobPostingDraftIntegrationTest {
         postings.assign(vacant, both, RequisitionRecruiterRole.PRIMARY, hrId, START);
         api.expect(postings.get(id, token), 200);
         api.expect(postings.preview(id, token), 200);
+        assertThat(api.expect(postings.history(id, token), 200).isArray()).isTrue();
         assertThat(api.expect(postings.update(id, postings.putBody(posting), token), 200).path("revision").asInt())
                 .isEqualTo(2);
         assertThat(ids(api.expect(postings.list("", token), 200), "id")).containsExactly(id);

@@ -4,6 +4,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
@@ -11,8 +12,10 @@ import vn.ttcs.recruitment.jobposting.JobPostingAccess.Caller;
 import vn.ttcs.recruitment.jobposting.JobPostingAccess.Writer;
 import vn.ttcs.recruitment.jobposting.JobPostingSourceRepository.SourceRequisition;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,8 +32,8 @@ import java.util.UUID;
  * Lock order like every posting write (JobPostingService): the actor's account, the actor's session, the requisition
  * row, then the posting row; the caller is checked again after each lock. The catalog values are not checked again:
  * one HR stopped using after the submission neither blocks the review nor the publication (BA/PO question 16).
- * The publication trail on the posting itself (who published it and when) is task 310; the PUBLISHED event already
- * records both.
+ * Task 310: the publication also writes its trail on the posting itself (who published it and when, V23), with the
+ * values of the PUBLISHED event, and the history of every step is read here (history).
  */
 @Service
 public class JobPostingApprovalService {
@@ -119,7 +122,8 @@ public class JobPostingApprovalService {
      * is in the caller's read scope (403), it is not published yet (409 JOB_POSTING_ALREADY_PUBLISHED) and it is
      * approved (409 JOB_POSTING_NOT_APPROVED), the caller saw its latest revision (409), its requisition is still
      * approved (409), the application deadline has not passed (409). The PUBLISHED event records the caller from the
-     * token and the server time, never anything from the body. Candidates see the posting from task 309 on.
+     * token and the server time, never anything from the body. Candidates see the posting from task 309 on. Task 310:
+     * the posting keeps the same publisher and time (publishedById, publishedAt in every internal view).
      */
     @Transactional
     public JobPostingView publish(Jwt jwt, UUID id, JobPostingPublishRequest request) {
@@ -143,11 +147,26 @@ public class JobPostingApprovalService {
         JobPostingService.requireRevision(posting, request.expectedRevision());
         JobPostingService.requireSourceApproved(source);
         requireDeadlineNotPassed(posting, calendar.today());
-        posting.moveTo(JobPostingStatus.APPROVED, JobPostingStatus.PUBLISHED);
+        // Task 310: the trail on the posting and the PUBLISHED event name the same publisher and the same time.
+        Instant publishedAt = access.now();
+        posting.publish(writer.actorId(), publishedAt);
         postings.flush();
         events.append(id, posting.getRevision(), JobPostingEventType.PUBLISHED, JobPostingStatus.APPROVED,
-                JobPostingStatus.PUBLISHED, writer.actorId(), access.now(), null);
+                JobPostingStatus.PUBLISHED, writer.actorId(), publishedAt, null);
         return view(id, caller);
+    }
+
+    /**
+     * Task 310: the review and publication history of a posting, newest step first, for the people who read the posting
+     * (the checks of JobPostingService.get: access 401/403 before any lookup, the posting exists 404, the scope 403).
+     * Creating and saving a posting are not steps; the creator and the creation time are on the posting itself.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public List<JobPostingHistoryEntry> history(Jwt jwt, UUID id) {
+        Caller caller = access.requireReader(jwt);
+        UUID requisitionId = postings.findRequisitionIdById(id).orElseThrow(JobPostingService::notFound);
+        access.requireInScope(caller, requisitionId);
+        return events.findHistory(id);
     }
 
     // A posting whose last day to apply has passed is neither approved nor published: candidates could not apply.
