@@ -51,7 +51,8 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization"));
+        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization", "X-Device-Id"));
+        configuration.setExposedHeaders(List.of("Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration legacyHealth = new CorsConfiguration();

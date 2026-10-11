@@ -128,6 +128,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     @Autowired @Qualifier("requestMappingHandlerMapping") private RequestMappingHandlerMapping handlerMapping;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private final Map<Identity, Actor> actors = new EnumMap<>(Identity.class);
     private List<Map<String, Object>> permissionSeed;
     private String fixturePasswordHash;
@@ -420,6 +421,9 @@ class ApiAuthorizationMatrixIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

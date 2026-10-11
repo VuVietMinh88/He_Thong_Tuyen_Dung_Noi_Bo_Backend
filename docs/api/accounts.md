@@ -40,8 +40,8 @@ Trả **200**, `Cache-Control: no-store`:
 Trạng thái là dữ liệu suy ra tại thời điểm đọc:
 
 - `ADMINISTRATIVELY_LOCKED`: đang bị Admin khóa; ưu tiên hơn các trạng thái còn lại.
-- `ACTIVE`: tài khoản enabled, không bị Admin khóa và không đang bị khóa đăng nhập tạm.
-- `TEMPORARILY_LOCKED`: enabled nhưng `locked_until` còn trong tương lai do đăng nhập sai.
+- `ACTIVE`: tài khoản enabled và không bị Admin khóa; việc chặn một trình duyệt không đổi trạng thái này.
+- `TEMPORARILY_LOCKED`: giá trị lọc cũ giữ để tương thích, hiện không trả tài khoản nào. Nhập sai chỉ chặn trình duyệt, tài khoản vẫn `ACTIVE` nếu đã kích hoạt và không bị quản trị viên khóa.
 - `PENDING_ACTIVATION`: disabled và có token kích hoạt chưa tiêu thụ; token hết hạn vẫn thuộc trạng thái chờ kích hoạt.
 - `DISABLED`: disabled và không có token kích hoạt chưa tiêu thụ; khác khóa hành chính do Admin.
 

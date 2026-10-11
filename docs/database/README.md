@@ -6,7 +6,8 @@ SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/`
 
 | Bảng | Nội dung |
 |---|---|
-| `user_accounts` | UUID, email, tên, BCrypt hash, trạng thái, số lần sai, thời điểm hết khóa/tạo; V5 thêm phone/display_title/department_id; V6 thêm admin_locked_at/admin_lock_reason/admin_locked_by nullable |
+| `user_accounts` | UUID, email, tên, BCrypt hash, trạng thái, thời điểm tạo; V5 thêm phone/display_title/department_id; V6 thêm admin_locked_at/admin_lock_reason/admin_locked_by nullable. Hai cột failed_login_attempts/locked_until cũ không còn quyết định đăng nhập |
+| `login_devices` | UUID trình duyệt, số lần đăng nhập sai liên tiếp, thời điểm hết chặn/cập nhật; không liên kết với email, tài khoản hay IP |
 | `user_roles` | Tài khoản và các vai trò được cấp |
 | `auth_sessions` | UUID phiên, chủ phiên, SHA-256 refresh token, thời điểm tạo/hết hạn/thu hồi |
 | `password_reset_tokens` | V2: chủ tài khoản, SHA-256 reset token, thời điểm tạo/hết hạn/đã dùng |
@@ -22,7 +23,11 @@ Email unique, chữ thường, bỏ khoảng trắng đầu/cuối. Bảng/cột
 
 Flyway chạy migration một lần. V1 tạo tài khoản/phiên; V2 bổ sung reset token; V3 bổ sung ma trận quyền; V4 bổ sung kích hoạt tài khoản cho145/149; V5 bổ sung dữ liệu phòng ban/hồ sơ và SELF_PROFILE_WRITE cho sáu vai trò nội bộ; V6 bổ sung trạng thái khóa hành chính độc lập; V7 tạo danh mục chức danh và dải lương. Migration mới dùng số phiên bản kế tiếp, không sửa V1–V7 đã áp dụng. Hibernate `ddl-auto=validate` chỉ kiểm schema. Sao lưu database trước khi nâng cấp; khi backend khởi động, Flyway sẽ chạy các migration chưa áp dụng. Kiểm upgrade dùng PostgreSQL tạm, không tự chạy trên DB làm việc.
 
-V6 giữ nguyên dữ liệu cũ và thêm ba cột mặc địnhNULL. `admin_locked_at` khácNULL nghĩa là bị Admin khóa; `admin_lock_reason` không trống/tốiđa500, `admin_locked_by` tham chiếu tài khoản Admin. Cả ba phải cùngNULL hoặc cùng có giá trị. FK RESTRICT không cho xóa tài khoản còn được tham chiếu là người khóa. Mở khóa xóa metadata hiện tại; chưa có lịch sử audit. `enabled` và `locked_until` giữ ý nghĩa kích hoạt/khóa15phút. Xem [API khóa/mở khóa](../api/account-locking.md).
+V6 giữ nguyên dữ liệu cũ và thêm ba cột mặc địnhNULL. `admin_locked_at` khácNULL nghĩa là bị Admin khóa; `admin_lock_reason` không trống/tốiđa500, `admin_locked_by` tham chiếu tài khoản Admin. Cả ba phải cùngNULL hoặc cùng có giá trị. FK RESTRICT không cho xóa tài khoản còn được tham chiếu là người khóa. Mở khóa xóa metadata hiện tại; chưa có lịch sử audit. `enabled` giữ ý nghĩa kích hoạt; khóa nhập sai đã chuyển sang `login_devices`. Xem [API khóa/mở khóa](../api/account-locking.md).
+
+V17_1 tạo `login_devices` và xóa bộ đếm/khóa nhập sai cũ trên tài khoản, giữ nguyên mật khẩu, phiên và khóa do Admin. Sai 5 lần trên một UUID trình duyệt thì chặn 15 phút, kể cả đổi email. Dữ liệu nằm trong PostgreSQL nên khởi động lại backend không xóa thời gian chặn. Giữ các cột cũ để tương thích schema; code đăng nhập không dùng chúng.
+
+**Lưu ý tích hợp:** V17_1 chạy sau V17 và trước các migration V18 trở đi. Bản sửa này tách riêng trên nhánh develop; trước khi merge/phát hành vào môi trường dùng chung, phải tích hợp đầy đủ các nhánh chứa V8–V17 và giữ nguyên checksum của các migration đã áp dụng. Không áp dụng riêng V17_1 trên database develop đang ở V7 rồi bổ sung các migration thấp hơn sau. Kiểm thử tạm V7→V17_1 chỉ xác nhận tác động của riêng bản sửa; bản phát hành đầy đủ phải kiểm thử nâng cấp V17→V17_1.
 
 V5 giữ dữ liệu hiện tại; ba cột mới của tài khoản cũ làNULL, không tự gán phòng ban hoặc tạo dữ liệu mẫu. Không cần tạo lại DB/copy lại.env. Phòng ban dùng `parent_id` tham chiếu chính bảng để lưu nhiều cấp; mỗi phòng bắt buộc có `manager_user_id` là tài khoản tồn tại. Mã/tên không trống, mã duy nhất. FK RESTRICT giữ phòng cha, người phụ trách và phòng đang có thành viên khỏi bị xóa tùy tiện; FK không tự cascade xóa tài khoản.
 

@@ -8,6 +8,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.auth.LoginDeviceLockedException;
 import vn.ttcs.recruitment.auth.IncorrectCurrentPasswordException;
 import vn.ttcs.recruitment.auth.passwordreset.InvalidResetTokenException;
 import vn.ttcs.recruitment.account.DuplicateEmailException;
@@ -26,6 +27,13 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(LoginDeviceLockedException.class)
+    public ResponseEntity<ApiError> loginDeviceLocked(LoginDeviceLockedException exception) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).cacheControl(CacheControl.noStore())
+                .header("Retry-After", Long.toString(exception.getRetryAfterSeconds()))
+                .body(ApiError.of("LOGIN_DEVICE_LOCKED", exception.getMessage()));
+    }
+
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())

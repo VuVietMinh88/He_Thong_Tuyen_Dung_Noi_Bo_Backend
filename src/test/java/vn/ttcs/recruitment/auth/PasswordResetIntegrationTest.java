@@ -41,6 +41,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -82,6 +83,7 @@ class PasswordResetIntegrationTest {
     @Autowired @Qualifier("passwordResetExecutor") private ThreadPoolTaskExecutor mailExecutor;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -454,6 +456,9 @@ class PasswordResetIntegrationTest {
         var builder = HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (bearer != null) { builder.header("Authorization", "Bearer " + bearer); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
