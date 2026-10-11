@@ -145,12 +145,23 @@ class RequisitionApprovalInboxIntegrationTest {
         }
 
         JsonNode page = api.expect(api.request("GET", INBOX + "?page=1&size=2", null, hrToken), 200);
+        assertThat(fieldNames(page)).containsExactly("items", "page", "size", "totalElements", "totalPages");
         assertThat(page.path("totalElements").asLong()).isEqualTo(3);
         assertThat(page.path("totalPages").asLong()).isEqualTo(2);
         assertThat(page.path("page").asInt()).isEqualTo(1);
         assertThat(ids(page)).containsExactly(submitted.get(2));
         for (String bad : new String[]{"?page=-1", "?size=0", "?size=101"}) {
             assertThat(api.code(api.request("GET", INBOX + bad, null, hrToken), 400)).isEqualTo("VALIDATION_ERROR");
+        }
+        // The inbox has its own page record (ApprovalInboxPage) but keeps its JSON: each item is the requisition view,
+        // equal field by field to GET /requisitions/{id} read by the same caller.
+        JsonNode all = api.expect(api.request("GET", INBOX + "?size=100", null, hrToken), 200);
+        assertThat(ids(all)).containsExactlyElementsOf(submitted);
+        for (JsonNode item : all.path("items")) {
+            JsonNode detail = api.expect(api.request("GET", "/api/v1/requisitions/" + item.path("id").asText(), null,
+                    hrToken), 200);
+            assertThat(fieldNames(item)).hasSize(15).containsExactlyElementsOf(fieldNames(detail));
+            fieldNames(detail).forEach(field -> assertThat(item.path(field)).as(field).isEqualTo(detail.path(field)));
         }
         for (UUID id : submitted) {
             for (String token : new String[]{hrToken, itHeadToken, parentHeadToken}) {
@@ -182,6 +193,10 @@ class RequisitionApprovalInboxIntegrationTest {
         List<UUID> ids = new ArrayList<>();
         page.path("items").forEach(item -> ids.add(UUID.fromString(item.path("id").asText())));
         return ids;
+    }
+
+    private static List<String> fieldNames(JsonNode node) {
+        return new ArrayList<>(node.propertyNames());
     }
 
     private UUID account(String email, String name, Role... roles) {
