@@ -8,7 +8,7 @@ Tiêu chí của story S3-09:
 - "Khai báo địa điểm, hình thức làm việc, hạn nhận hồ sơ, có hiển thị mức lương hay không": đã có (303, 304). Task 304 kiểm hạn nộp không ở quá khứ, giá trị danh mục còn dùng và văn bản thuần (mục "Kiểm tra dữ liệu trước khi lưu").
 - "Chỉ yêu cầu ở trạng thái Đã duyệt mới tạo được tin": đã có (303), mục "Tạo tin từ yêu cầu đã duyệt".
 
-Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308) nằm ở [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md). Tài liệu này mô tả phần soạn tin; từ task 308, tin còn sửa được ở trạng thái `DRAFT` và `REVISION_REQUESTED` (HR yêu cầu chỉnh sửa).
+Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308), bản xem trước và cổng tuyển dụng công khai (task 309) nằm ở [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md). Tài liệu này mô tả phần soạn tin; từ task 308, tin còn sửa được ở trạng thái `DRAFT` và `REVISION_REQUESTED` (HR yêu cầu chỉnh sửa).
 
 ## Quyền
 
@@ -22,7 +22,7 @@ Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308) nằm ở [A
 - Mọi API nội bộ của tin dành cho **người soạn tin**. Matcher ở `SecurityConfiguration` cho `JOB_POSTINGS_WRITE_ALL` hoặc `JOB_POSTINGS_WRITE_SCOPED`; `JobPostingService` còn đòi quyền đọc `JOB_POSTINGS_READ_*`, vì quyền ghi không bao gồm quyền đọc và mọi thao tác ghi trả về cả tin. Người chỉ có quyền ghi bị 403 trước khi backend tra cứu gì, kể cả với `{id}` hay `requisitionId` không tồn tại. Theo seed hiện tại, ai có quyền ghi tin cũng có quyền đọc cùng phạm vi.
 - Phạm vi là `ALL` khi cả quyền ghi lẫn quyền đọc là `ALL`; còn lại là `SCOPED` (mục "Phạm vi dữ liệu").
 - Tạo tin **không** cần quyền đọc yêu cầu tuyển dụng (`REQUISITIONS_READ_*`). Recruiter được phân công vẫn chưa đọc được yêu cầu (task 285) nhưng phải soạn được tin của nó. Đây là khác biệt có chủ ý với sao chép yêu cầu (task 278), vốn đòi quyền đọc bản gốc. Qua tin, recruiter thấy bản sao mô tả công việc, yêu cầu ứng viên, chức danh, phòng ban, số lượng và lương đề xuất đã duyệt của yêu cầu; không thấy giải trình lương, lý do tuyển hay lịch sử duyệt.
-- `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER; CANDIDATE cũng có trong seed nhưng không tài khoản nào mang vai trò này) nhận 403 ở mọi API trên: không xem bản nháp. Họ sẽ xem tin đã xuất bản qua cổng tuyển dụng công khai (task 309), giống trang giới thiệu công ty. INTERVIEWER và tài khoản không có vai trò cũng nhận 403.
+- `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER; CANDIDATE cũng có trong seed nhưng không tài khoản nào mang vai trò này) nhận 403 ở mọi API trên: không xem bản nháp. Họ xem tin đã xuất bản qua cổng tuyển dụng công khai (task 309, mục "Tin công khai" của [API duyệt và xuất bản](job-posting-publication.md)), giống trang giới thiệu công ty. INTERVIEWER và tài khoản không có vai trò cũng nhận 403.
 - Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi, backend kiểm lại hạn token, phiên, quyền ghi và quyền đọc sau mỗi lần chờ khóa (mục "Khóa và đồng thời").
 
 ## Phạm vi dữ liệu (task 303)
@@ -371,7 +371,7 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 
 - `JOB_POSTINGS_*_SCOPED` của Recruiter là tin của yêu cầu mà người đó là recruiter chính hoặc hỗ trợ, kiểm lại ở mỗi lần gọi; bàn giao xong thì người cũ mất quyền ngay;
 - tạo tin không cần quyền đọc yêu cầu tuyển dụng; recruiter đọc bản sao mô tả công việc, yêu cầu ứng viên và lương đề xuất của yêu cầu qua tin dù chưa đọc được yêu cầu (task 285);
-- `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER) không xem bản nháp, chỉ xem cổng công khai sau này, giống trang giới thiệu công ty;
+- `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER) không xem bản nháp, chỉ xem cổng công khai (task 309), giống trang giới thiệu công ty;
 - mỗi yêu cầu chỉ có một tin;
 - không có trạng thái Từ chối cho tin; người duyệt dùng "yêu cầu chỉnh sửa" (task 308);
 - chỉ tin nháp và tin cần chỉnh sửa sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); gỡ hay đóng tin khi đóng yêu cầu là task 292;

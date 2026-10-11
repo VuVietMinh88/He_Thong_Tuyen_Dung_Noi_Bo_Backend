@@ -1,13 +1,13 @@
 # API duyệt và xuất bản tin tuyển dụng
 
-Phạm vi TKNHTTDNB1-308 (API duyệt và xuất bản tin tuyển dụng), story TKNHTTDNB1-39 (S3-10). URL dùng tiền tố `/api/v1`, header `Authorization: Bearer …`; mọi response JSON thành công và các lỗi `JOB_POSTING_*` dùng `Cache-Control: no-store`. Soạn và lưu bản nháp nằm ở [API tin tuyển dụng](job-postings.md) (story S3-09).
+Phạm vi TKNHTTDNB1-308 (API duyệt và xuất bản tin tuyển dụng), TKNHTTDNB1-309 (dùng chung nội dung cho xem trước và tin công khai), story TKNHTTDNB1-39 (S3-10). URL dùng tiền tố `/api/v1`, header `Authorization: Bearer …`; mọi response JSON thành công và các lỗi `JOB_POSTING_*` dùng `Cache-Control: no-store`. Soạn và lưu bản nháp nằm ở [API tin tuyển dụng](job-postings.md) (story S3-09).
 
-Kết quả Jira của task 308: "Kiểm tra quyền và chặn xuất bản tin chưa được duyệt."
+Kết quả Jira của task 308: "Kiểm tra quyền và chặn xuất bản tin chưa được duyệt." Task 309: bản xem trước và tin công khai dùng chung một nội dung (mục "Xem trước", "Tin công khai").
 
 Tiêu chí của story S3-10:
 
-- "Tin phải qua duyệt trước khi hiển thị công khai": đã có (308). Chỉ tin `APPROVED` mới xuất bản được (mục "Xuất bản"); tin ở mọi trạng thái khác trả 409. Cổng tuyển dụng công khai (task 309) chỉ hiện tin `PUBLISHED`.
-- "Xem trước đúng như giao diện công khai trước khi xuất bản": một phần (308). Từ lúc gửi duyệt, nội dung tin bị khóa (không `PUT` được) và mọi bước duyệt, xuất bản đều mang `expectedRevision`, nên tin được xuất bản đúng là nội dung đã duyệt lần cuối. API xem trước dùng chung nội dung với tin công khai là task 309.
+- "Tin phải qua duyệt trước khi hiển thị công khai": đã có (308). Chỉ tin `APPROVED` mới xuất bản được (mục "Xuất bản"); tin ở mọi trạng thái khác trả 409. Cổng tuyển dụng công khai (task 309) chỉ hiện tin `PUBLISHED` còn hạn nộp, của yêu cầu còn đã duyệt; tin khác trả 404 như tin không tồn tại (mục "Tin công khai").
+- "Xem trước đúng như giao diện công khai trước khi xuất bản": đã có (308, 309). Từ lúc gửi duyệt, nội dung tin bị khóa (không `PUT` được) và mọi bước duyệt, xuất bản đều mang `expectedRevision` (308). Bản xem trước và tin công khai được dựng bằng cùng một câu truy vấn và cùng một hàm, và người duyệt duyệt, xuất bản bằng `revision` của bản xem trước (309, mục "Xem trước"). Giới hạn: tên chức danh, phòng ban, địa điểm và hình thức làm việc được đọc trực tiếp ở cả hai, nên đổi tên các mục này sau khi duyệt hiện ngay trên cổng mà không cần duyệt lại (câu hỏi 16).
 - "Ghi lại người xuất bản và thời điểm": một phần (308). Mỗi lần xuất bản ghi sự kiện `PUBLISHED` với người làm và thời điểm vào lịch sử `job_posting_events`. Cột người và thời điểm xuất bản trên tin, API lịch sử và việc chặn sửa lịch sử là task 310 (mục "Xuất bản ở 308, dấu vết ở 310").
 
 ## Trạng thái của tin tuyển dụng
@@ -37,7 +37,7 @@ DRAFT ──gửi duyệt──> PENDING_APPROVAL ──APPROVE──> APPROVED 
 |`PUBLISHED`|–|–|–|–|– (409 `JOB_POSTING_ALREADY_PUBLISHED`)|Có (khi còn hạn nộp và yêu cầu còn đã duyệt, task 309)|
 
 - V21 chỉ cho `DRAFT`; V22 (task 308) mở CHECK `valid_job_posting_status` cho năm trạng thái trên cùng lúc thêm giá trị vào enum `JobPostingStatus`. Không có trạng thái Từ chối: người duyệt yêu cầu chỉnh sửa. Gỡ hay đóng tin khi đóng yêu cầu là task 292 (S3-07), sẽ thêm `CLOSED`.
-- Mỗi cột "Có" là một nhóm trong code: `JobPostingService.EDITABLE_STATUSES` (sửa), `JobPostingService.SUBMITTABLE_STATUSES` (gửi duyệt), `JobPostingDecision.from()` (duyệt, yêu cầu chỉnh sửa), `JobPostingApprovalService.PUBLISHABLE_STATUSES` (xuất bản). `JobPostingStatusTest` và `JobPostingDecisionTest` không biên dịch được cho tới khi một trạng thái mới được xếp vào từng nhóm.
+- Mỗi cột "Có" là một nhóm trong code: `JobPostingService.EDITABLE_STATUSES` (sửa), `JobPostingService.SUBMITTABLE_STATUSES` (gửi duyệt), `JobPostingDecision.from()` (duyệt, yêu cầu chỉnh sửa), `JobPostingApprovalService.PUBLISHABLE_STATUSES` (xuất bản), `JobPostingService.PUBLIC_STATUSES` (công khai, task 309). `JobPostingStatusTest` và `JobPostingDecisionTest` không biên dịch được cho tới khi một trạng thái mới được xếp vào từng nhóm.
 - Mỗi bước (gửi duyệt, duyệt, yêu cầu chỉnh sửa, xuất bản) tăng `revision` thêm 1, như một lần lưu, nên client đang xem trạng thái cũ bị từ chối (409 `JOB_POSTING_CHANGED`). `updatedAt` vẫn là lần sửa nội dung gần nhất, các bước này không đổi nó.
 - Tin đã duyệt không sửa được: HR yêu cầu chỉnh sửa, người soạn sửa và gửi lại, rồi cần một lần duyệt mới. Vì vậy thứ được xuất bản luôn là nội dung được duyệt lần cuối.
 
@@ -48,6 +48,8 @@ DRAFT ──gửi duyệt──> PENDING_APPROVAL ──APPROVE──> APPROVED 
 |`POST /job-postings/{id}/submit`|`JOB_POSTINGS_WRITE_ALL` **hoặc** `JOB_POSTINGS_WRITE_SCOPED`, **và** quyền đọc `JOB_POSTINGS_READ_*` (như sửa tin)|ADMIN, HR_MANAGER (mọi tin); RECRUITER (tin của yêu cầu được phân công)|
 |`POST /job-postings/{id}/approvals`|`JOB_POSTINGS_WRITE_ALL` (ở matcher và kiểm lại trong service), **và** quyền đọc tin|ADMIN, HR_MANAGER, trừ người đã soạn hoặc sửa tin và người gửi duyệt lần gần nhất khi **duyệt** (mục "Người soạn không tự duyệt")|
 |`POST /job-postings/{id}/publish`|Như dòng trên|ADMIN, HR_MANAGER, kể cả người vừa duyệt tin|
+|`GET /job-postings/{id}/preview`|Như đọc tin (`GET /job-postings/{id}`): `JOB_POSTINGS_WRITE_ALL` **hoặc** `JOB_POSTINGS_WRITE_SCOPED`, **và** quyền đọc tin (task 309)|ADMIN, HR_MANAGER (mọi tin); RECRUITER (tin của yêu cầu được phân công)|
+|`GET /public/job-postings`, `GET /public/job-postings/{id}`|Công khai, không cần token (task 309)|Mọi người, kể cả ứng viên không có tài khoản|
 
 - Gửi duyệt là thao tác ghi của người soạn, cùng quyền và cùng phạm vi như sửa tin ([API tin tuyển dụng](job-postings.md), mục "Phạm vi dữ liệu"): recruiter chỉ gửi được tin của yêu cầu mình được phân công.
 - Duyệt và xuất bản là quyết định của HR. `JOB_POSTINGS_WRITE_SCOPED` của recruiter không đủ: recruiter nhận 403 ở matcher. HIRING_MANAGER, APPROVER (chỉ có `JOB_POSTINGS_READ_ALL`), INTERVIEWER và tài khoản không có vai trò cũng nhận 403.
@@ -185,12 +187,65 @@ Người đã soạn hoặc sửa nội dung tin (người tạo và mọi ngư�
 10. Hạn nộp chưa qua: 409 `JOB_POSTING_DEADLINE_PASSED`.
 11. Chuyển sang `PUBLISHED` (`revision` tăng 1) và ghi sự kiện `PUBLISHED`: người làm lấy từ token, thời điểm lấy từ đồng hồ server (UTC, micro giây), không có nhận xét.
 
+## Xem trước
+
+`GET /job-postings/{id}/preview` (task 309) trả tin **đúng như ứng viên sẽ thấy** trên cổng tuyển dụng, ở mọi trạng thái (kể cả nháp), và không ghi gì vào database. Ai đọc được tin (`GET /job-postings/{id}`) thì xem trước được, cùng thứ tự kiểm: quyền (401/403, cả quyền đọc tin, trước mọi tra cứu), tin tồn tại (404 `JOB_POSTING_NOT_FOUND`), phạm vi (403). HIRING_MANAGER và APPROVER (chỉ có `JOB_POSTINGS_READ_ALL`) nhận 403 như khi đọc tin; họ xem tin đã xuất bản qua cổng công khai.
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000031",
+  "status": "PENDING_APPROVAL",
+  "revision": 2,
+  "content": {
+    "id": "00000000-0000-0000-0000-000000000031",
+    "title": "Lập trình viên Java (Hà Nội)",
+    "positionName": "Lập trình viên",
+    "departmentName": "Phòng IT",
+    "headcount": 2,
+    "workLocationName": "Hà Nội",
+    "employmentTypeName": "Toàn thời gian",
+    "applicationDeadline": "2026-11-30",
+    "jobDescription": "Phát triển API tuyển dụng.\n- Spring Boot",
+    "candidateRequirements": "Tối thiểu 2 năm kinh nghiệm Java.",
+    "benefits": "Bảo hiểm đầy đủ."
+  }
+}
+```
+
+UUID trong ví dụ chỉ minh họa. `content` là đúng JSON của `GET /public/job-postings/{id}` (mục "Tin công khai"); `id`, `status`, `revision` ở ngoài là thông tin cho người soạn và người duyệt, không có trên cổng. Backend dùng chung một hàm dựng kết quả cho xem trước và tin công khai (`PublicJobPostingView.of`, từ cùng câu truy vấn `JobPostingReadRepository.SELECT_ROW`), như [trang giới thiệu công ty](company-profile.md#xem-trước), nên việc ẩn lương, tên danh mục và mọi trường khác giống hệt nhau ở hai nơi.
+
+Người duyệt duyệt (`POST /job-postings/{id}/approvals`) và xuất bản (`POST /job-postings/{id}/publish`) với `expectedRevision` là `revision` của bản xem trước vừa xem. Nội dung tin bị khóa từ lúc gửi duyệt, và mọi thay đổi sau bản xem trước (yêu cầu chỉnh sửa, sửa, gửi lại) đều tăng `revision`, nên duyệt hoặc xuất bản theo bản xem trước cũ trả 409 `JOB_POSTING_CHANGED`: thứ được duyệt và xuất bản đúng là thứ người duyệt đã xem.
+
+Tên chức danh, phòng ban, địa điểm và hình thức làm việc được đọc trực tiếp ở cả hai; đổi tên trong danh mục hiện ngay ở cả bản xem trước và tin công khai, không cần duyệt lại. Vì vậy bản xem trước và tin công khai luôn giống nhau tại cùng một thời điểm, nhưng tin công khai có thể khác bản xem trước lúc duyệt nếu sau đó có người đổi tên các mục này (câu hỏi 16).
+
+HR_MANAGER và ADMIN sửa được các tên đó (`ORGANIZATION_WRITE_ALL`; chức danh cần thêm `SALARY_RANGES_WRITE_ALL`), và đổi tên không đổi `revision` của tin. Nếu BA/PO cần tin công khai đúng từng chữ với bản đã duyệt, backend sẽ chụp bốn tên này vào tin lúc gửi duyệt.
+
+## Tin công khai
+
+Cổng tuyển dụng cho ứng viên (task 309), không cần tài khoản:
+
+| API | Trả về |
+|---|---|
+|`GET /public/job-postings?page=0&size=20`|Một trang tin đang công khai, tin xuất bản gần nhất trước|
+|`GET /public/job-postings/{id}`|Một tin đang công khai, cùng dạng với `content` của bản xem trước|
+
+Một tin là công khai khi đủ cả ba điều: trạng thái `PUBLISHED` (`JobPostingService.PUBLIC_STATUSES`); hạn nộp từ hôm nay trở đi theo giờ Việt Nam (chính ngày hạn vẫn hiện; từ 00:00 hôm sau tin tự ẩn nhưng vẫn ở `PUBLISHED`); yêu cầu nguồn vẫn `APPROVED`. Tin khác (nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, quá hạn nộp, yêu cầu không còn đã duyệt) trả **404** `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", giống hệt tin không tồn tại, nên cổng không cho biết tin nào đang được soạn hay duyệt.
+
+Trường của tin công khai: `id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax`, `jobDescription`, `candidateRequirements`, `benefits` (`benefits` là `null` khi chưa viết). Không có trạng thái, `revision`, yêu cầu nguồn, người tạo, người duyệt, nhận xét hay thời điểm nào.
+
+- Lương chỉ có khi tin chọn hiển thị (`showSalary: true`): `salaryMin`, `salaryMax` là lương đề xuất đã duyệt của yêu cầu (đồng VND mỗi người mỗi tháng). Khi không chọn, hai khóa này **không có** trong JSON (không phải `null`), và server không gửi số tiền đi.
+- Mỗi mục của danh sách có `id`, `title`, `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`, `applicationDeadline` và lương nếu tin chọn hiển thị; văn bản chỉ có ở chi tiết. Trang có `items`, `page`, `size`, `totalElements`, `totalPages`; `page` từ 0, `size` từ 1 đến 100 (mặc định 0 và 20), sai thì 400 `VALIDATION_ERROR` "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Thứ tự: thời điểm xuất bản (sự kiện `PUBLISHED`) mới nhất trước.
+- Mọi response dùng `Cache-Control: no-store`, kể cả 404, vì tin rời cổng ngay khi quá hạn hoặc khi yêu cầu không còn đã duyệt.
+- Như [trang giới thiệu công ty](company-profile.md), gửi kèm Bearer hỏng hoặc hết hạn vẫn bị 401 ở bộ lọc bảo mật, nên cổng tuyển dụng gọi hai API này **không** kèm header `Authorization`. Người đã đăng nhập (mọi vai trò) nhận đúng JSON như ứng viên.
+- `permitAll` chỉ cho đúng phương thức GET và đúng hai đường dẫn này; ví dụ `POST /public/job-postings` hay `PUT /public/job-postings/{id}` trả 403.
+- Hiển thị **mọi** chuỗi của tin công khai và của bản xem trước dạng chữ (không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`), kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`: server chỉ kiểm văn bản thuần với `title`, `jobDescription`, `candidateRequirements`, `benefits` (task 304); bốn tên kia đến từ dữ liệu tổ chức, chỉ được kiểm độ dài.
+
 ## Xuất bản ở 308, dấu vết ở 310
 
 Jira 310 ghi "Lưu dấu vết xuất bản và chuyển tin sang trạng thái có thể công khai", nhưng 308 phải "chặn xuất bản tin chưa được duyệt", nên thao tác xuất bản phải có từ 308. Ba task chia việc như sau:
 
 - **308** thêm `POST /job-postings/{id}/publish`: chỉ nhận tin `APPROVED`, chuyển sang `PUBLISHED`, ghi sự kiện `PUBLISHED` (người làm từ token, thời điểm từ đồng hồ server).
-- **309** cho tin `PUBLISHED` hiện trên `/api/v1/public/job-postings` và `/api/v1/public/job-postings/{id}` ("trạng thái có thể công khai").
+- **309** cho tin `PUBLISHED` hiện trên `/api/v1/public/job-postings` và `/api/v1/public/job-postings/{id}` ("trạng thái có thể công khai") khi còn hạn nộp và yêu cầu còn đã duyệt; bản xem trước `GET /job-postings/{id}/preview` dùng chung nội dung với tin công khai (mục "Xem trước", "Tin công khai").
 - **310** làm dấu vết xuất bản thành dữ liệu chính thức của tin: cột `published_by`, `published_at` có ràng buộc trong database (lấy lại từ sự kiện của 308 khi nâng cấp), trả ở mọi response nội bộ, API lịch sử duyệt và xuất bản, chặn sửa và xóa lịch sử, danh sách công khai sắp theo thời điểm xuất bản.
 
 ## Kết quả trả về và lịch sử
@@ -234,15 +289,15 @@ Mỗi bước được ghi một dòng vào `job_posting_events` (V22) trong cù
 
 | HTTP | `code` | Khi nào |
 |---|---|---|
-|400|`VALIDATION_ERROR`|Body: thiếu hoặc sai `expectedRevision`, thiếu hoặc sai `action`, `comment` quá 2.000 ký tự hoặc có ký tự NUL; `{id}` không phải UUID|
+|400|`VALIDATION_ERROR`|Body: thiếu hoặc sai `expectedRevision`, thiếu hoặc sai `action`, `comment` quá 2.000 ký tự hoặc có ký tự NUL; `{id}` không phải UUID; `page`/`size` của danh sách công khai sai ("Trang hoặc số lượng tin tuyển dụng không hợp lệ.")|
 |400|`INVALID_JSON`|JSON sai hoặc thiếu body; trường ngoài hợp đồng (`status`, `note`, `reason`, `feedback`, `channels`, `publishedAt`, `approvedAt`…)|
 |400|`JOB_POSTING_INCOMPLETE`|Gửi duyệt tin thiếu địa điểm, hình thức làm việc, hạn nộp, hoặc có văn bản đã lưu không còn hợp lệ ("Tin tuyển dụng chưa đủ thông tin hợp lệ để gửi duyệt."); mọi trường trong `fieldErrors`|
 |400|`JOB_POSTING_DEADLINE_IN_PAST`|Gửi duyệt tin có hạn nộp trước hôm nay theo giờ Việt Nam; `fieldErrors.applicationDeadline`|
 |400|`JOB_POSTING_WORK_LOCATION_INACTIVE`, `JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE`|Gửi duyệt tin giữ giá trị danh mục đã ngừng dùng|
 |400|`JOB_POSTING_COMMENT_REQUIRED`|`REQUEST_REVISION` không có nhận xét ("Vui lòng nhập nhận xét khi yêu cầu chỉnh sửa tin tuyển dụng."); `fieldErrors.comment`|
-|401|`UNAUTHORIZED` / `SESSION_INVALID`|Token sai, hết hạn, phiên bị thu hồi, tài khoản bị khóa, kể cả khi điều đó xảy ra trong lúc chờ khóa|
-|403|`FORBIDDEN`|Thiếu quyền; duyệt hoặc xuất bản không có `JOB_POSTINGS_WRITE_ALL`; người soạn/sửa tin hoặc người gửi duyệt lần gần nhất bấm duyệt; recruiter gửi duyệt tin của yêu cầu không được phân công; route không khai báo (ví dụ `PUT /job-postings/{id}/publish`, `DELETE /job-postings/{id}/approvals`, `PATCH /job-postings/{id}/submit`)|
-|404|`JOB_POSTING_NOT_FOUND`|Không có tin với `{id}`|
+|401|`UNAUTHORIZED` / `SESSION_INVALID`|Token sai, hết hạn, phiên bị thu hồi, tài khoản bị khóa, kể cả khi điều đó xảy ra trong lúc chờ khóa; gọi API công khai kèm Bearer hỏng hoặc hết hạn|
+|403|`FORBIDDEN`|Thiếu quyền; duyệt hoặc xuất bản không có `JOB_POSTINGS_WRITE_ALL`; người soạn/sửa tin hoặc người gửi duyệt lần gần nhất bấm duyệt; recruiter gửi duyệt tin của yêu cầu không được phân công; xem trước tin ngoài phạm vi hoặc chỉ có `JOB_POSTINGS_READ_ALL`; route không khai báo (ví dụ `PUT /job-postings/{id}/publish`, `DELETE /job-postings/{id}/approvals`, `PATCH /job-postings/{id}/submit`, `POST /public/job-postings`)|
+|404|`JOB_POSTING_NOT_FOUND`|Không có tin với `{id}`; ở `GET /public/job-postings/{id}`, mọi tin không công khai (chưa xuất bản, quá hạn nộp, yêu cầu không còn đã duyệt), giống hệt tin không tồn tại|
 |409|`JOB_POSTING_NOT_SUBMITTABLE`|Gửi duyệt tin không ở `DRAFT`/`REVISION_REQUESTED` ("Chỉ gửi duyệt được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa.")|
 |409|`JOB_POSTING_NOT_UNDER_REVIEW`|Quyết định ở trạng thái không nhận nó|
 |409|`JOB_POSTING_NOT_APPROVED`|Xuất bản tin chưa được duyệt|
@@ -258,13 +313,16 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`,
 | Frontend hiện tại | Backend |
 |---|---|
 |"Đăng tin" gửi `POST /job-postings` với `status: 'PUBLISHED'`|Lưu (`POST`/`PUT`), rồi `POST /job-postings/{id}/submit {expectedRevision}`; người soạn không tự xuất bản (task 300)|
-|Trang `/job-postings/:id/review` bỏ qua `:id` và dùng dữ liệu mẫu|Đọc `:id` (`useParams`); `GET /job-postings/{id}` lấy `status`, `actions`, `lastReview`; danh sách chờ duyệt là `GET /job-postings?status=PENDING_APPROVAL`. Bản xem trước `GET /job-postings/{id}/preview` có từ task 309 (task 306)|
+|Trang `/job-postings/:id/review` bỏ qua `:id` và dùng dữ liệu mẫu|Đọc `:id` (`useParams`); `GET /job-postings/{id}` lấy `status`, `actions`, `lastReview`; danh sách chờ duyệt là `GET /job-postings?status=PENDING_APPROVAL`; bản xem trước là `GET /job-postings/{id}/preview` (task 309) (task 306)|
 |`/approve {note, status: 'PUBLISHED', approvedAt}`, `/request-revision {feedback, …}`, `/reject {reason, …}`|`POST /job-postings/{id}/approvals {action: "APPROVE" \| "REQUEST_REVISION", comment, expectedRevision}`; duyệt xong tin là **`APPROVED`**, chưa công khai; không có từ chối; nhận xét bắt buộc khi yêu cầu chỉnh sửa, tối đa 2.000 ký tự (task 306)|
 |`/publish {note, channels, status, publishedAt}`, chưa được gọi|`POST /job-postings/{id}/publish {expectedRevision}`; hiện nút khi `actions.canPublish`; hiện lỗi 409 `JOB_POSTING_NOT_APPROVED` ("lỗi chưa được duyệt"), `JOB_POSTING_CHANGED` (tải lại), `JOB_POSTING_DEADLINE_PASSED` (task 307)|
 |`/audit-logs` với `actor {name, email, role}`, `metadata`|Lịch sử `GET /job-postings/{id}/history` là task 310; hiện có `lastReview` (quyết định gần nhất) trên tin (task 307)|
 |Nút dựa vào `REJECTED`/`PUBLISHED`; `APPROVED` hiện "Đã duyệt xuất bản"|Ẩn hiện nút theo `actions.*` (nút duyệt ẩn với người đã tạo hoặc sửa tin và người gửi gần nhất, nếu không sẽ 403 và bị đưa sang `/unauthorized`); nhãn `DRAFT` Nháp, `PENDING_APPROVAL` Chờ duyệt, `REVISION_REQUESTED` Cần chỉnh sửa, `APPROVED` Đã duyệt, `PUBLISHED` Đã xuất bản (task 306, 307)|
 |Tên người cứng ("Nguyễn Văn Minh"), khối `catch` giả thành công|Bỏ; hiện `message` của lỗi, gắn `fieldErrors` (thêm `expectedRevision`, `comment`, `action`, và các trường của `JOB_POSTING_INCOMPLETE`) vào ô tương ứng; dùng `createdByName`, `lastReview.actorName`|
-|Màn duyệt và xuất bản dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')`|Duyệt và xuất bản: `JOB_POSTINGS_WRITE_ALL`; gửi duyệt: như sửa tin (`can('edit','job_posting')`)|
+|Bản xem trước bỏ qua cờ lương (`JobPostingForm.tsx`, `JobPostingPreviewApproval.tsx`)|Màn duyệt hiển thị `content` của `GET /job-postings/{id}/preview`; khi lương bị ẩn thì không có khóa `salaryMin`/`salaryMax`; giữ `revision` của bản xem trước làm `expectedRevision` khi duyệt và xuất bản (task 306)|
+|Chưa có trang công khai; `axiosClient` luôn gắn Bearer|Cổng tuyển dụng gọi `GET /public/job-postings` và `GET /public/job-postings/{id}` qua một axios instance **không** có `Authorization`; 404 là "không tìm thấy tin" (task sau)|
+|Hiển thị bản xem trước và tin công khai|Hiển thị mọi chuỗi dạng chữ, kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName` (mục "Tin công khai") (task 306 và cổng tuyển dụng)|
+|Màn duyệt và xuất bản dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')`|Duyệt và xuất bản: `JOB_POSTINGS_WRITE_ALL`; gửi duyệt và xem trước: như sửa tin (`can('edit','job_posting')`)|
 
 Gặp 403 khi bấm duyệt thường do người xem đã soạn, sửa hoặc vừa gửi tin; nên giải thích "người đã soạn/sửa tin không được duyệt" thay vì chuyển trang. Hiển thị nhận xét dạng chữ, giữ xuống dòng.
 
@@ -272,7 +330,7 @@ QA cần chuẩn bị: HR phải tạo giá trị `WORK_LOCATION` và `EMPLOYMEN
 
 ## Database và phạm vi
 
-V22 (task 308) mở CHECK trạng thái của `job_postings`, thêm CHECK `job_posting_details_required` (tin đã rời trạng thái sửa được phải có địa điểm, hình thức làm việc, hạn nộp) và tạo bảng `job_posting_events`, xem [database](../database/README.md). Không thêm mã quyền: dùng `JOB_POSTINGS_WRITE_ALL` có sẵn từ V3. Code nằm ở gói `vn.ttcs.recruitment.jobposting`: `JobPostingService.submit` (gửi duyệt), `JobPostingApprovalService` (`decide`, `publish`), `JobPostingReviewRule` (người soạn không tự duyệt), `JobPostingEventRepository` (ghi lịch sử).
+V22 (task 308) mở CHECK trạng thái của `job_postings`, thêm CHECK `job_posting_details_required` (tin đã rời trạng thái sửa được phải có địa điểm, hình thức làm việc, hạn nộp) và tạo bảng `job_posting_events`, xem [database](../database/README.md). Không thêm mã quyền: dùng `JOB_POSTINGS_WRITE_ALL` có sẵn từ V3. Code nằm ở gói `vn.ttcs.recruitment.jobposting`: `JobPostingService.submit` (gửi duyệt), `JobPostingApprovalService` (`decide`, `publish`), `JobPostingReviewRule` (người soạn không tự duyệt), `JobPostingEventRepository` (ghi lịch sử). Task 309 không thêm migration: `JobPostingService.preview`, `getPublic`, `publicPage` đọc qua `JobPostingReadRepository` (`findRow`, `findPublic`, `publicPage`, cùng `SELECT_ROW`) và dựng kết quả bằng `PublicJobPostingView.of`.
 
 ## Giả định chờ BA/PO
 
@@ -284,4 +342,6 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được; HR yêu cầu chỉnh sửa từ chờ duyệt hoặc đã duyệt; tin đã xuất bản chưa sửa, gỡ hay đóng được (gỡ tin khi đóng yêu cầu là task 292);
 - gửi duyệt mới bắt buộc địa điểm, hình thức làm việc, hạn nộp và kiểm lại văn bản đã lưu;
 - hạn nộp đã qua thì duyệt và xuất bản bị chặn (409), yêu cầu chỉnh sửa vẫn được;
-- giá trị danh mục đã ngừng dùng chặn gửi duyệt nhưng không chặn duyệt, xuất bản và không gỡ tin.
+- giá trị danh mục đã ngừng dùng chặn gửi duyệt nhưng không chặn duyệt, xuất bản và không gỡ tin;
+- tin đã xuất bản tự ẩn khỏi cổng khi qua hạn nộp (từ 00:00 ngày sau ngày hạn, giờ Việt Nam) hoặc khi yêu cầu không còn đã duyệt, nhưng vẫn ở trạng thái đã xuất bản (task 309);
+- tên chức danh, phòng ban, địa điểm và hình thức làm việc trên bản xem trước và tin công khai được đọc trực tiếp: đổi tên sau khi duyệt hoặc sau khi xuất bản hiện ngay trên cổng mà không cần duyệt lại (task 309, câu hỏi 16).

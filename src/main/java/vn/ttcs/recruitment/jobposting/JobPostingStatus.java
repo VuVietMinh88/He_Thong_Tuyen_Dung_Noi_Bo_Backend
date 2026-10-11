@@ -10,6 +10,8 @@ package vn.ttcs.recruitment.jobposting;
 // (JobPostingDecision.from) and published (JobPostingApprovalService.PUBLISHABLE_STATUSES); widen V22's
 // valid_job_posting_event_transition if a workflow step reaches it. JobPostingStatusTest and JobPostingDecisionTest do
 // not compile until it is.
+// Task 309: decide whether candidates see it on the public portal (JobPostingService.PUBLIC_STATUSES).
+// JobPostingStatusTest does not compile until it is.
 // Closing postings when their requisition closes is task 292 (S3-07), which will add CLOSED.
 public enum JobPostingStatus {
     // Written by its authors, not sent for review yet.

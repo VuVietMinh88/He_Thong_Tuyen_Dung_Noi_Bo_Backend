@@ -19,6 +19,7 @@ import vn.ttcs.recruitment.requisition.RequisitionStatus;
 import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -27,7 +28,8 @@ import java.util.UUID;
 /**
  * Task 303 (story S3-09): job postings made from approved requisitions, saved as drafts by their authors. Task 308
  * (story S3-10): the authors send them for review (submit); HR's decisions and the publication are in
- * JobPostingApprovalService.
+ * JobPostingApprovalService. Task 309: the preview, and the public portal of published postings; both answer with
+ * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW).
  * <p>
  * Lock order of every write: the actor's account, the actor's session (JobPostingAccess.lockWriter), the requisition
  * row (JobPostingSourceRepository.lockSource), the posting row, then the chosen catalog values FOR SHARE (work
@@ -53,6 +55,16 @@ public class JobPostingService {
     // status to be classified here; JobPostingStatusTest does not compile until it is.
     static final Set<JobPostingStatus> SUBMITTABLE_STATUSES =
             EnumSet.of(JobPostingStatus.DRAFT, JobPostingStatus.REVISION_REQUESTED);
+
+    // Task 309: the statuses in which candidates see a posting on the public portal, while its application deadline
+    // has not passed and its requisition is still in SOURCE_STATUSES. JobPostingStatus asks every new status to be
+    // classified here; JobPostingStatusTest does not compile until it is.
+    static final Set<JobPostingStatus> PUBLIC_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+
+    // Task 309: the two sets above as the names the public SQL filter binds (PgJDBC cannot bind a Java enum).
+    // Derived from the sets, so the filter and the sets cannot drift apart.
+    static final List<String> PUBLIC_STATUS_NAMES = PUBLIC_STATUSES.stream().map(Enum::name).toList();
+    static final List<String> SOURCE_STATUS_NAMES = SOURCE_STATUSES.stream().map(Enum::name).toList();
 
     private final JobPostingAccess access;
     private final JobPostingRepository postings;
@@ -221,6 +233,41 @@ public class JobPostingService {
         Caller caller = access.requireReader(jwt);
         requireValidPage(page, size, "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.");
         return sources.findSources(caller.scope(), caller.id(), SOURCE_STATUSES, page, size);
+    }
+
+    /**
+     * Task 309 (story S3-10): the posting exactly as candidates will see it, in any status, for the people who read
+     * it like get (the same checks: access 401/403, the posting exists 404, the scope 403). content is built by
+     * PublicJobPostingView.of from the same row query as the public posting. HR approves and publishes with
+     * expectedRevision = revision, so a change made after the preview is refused (409 JOB_POSTING_CHANGED). Writes
+     * nothing.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public JobPostingPreview preview(Jwt jwt, UUID id) {
+        Caller caller = access.requireReader(jwt);
+        JobPostingRow row = reads.findRow(id).orElseThrow(JobPostingService::notFound);
+        access.requireInScope(caller, row.requisitionId());
+        return new JobPostingPreview(row.id(), row.status(), row.revision(), PublicJobPostingView.of(row));
+    }
+
+    /**
+     * Task 309: a posting on the public portal, for anyone, without logging in. Only a posting in PUBLIC_STATUSES
+     * whose application deadline is today or later (business date) and whose requisition is still in SOURCE_STATUSES;
+     * every other posting answers 404 exactly like an id that does not exist, so the portal tells nothing about
+     * drafts, postings under review or expired ones.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PublicJobPostingView getPublic(UUID id) {
+        return reads.findPublic(id, calendar.today()).map(PublicJobPostingView::of)
+                .orElseThrow(JobPostingService::notFound);
+    }
+
+    // Task 309: one page of the postings getPublic shows, newest publication first. REPEATABLE_READ: the count and
+    // the page come from the same snapshot.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PublicJobPostingPage publicPage(int page, int size) {
+        requireValidPage(page, size, "Trang hoặc số lượng tin tuyển dụng không hợp lệ.");
+        return reads.publicPage(calendar.today(), page, size);
     }
 
     // The body's content, with the title, the job description and the candidate requirements it leaves out taken from

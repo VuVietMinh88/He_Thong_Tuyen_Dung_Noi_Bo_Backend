@@ -219,7 +219,12 @@ class ApiAuthorizationMatrixIntegrationTest {
             // "/submit" fall under approvalHistoryHasNoEditOrDeleteRoute.
             endpoint("POST", "/api/v1/job-postings/{id}/submit", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/job-postings/{id}/approvals", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("POST", "/api/v1/job-postings/{id}/publish", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("POST", "/api/v1/job-postings/{id}/publish", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
+            // Task 309: the preview is the authors' view of exactly what candidates will see; the portal is public and answers
+            // 404 for anything not published (here the unknown id) and an empty first page to everyone.
+            endpoint("GET", "/api/v1/job-postings/{id}/preview", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/public/job-postings", PUBLIC, null, 200),
+            endpoint("GET", "/api/v1/public/job-postings/{id}", PUBLIC, null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -678,7 +683,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 308: a review step or a publication is never edited, deleted or patched.
                 "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/publish",
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/approvals",
-                "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/submit")) {
+                "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/submit",
+                // Task 309: candidates only read the portal.
+                "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID)) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
