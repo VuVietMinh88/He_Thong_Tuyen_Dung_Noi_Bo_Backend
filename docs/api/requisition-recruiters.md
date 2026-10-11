@@ -20,6 +20,7 @@ Tiêu chí của story:
 - Chỉ người có `REQUISITIONS_WRITE_ALL` được phân công. Trưởng bộ phận (`REQUISITIONS_WRITE_SCOPED`) bị 403, vì bảng vai trò ghi việc "phân công recruiter" thuộc về Trưởng phòng Nhân sự. Không thêm mã quyền mới.
 - Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó theo phạm vi phòng ban của `GET /requisitions/{id}` (người tham gia duyệt không được tính, task 262), giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
 - Được phân công **chưa** làm recruiter thấy yêu cầu đó: `REQUISITIONS_*_SCOPED` vẫn hiểu là "phòng ban mình phụ trách". Việc mở rộng phạm vi theo phân công chờ BA/PO (câu hỏi 14 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)) và task 285.
+- Từ task 303, recruiter được phân công (chính hoặc hỗ trợ) soạn và xem [tin tuyển dụng](job-postings.md) của yêu cầu đó, dù vẫn chưa đọc được yêu cầu (task 285).
 
 ## Xem phân công
 

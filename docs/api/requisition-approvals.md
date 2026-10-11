@@ -18,20 +18,20 @@ Task 256 chọn cấp duyệt, task 257 thêm `POST /requisitions/{id}/submit` (
 |`DRAFT`|Nháp|Đã lưu, chưa gửi duyệt (hoặc mới sao chép)|
 |`PENDING_APPROVAL`|Chờ duyệt|Đã gửi duyệt, đang chờ cấp hiện tại|
 |`RETURNED`|Cần bổ sung|Người duyệt yêu cầu bổ sung thông tin|
-|`APPROVED`|Đã duyệt|Mọi cấp của lượt duyệt đã duyệt; tin tuyển dụng được tạo từ yêu cầu ở trạng thái này|
+|`APPROVED`|Đã duyệt|Mọi cấp của lượt duyệt đã duyệt; [tin tuyển dụng](job-postings.md) được tạo từ yêu cầu ở trạng thái này|
 |`REJECTED`|Bị từ chối|Kết thúc; muốn thử lại thì sao chép yêu cầu|
 
 V19 thêm bốn trạng thái mới cùng lúc. Task 257 chỉ dùng `DRAFT → PENDING_APPROVAL`; các bước còn lại đến từ quyết định duyệt.
 
-Mỗi trạng thái được xếp sẵn vào các nhóm sau. `RequisitionStatus` ghi danh sách các nhóm, và test không biên dịch được cho tới khi một trạng thái mới được xếp nhóm.
+Mỗi trạng thái được xếp sẵn vào các nhóm sau. `RequisitionStatus` ghi danh sách các nhóm, và test không biên dịch được cho tới khi một trạng thái mới được xếp nhóm. Từ task 303, nhóm "Tạo tin tuyển dụng" là `JobPostingService.SOURCE_STATUSES`: tin chỉ được tạo, và chỉ được sửa tiếp, khi yêu cầu ở một trạng thái trong nhóm này.
 
-| Mã | Sửa (`PUT`) | Gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Sao chép |
-|---|---|---|---|---|---|---|
-|`DRAFT`|Có|Có|Có|Có|Có|Có|
-|`PENDING_APPROVAL`|Không|Không|Có|Có|Có|Có|
-|`RETURNED`|Có|Có|Có|Có|Có|Có|
-|`APPROVED`|Không|Không|Có|Có|Có|Có|
-|`REJECTED`|Không|Không|Không|Không|Không (vẫn chặn bằng khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Có|
+| Mã | Sửa (`PUT`) | Gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Sao chép | Tạo tin tuyển dụng |
+|---|---|---|---|---|---|---|---|
+|`DRAFT`|Có|Có|Có|Có|Có|Có|Không|
+|`PENDING_APPROVAL`|Không|Không|Có|Có|Có|Có|Không|
+|`RETURNED`|Có|Có|Có|Có|Có|Có|Không|
+|`APPROVED`|Không|Không|Có|Có|Có|Có|Có|
+|`REJECTED`|Không|Không|Không|Không|Không (vẫn chặn bằng khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Có|Không|
 
 - Sửa yêu cầu không ở trạng thái sửa được trả 409 `REQUISITION_NOT_DRAFT`. Từ task 264, yêu cầu `RETURNED` được sửa và gửi lại như bản nháp.
 - Yêu cầu bị từ chối trả lại chỗ trong định biên. Không có bước nào đưa yêu cầu từ trạng thái không tính về trạng thái tính, nên gửi duyệt và quyết định duyệt không phải kiểm định biên lại.

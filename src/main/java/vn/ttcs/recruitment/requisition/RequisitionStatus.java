@@ -18,6 +18,10 @@ package vn.ttcs.recruitment.requisition;
 // (RequisitionService.SUBMITTABLE_STATUSES). RequisitionWorkflowStatusTest does not compile until it is.
 // If the status is reached through the approval workflow, widen V19's valid_requisition_workflow_event_type and
 // valid_requisition_workflow_event_transition in a new migration. Decisions only happen in PENDING_APPROVAL.
+// Task 303: decide whether job postings may be made from, and still changed for, a requisition in the new status
+// (JobPostingService.SOURCE_STATUSES; the public portal shows a posting only while its requisition is in that set).
+// JobPostingSourceStatusTest does not compile until the new status is given its group there. Closing postings with
+// their requisition is task 292.
 public enum RequisitionStatus {
     // Saved by its department, not sent for approval yet (or copied).
     DRAFT,
@@ -25,7 +29,8 @@ public enum RequisitionStatus {
     PENDING_APPROVAL,
     // An approver asked for more information; the requester edits it and submits it again (task 264).
     RETURNED,
-    // Every level of the round approved (task 263). Job postings are made from approved requisitions.
+    // Every level of the round approved (task 263). Job postings are made from approved requisitions
+    // (JobPostingService.SOURCE_STATUSES).
     APPROVED,
     // An approver rejected it (task 262). Final: copy it to try again.
     REJECTED
