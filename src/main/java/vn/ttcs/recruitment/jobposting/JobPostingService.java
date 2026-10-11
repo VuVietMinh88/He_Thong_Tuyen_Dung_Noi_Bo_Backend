@@ -1,5 +1,7 @@
 package vn.ttcs.recruitment.jobposting;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -16,13 +18,16 @@ import vn.ttcs.recruitment.requisition.RequisitionStatus;
 
 import java.time.LocalDate;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Task 303 (story S3-09): job postings made from approved requisitions, saved as drafts by their authors.
+ * Task 303 (story S3-09): job postings made from approved requisitions, saved as drafts by their authors. Task 308
+ * (story S3-10): the authors send them for review (submit); HR's decisions and the publication are in
+ * JobPostingApprovalService.
  * <p>
  * Lock order of every write: the actor's account, the actor's session (JobPostingAccess.lockWriter), the requisition
  * row (JobPostingSourceRepository.lockSource), the posting row, then the chosen catalog values FOR SHARE (work
@@ -39,27 +44,39 @@ public class JobPostingService {
     static final Set<RequisitionStatus> SOURCE_STATUSES = EnumSet.of(RequisitionStatus.APPROVED);
 
     // Task 303: the statuses in which a posting may still be edited (PUT). JobPostingStatus asks every new status to be
-    // classified here; JobPostingStatusTest does not compile until it is.
-    static final Set<JobPostingStatus> EDITABLE_STATUSES = EnumSet.of(JobPostingStatus.DRAFT);
+    // classified here; JobPostingStatusTest does not compile until it is. Task 308: also when HR asked for changes;
+    // a posting under review, approved or published is frozen, so HR reviews and publishes exactly the saved text.
+    static final Set<JobPostingStatus> EDITABLE_STATUSES =
+            EnumSet.of(JobPostingStatus.DRAFT, JobPostingStatus.REVISION_REQUESTED);
+
+    // Task 308: the statuses from which the authors may send a posting for review. JobPostingStatus asks every new
+    // status to be classified here; JobPostingStatusTest does not compile until it is.
+    static final Set<JobPostingStatus> SUBMITTABLE_STATUSES =
+            EnumSet.of(JobPostingStatus.DRAFT, JobPostingStatus.REVISION_REQUESTED);
 
     private final JobPostingAccess access;
     private final JobPostingRepository postings;
     private final JobPostingSourceRepository sources;
     private final JobPostingReadRepository reads;
     private final JobPostingAuthorRepository authors;
+    private final JobPostingEventRepository events;
     private final RecruitmentCatalogItemRepository catalogItems;
+    private final Validator validator;
     private final BusinessCalendar calendar;
 
     public JobPostingService(JobPostingAccess access, JobPostingRepository postings,
                              JobPostingSourceRepository sources, JobPostingReadRepository reads,
-                             JobPostingAuthorRepository authors, RecruitmentCatalogItemRepository catalogItems,
+                             JobPostingAuthorRepository authors, JobPostingEventRepository events,
+                             RecruitmentCatalogItemRepository catalogItems, Validator validator,
                              BusinessCalendar calendar) {
         this.access = access;
         this.postings = postings;
         this.sources = sources;
         this.reads = reads;
         this.authors = authors;
+        this.events = events;
         this.catalogItems = catalogItems;
+        this.validator = validator;
         this.calendar = calendar;
     }
 
@@ -132,6 +149,49 @@ public class JobPostingService {
         postings.flush();
         // Still under the posting lock; saving again adds nobody new.
         authors.add(id, caller.id());
+        return view(id, caller);
+    }
+
+    /**
+     * Task 308: the authors send the saved posting for review (story S3-10). Everything sent comes from the saved
+     * posting, and from now on it is frozen, so HR reviews, then publishes, exactly what was saved.
+     * Checks in order: write and read access (401/403, before any lookup), the posting exists (404), it is in the
+     * caller's scope (403), it may be submitted (409), the caller saw its latest revision (409), its requisition is
+     * still approved (409), the portal details are filled in and the saved texts still pass the rules of a save (400
+     * JOB_POSTING_INCOMPLETE, listing every field), the application deadline is not in the past and the catalog values
+     * are still in use (400, the checks of a save). Lock order and re-checks like update.
+     * The posting moves to PENDING_APPROVAL with a new revision, and a SUBMITTED event records who sent it, when, and
+     * the optional comment. updatedAt (the last content edit) does not change. Sending does not make the caller an
+     * author, but the latest submitter may not approve the posting (JobPostingReviewRule).
+     */
+    @Transactional
+    public JobPostingView submit(Jwt jwt, UUID id, JobPostingSubmitRequest request) {
+        Writer writer = access.lockWriter(jwt);
+        access.requireComposer(jwt, writer);
+        UUID requisitionId = postings.findRequisitionIdById(id).orElseThrow(JobPostingService::notFound);
+        SourceRequisition source = sources.lockSource(requisitionId).orElseThrow(JobPostingService::notFound);
+        access.requireComposer(jwt, writer);
+        var locked = postings.findByIdForUpdate(id);
+        Caller caller = access.requireComposer(jwt, writer);
+        JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
+        access.requireInScope(caller, requisitionId);
+        if (!SUBMITTABLE_STATUSES.contains(posting.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_NOT_SUBMITTABLE",
+                    "Chỉ gửi duyệt được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa.");
+        }
+        requireRevision(posting, request.expectedRevision());
+        requireSourceApproved(source);
+        JobPostingContent content = contentOf(posting);
+        requireComplete(posting.getRevision(), content);
+        requireSaveable(content, calendar.today());
+        // The FOR SHARE locks of the catalog values can wait, so the caller is checked again.
+        caller = access.requireComposer(jwt, writer);
+        access.requireInScope(caller, requisitionId);
+        JobPostingStatus before = posting.getStatus();
+        posting.moveTo(before, JobPostingStatus.PENDING_APPROVAL);
+        postings.flush();
+        events.append(id, posting.getRevision(), JobPostingEventType.SUBMITTED, before,
+                JobPostingStatus.PENDING_APPROVAL, caller.id(), access.now(), request.comment());
         return view(id, caller);
     }
 
@@ -218,8 +278,44 @@ public class JobPostingService {
         }
     }
 
-    // Postings are made from, and changed only for, a requisition in SOURCE_STATUSES.
-    private static void requireSourceApproved(SourceRequisition source) {
+    // Task 308: what is sent for review is what was saved.
+    private static JobPostingContent contentOf(JobPosting posting) {
+        return new JobPostingContent(posting.getTitle(), posting.getJobDescription(),
+                posting.getCandidateRequirements(), posting.getBenefits(), posting.getWorkLocationId(),
+                posting.getEmploymentTypeId(), posting.getApplicationDeadline(), posting.isShowSalary());
+    }
+
+    // Task 308: a draft may leave the portal details empty (task 303), a posting sent for review may not (V22
+    // job_posting_details_required is the last line). The saved texts are checked again with the rules of a save
+    // (JobPostingRequest): a text copied from the requisition is stored without them (see inherit), and an author who
+    // never rewrote it must do so before HR sees it. Every problem is reported at once, like a form: a text with the
+    // message of a save, a missing detail with its own message.
+    private void requireComplete(int revision, JobPostingContent content) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        var saved = new JobPostingRequest(revision, content.title(), content.jobDescription(),
+                content.candidateRequirements(), content.benefits(), content.workLocationId(),
+                content.employmentTypeId(), content.applicationDeadline(), content.showSalary());
+        for (ConstraintViolation<JobPostingRequest> violation : validator.validate(saved)) {
+            errors.putIfAbsent(violation.getPropertyPath().toString(), violation.getMessage());
+        }
+        if (content.workLocationId() == null) {
+            errors.put("workLocationId", "Vui lòng chọn địa điểm làm việc trước khi gửi duyệt.");
+        }
+        if (content.employmentTypeId() == null) {
+            errors.put("employmentTypeId", "Vui lòng chọn hình thức làm việc trước khi gửi duyệt.");
+        }
+        if (content.applicationDeadline() == null) {
+            errors.put("applicationDeadline", "Vui lòng chọn hạn nộp hồ sơ trước khi gửi duyệt.");
+        }
+        if (!errors.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "JOB_POSTING_INCOMPLETE",
+                    "Tin tuyển dụng chưa đủ thông tin hợp lệ để gửi duyệt.", errors);
+        }
+    }
+
+    // Postings are made from, and changed only for, a requisition in SOURCE_STATUSES. Task 308: also reviewed and
+    // published only then (JobPostingApprovalService).
+    static void requireSourceApproved(SourceRequisition source) {
         if (!SOURCE_STATUSES.contains(source.status())) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_REQUISITION_NOT_APPROVED",
                     "Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.");
@@ -234,8 +330,9 @@ public class JobPostingService {
     }
 
     // A change made on an outdated view (a second tab, a change someone else saved meanwhile) is refused. Compared
-    // under the posting row lock, so two saves of the same revision cannot both pass.
-    private static void requireRevision(JobPosting posting, int expectedRevision) {
+    // under the posting row lock, so two saves of the same revision cannot both pass. Task 308: every workflow step
+    // (submit, decisions, publication) is compared the same way.
+    static void requireRevision(JobPosting posting, int expectedRevision) {
         if (posting.getRevision() != expectedRevision) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_CHANGED",
                     "Tin tuyển dụng đã thay đổi (có thể người khác vừa sửa hoặc xử lý). "
@@ -260,7 +357,7 @@ public class JobPostingService {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message, Map.of(field, message));
     }
 
-    private static ApiException notFound() {
+    static ApiException notFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "JOB_POSTING_NOT_FOUND", "Không tìm thấy tin tuyển dụng.");
     }
 }

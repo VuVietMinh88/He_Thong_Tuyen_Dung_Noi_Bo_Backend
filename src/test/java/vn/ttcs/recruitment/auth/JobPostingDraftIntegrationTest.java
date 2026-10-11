@@ -58,7 +58,7 @@ class JobPostingDraftIntegrationTest {
             "positionId", "positionName", "departmentId", "departmentName", "headcount", "jobDescription",
             "candidateRequirements", "benefits", "workLocationId", "workLocationName", "employmentTypeId",
             "employmentTypeName", "applicationDeadline", "showSalary", "salaryMin", "salaryMax", "createdById",
-            "createdByName", "createdAt", "updatedAt", "actions");
+            "createdByName", "createdAt", "updatedAt", "actions", "lastReview");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -155,8 +155,15 @@ class JobPostingDraftIntegrationTest {
         // PostgreSQL keeps microseconds, so the answer shows the time a later read returns.
         assertThat(view.path("createdAt").asText()).isEqualTo("2026-10-11T03:00:00.987654Z");
         assertThat(view.path("updatedAt").asText()).isEqualTo("2026-10-11T03:00:00.987654Z");
-        assertThat(fieldNames(view.path("actions"))).containsExactly("canEdit");
+        // Task 308 added the review actions; HR may send the new draft for review, nothing else yet.
+        assertThat(fieldNames(view.path("actions"))).containsExactly("canEdit", "canSubmit", "canApprove",
+                "canRequestRevision", "canPublish");
         assertThat(view.path("actions").path("canEdit").asBoolean()).isTrue();
+        assertThat(view.path("actions").path("canSubmit").asBoolean()).isTrue();
+        for (String review : List.of("canApprove", "canRequestRevision", "canPublish")) {
+            assertThat(view.path("actions").path(review).asBoolean()).as(review).isFalse();
+        }
+        assertThat(view.path("lastReview").isNull()).isTrue();
 
         var read = postings.get(id, hrToken);
         assertThat(api.expect(read, 200)).isEqualTo(view);

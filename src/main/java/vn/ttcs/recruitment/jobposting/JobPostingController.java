@@ -17,7 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
-// Task 303 (story S3-09): composing job postings from approved requisitions.
+// Task 303 (story S3-09): composing job postings from approved requisitions. Task 308 (story S3-10): sending them for
+// review.
 @RestController
 @RequestMapping("/api/v1/job-postings")
 public class JobPostingController {
@@ -60,5 +61,13 @@ public class JobPostingController {
     public ResponseEntity<JobPostingView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                  @Valid @RequestBody JobPostingRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.update(jwt, id, request));
+    }
+
+    // Task 308: the authors send the saved posting for review. HR's decisions and the publication are in
+    // JobPostingApprovalController.
+    @PostMapping("/{id}/submit")
+    public ResponseEntity<JobPostingView> submit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                 @Valid @RequestBody JobPostingSubmitRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.submit(jwt, id, request));
     }
 }

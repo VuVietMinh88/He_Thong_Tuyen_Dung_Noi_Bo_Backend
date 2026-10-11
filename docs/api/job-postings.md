@@ -8,7 +8,7 @@ Tiêu chí của story S3-09:
 - "Khai báo địa điểm, hình thức làm việc, hạn nhận hồ sơ, có hiển thị mức lương hay không": đã có (303, 304). Task 304 kiểm hạn nộp không ở quá khứ, giá trị danh mục còn dùng và văn bản thuần (mục "Kiểm tra dữ liệu trước khi lưu").
 - "Chỉ yêu cầu ở trạng thái Đã duyệt mới tạo được tin": đã có (303), mục "Tạo tin từ yêu cầu đã duyệt".
 
-Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308–310) chưa có: hiện mọi tin đều là bản nháp (`DRAFT`).
+Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308) nằm ở [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md). Tài liệu này mô tả phần soạn tin; từ task 308, tin còn sửa được ở trạng thái `DRAFT` và `REVISION_REQUESTED` (HR yêu cầu chỉnh sửa).
 
 ## Quyền
 
@@ -153,24 +153,27 @@ Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi
   "createdByName": "Nguyễn Văn A",
   "createdAt": "2026-10-07T08:00:00.123456Z",
   "updatedAt": "2026-10-07T08:00:00.123456Z",
-  "actions": { "canEdit": true }
+  "actions": { "canEdit": true, "canSubmit": true, "canApprove": false, "canRequestRevision": false, "canPublish": false },
+  "lastReview": null
 }
 ```
 
 | Trường | Ý nghĩa |
 |---|---|
-|status, revision|Trạng thái (hiện chỉ `DRAFT`) và số phiên bản: 1 khi tạo, tăng 1 sau mỗi lần lưu. Gửi lại `revision` đang xem làm `expectedRevision` khi sửa|
+|status, revision|Trạng thái (`DRAFT`, `PENDING_APPROVAL`, `REVISION_REQUESTED`, `APPROVED`, `PUBLISHED`; ý nghĩa ở [API duyệt và xuất bản](job-posting-publication.md)) và số phiên bản: 1 khi tạo, tăng 1 sau mỗi lần lưu và mỗi bước duyệt (task 308). Gửi lại `revision` đang xem làm `expectedRevision` khi sửa, gửi duyệt, duyệt hay xuất bản|
 |title, jobDescription, candidateRequirements, benefits|Nội dung riêng của tin|
 |positionId, positionName, departmentId, departmentName, headcount|Đọc từ yêu cầu nguồn, chỉ đọc|
 |workLocationId/Name, employmentTypeId/Name|Giá trị danh mục đã chọn và tên hiện tại; `null` khi chưa chọn|
 |applicationDeadline, showSalary|Hạn nộp hồ sơ (`null` khi chưa chọn) và có cho ứng viên thấy lương không|
 |salaryMin, salaryMax|Lương đề xuất đã duyệt của yêu cầu (`proposedSalaryMin`/`proposedSalaryMax`, số nguyên đồng VND mỗi người mỗi tháng). **Chỉ đọc**: tin không lưu số tiền nào, chỉ lưu `showSalary`. Người soạn thấy đúng mức lương sẽ công khai nếu bật `showSalary`|
 |createdById, createdByName, createdAt, updatedAt|Người tạo (id và họ tên, không có email), thời điểm tạo và lần sửa nội dung gần nhất (UTC, micro giây)|
-|actions.canEdit|`true` khi `PUT` sẽ qua được phần kiểm trạng thái: tin ở trạng thái sửa được (`DRAFT`) và yêu cầu nguồn vẫn `APPROVED`. Người đọc được tin cũng sửa được tin, nên cờ này không phụ thuộc người xem. Task 308 thêm các cờ gửi duyệt, duyệt, xuất bản|
+|actions.canEdit|`true` khi `PUT` sẽ qua được phần kiểm trạng thái: tin ở trạng thái sửa được (`DRAFT` hoặc `REVISION_REQUESTED`) và yêu cầu nguồn vẫn `APPROVED`. Người đọc được tin cũng sửa được tin, nên cờ này không phụ thuộc người xem|
+|actions.canSubmit, canApprove, canRequestRevision, canPublish|Task 308: gửi duyệt, duyệt, yêu cầu chỉnh sửa, xuất bản có qua được phần kiểm trạng thái và quyền của người xem không; `canApprove` còn `false` với người đã soạn, sửa hoặc gửi duyệt tin lần gần nhất. Chi tiết ở [API duyệt và xuất bản](job-posting-publication.md), mục "Kết quả trả về và lịch sử"|
+|lastReview|Task 308: quyết định gần nhất của HR (`action` là `APPROVED` hoặc `REVISION_REQUESTED`, `comment`, `actorId`, `actorName`, `occurredAt`); `null` khi chưa có quyết định nào|
 
 Tên chức danh, phòng ban, giá trị danh mục và người tạo được đọc lúc trả, nên đổi tên ở danh mục hiện tên mới. Thứ tự kiểm: quyền (401/403), tin tồn tại (404 `JOB_POSTING_NOT_FOUND`), phạm vi (403). `{id}` không phải UUID trả 400 `VALIDATION_ERROR`.
 
-`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`; văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (hiện chỉ `DRAFT`); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
+`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`; văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (một trong năm trạng thái, ví dụ `PENDING_APPROVAL` cho danh sách chờ duyệt); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
 
 ## Lưu bản nháp (PUT)
 
@@ -214,7 +217,7 @@ Thứ tự kiểm tra:
 4. Tin tồn tại: 404 `JOB_POSTING_NOT_FOUND`.
 5. Khóa dòng yêu cầu tuyển dụng của tin, kiểm lại người gọi; khóa dòng tin, kiểm lại người gọi.
 6. Phạm vi: 403 `FORBIDDEN`.
-7. Tin ở trạng thái sửa được (`DRAFT`), nếu không thì 409 `JOB_POSTING_NOT_EDITABLE`.
+7. Tin ở trạng thái sửa được (`DRAFT` hoặc `REVISION_REQUESTED`), nếu không thì 409 `JOB_POSTING_NOT_EDITABLE`.
 8. `expectedRevision` đúng `revision` hiện tại, nếu không thì 409 `JOB_POSTING_CHANGED`.
 9. Yêu cầu nguồn vẫn `APPROVED`, nếu không thì 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
 10. Hạn nộp, rồi địa điểm và hình thức làm việc như bước 8, 9 của tạo (400).
@@ -316,7 +319,7 @@ API yêu cầu tuyển dụng chỉ chặn ký tự NUL, nên mô tả công vi�
 |404|`JOB_POSTING_NOT_FOUND`|Không có tin với `{id}` ("Không tìm thấy tin tuyển dụng.")|
 |409|`JOB_POSTING_REQUISITION_NOT_APPROVED`|Yêu cầu không ở trạng thái `APPROVED`, khi tạo và khi sửa ("Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.")|
 |409|`JOB_POSTING_ALREADY_EXISTS`|Yêu cầu đã có tin ("Yêu cầu tuyển dụng này đã có tin tuyển dụng.")|
-|409|`JOB_POSTING_NOT_EDITABLE`|Sửa tin không ở trạng thái sửa được ("Chỉ sửa được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa."); xảy ra từ khi task 308 thêm trạng thái duyệt|
+|409|`JOB_POSTING_NOT_EDITABLE`|Sửa tin đã gửi duyệt, đã duyệt hoặc đã xuất bản ("Chỉ sửa được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa."), từ task 308|
 |409|`JOB_POSTING_CHANGED`|`expectedRevision` cũ ("Tin tuyển dụng đã thay đổi (có thể người khác vừa sửa hoặc xử lý). Vui lòng tải lại trước khi thao tác.")|
 |409|`RECRUITMENT_CATALOG_ITEM_IN_USE`|Ở [API danh mục tuyển dụng](recruitment-catalogs.md): xóa giá trị địa điểm hoặc hình thức làm việc đang được tin dùng|
 
@@ -349,7 +352,7 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`)
 |Khối `catch` giả thành công, tên người cứng ("Trần Thị Thu Hà")|Bỏ; hiện `message` của lỗi, gắn `fieldErrors` (`title`, `jobDescription`, `candidateRequirements`, `benefits`, `workLocationId`, `employmentTypeId`, `applicationDeadline`, `showSalary`, `requisitionId`, `expectedRevision`) vào ô tương ứng; dùng `createdByName`|
 |Route và menu tin tuyển dụng dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')` (`JOB_POSTINGS_READ_*`)|Mọi màn hình nội bộ của tin (danh sách, chi tiết, form) dựa vào `JOB_POSTINGS_WRITE_ALL` hoặc `JOB_POSTINGS_WRITE_SCOPED` (`can('edit','job_posting')`). HIRING_MANAGER và APPROVER (chỉ `JOB_POSTINGS_READ_ALL`) không được thấy các link này, nếu không sẽ bị 403 và bị đưa sang `/unauthorized` (task 300)|
 
-Hiện nút sửa theo `actions.canEdit`. Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Ô chọn địa điểm và hình thức chỉ liệt kê giá trị còn dùng (`?active=true`); tin đang giữ giá trị đã ngừng dùng thì báo người soạn chọn giá trị khác (lỗi `JOB_POSTING_*_INACTIVE`). Mô tả công việc kế thừa có thẻ HTML phải được sửa trước lần lưu kế tiếp (lỗi ở `fieldErrors.jobDescription`). Nhãn trạng thái: `DRAFT` Nháp.
+Hiện nút sửa theo `actions.canEdit`, nút gửi duyệt theo `actions.canSubmit` (các nút duyệt, xuất bản: [API duyệt và xuất bản](job-posting-publication.md)). Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Ô chọn địa điểm và hình thức chỉ liệt kê giá trị còn dùng (`?active=true`); tin đang giữ giá trị đã ngừng dùng thì báo người soạn chọn giá trị khác (lỗi `JOB_POSTING_*_INACTIVE`). Mô tả công việc kế thừa có thẻ HTML phải được sửa trước lần lưu kế tiếp (lỗi ở `fieldErrors.jobDescription`). Nhãn trạng thái: `DRAFT` Nháp, `PENDING_APPROVAL` Chờ duyệt, `REVISION_REQUESTED` Cần chỉnh sửa, `APPROVED` Đã duyệt, `PUBLISHED` Đã xuất bản.
 
 QA cần chuẩn bị: V10 không tạo sẵn giá trị danh mục, nên HR phải tạo giá trị `WORK_LOCATION` và `EMPLOYMENT_TYPE` trước; HR phải phân công recruiter (`POST /requisitions/{id}/assign`) trước khi recruiter thấy hay tạo được tin.
 
@@ -360,7 +363,7 @@ Dùng hai bảng của V21 (task 302): `job_postings` và `job_posting_authors`,
 - Địa điểm và hình thức làm việc là khóa ngoại thường (`ON DELETE RESTRICT`, không `DEFERRABLE`) tới `recruitment_catalog_items`; database không biết loại danh mục, nên API kiểm loại bằng `RecruitmentCatalogItemRepository.findActiveForShare` (đọc kèm `FOR SHARE`). Task 303 từ chối giá trị không tồn tại hoặc thuộc danh mục khác; từ task 304, giá trị đã ngừng dùng (`active = false`) cũng bị từ chối khi lưu, còn tin đã giữ giá trị đó vẫn đọc được.
 - Task 304 không thêm migration: hạn nộp so với hôm nay và giá trị danh mục còn dùng thay đổi theo thời gian, nên không viết được bằng CHECK; API kiểm ở mỗi lần lưu. Quy tắc văn bản thuần nằm ở `JobPostingCreateRequest`, `JobPostingRequest` (`@PlainText` của gói `companyprofile`) và `JobPostingText` (chuẩn hóa xuống dòng, bỏ khoảng trắng ở hai đầu tiêu đề).
 - Tin không lưu số tiền lương. Chức danh, phòng ban, số lượng và lương đề xuất đọc từ yêu cầu bằng một câu SQL chung cho chi tiết, danh sách và response của mọi thao tác ghi (`JobPostingReadRepository.SELECT_ROW`).
-- Code của tin nằm ở gói `vn.ttcs.recruitment.jobposting`. Trạng thái của yêu cầu được tạo tin là `JobPostingService.SOURCE_STATUSES` (`APPROVED`); trạng thái của tin còn sửa được là `JobPostingService.EDITABLE_STATUSES` (`DRAFT`). Khi thêm trạng thái mới cho yêu cầu hay cho tin, `JobPostingSourceStatusTest` và `JobPostingStatusTest` không biên dịch cho tới khi trạng thái đó được xếp nhóm.
+- Code của tin nằm ở gói `vn.ttcs.recruitment.jobposting`. Trạng thái của yêu cầu được tạo tin là `JobPostingService.SOURCE_STATUSES` (`APPROVED`); trạng thái của tin còn sửa được là `JobPostingService.EDITABLE_STATUSES` (`DRAFT`, `REVISION_REQUESTED`). Khi thêm trạng thái mới cho yêu cầu hay cho tin, `JobPostingSourceStatusTest` và `JobPostingStatusTest` không biên dịch cho tới khi trạng thái đó được xếp nhóm.
 
 ## Giả định chờ BA/PO
 
@@ -370,8 +373,8 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - tạo tin không cần quyền đọc yêu cầu tuyển dụng; recruiter đọc bản sao mô tả công việc, yêu cầu ứng viên và lương đề xuất của yêu cầu qua tin dù chưa đọc được yêu cầu (task 285);
 - `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER) không xem bản nháp, chỉ xem cổng công khai sau này, giống trang giới thiệu công ty;
 - mỗi yêu cầu chỉ có một tin;
-- không có trạng thái Từ chối cho tin; người duyệt sẽ dùng "yêu cầu chỉnh sửa" (task 308);
-- chỉ bản nháp sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); gỡ hay đóng tin khi đóng yêu cầu là task 292;
+- không có trạng thái Từ chối cho tin; người duyệt dùng "yêu cầu chỉnh sửa" (task 308);
+- chỉ tin nháp và tin cần chỉnh sửa sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); gỡ hay đóng tin khi đóng yêu cầu là task 292;
 - bản nháp lưu được khi chưa có địa điểm, hình thức làm việc, hạn nộp; gửi duyệt (task 308) mới bắt buộc;
 - hạn nộp không trước hôm nay theo giờ Việt Nam, tính cả ngày hạn; không giới hạn ngày xa nhất; không so với ngày cần người của yêu cầu;
 - văn bản của tin chỉ nhận văn bản thuần (không HTML); mô tả công việc kế thừa có thẻ HTML được giữ trong nháp và phải sửa trước khi lưu lại hoặc gửi duyệt;

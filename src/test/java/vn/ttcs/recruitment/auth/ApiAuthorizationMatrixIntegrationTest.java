@@ -213,7 +213,13 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/job-postings/source-requisitions", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 200),
             endpoint("GET", "/api/v1/job-postings", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 200),
             endpoint("GET", "/api/v1/job-postings/{id}", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
-            endpoint("PUT", "/api/v1/job-postings/{id}", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/job-postings/{id}", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 308: sending for review is the authors' write; reviewing and publishing need JOB_POSTINGS_WRITE_ALL (ADMIN,
+            // HR_MANAGER). The empty body stops every permitted call at 400 (expectedRevision, action). "/approvals" and
+            // "/submit" fall under approvalHistoryHasNoEditOrDeleteRoute.
+            endpoint("POST", "/api/v1/job-postings/{id}/submit", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/job-postings/{id}/approvals", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/job-postings/{id}/publish", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -221,7 +227,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
             "requisition_headcount_overrides", "requisition_recruiters",
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
-            "requisition_workflow_events", "job_postings", "job_posting_authors");
+            "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -250,7 +256,8 @@ class ApiAuthorizationMatrixIntegrationTest {
         clock.set(START);
         // Approval-flow versions and the approval history can never be deleted (triggers of V18), and the history
         // references both requisitions and flow versions, but TRUNCATE of all four together does not fire row triggers.
-        jdbc.execute("TRUNCATE requisition_workflow_events, approval_flow_steps, approval_flow_versions, approval_flows");
+        // Task 308: the job posting history goes with them (it becomes append-only in V23).
+        jdbc.execute("TRUNCATE job_posting_events, requisition_workflow_events, approval_flow_steps, approval_flow_versions, approval_flows");
         // Postings reference requisitions, accounts and catalog values (RESTRICT), so they go first, after their authors.
         jdbc.update("DELETE FROM job_posting_authors");
         jdbc.update("DELETE FROM job_postings");
@@ -434,6 +441,24 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "applicationDeadline", "2026-11-30", "showSalary", false)), actors.get(Identity.HR_MANAGER).token()), 201)
                 .path("id").asText());
         Map<String, Object> newPosting = Map.of("requisitionId", vacant, "showSalary", false);
+        // Task 308: complete postings of TARGET in review. "waiting" was written and sent by HR_MANAGER, "reviewed" was
+        // approved by ADMIN, and HR_MANAGER saved "authored" (an author without creating or sending it), so a forbidden
+        // step that slipped through would change a posting and add an event.
+        Map<String, Object> completePosting = Map.of("workLocationId", workLocation, "employmentTypeId", employmentType,
+                "applicationDeadline", "2026-11-30", "showSalary", false);
+        UUID waiting = posting(approvedRequisition(readyBody), completePosting, Identity.HR_MANAGER);
+        submitPosting(waiting, 1, Identity.HR_MANAGER);
+        UUID reviewed = posting(approvedRequisition(readyBody), completePosting, Identity.HR_MANAGER);
+        submitPosting(reviewed, 1, Identity.HR_MANAGER);
+        expect(request("POST", "/api/v1/job-postings/" + reviewed + "/approvals", json.writeValueAsString(Map.of(
+                "action", "APPROVE", "expectedRevision", 2)), actors.get(Identity.ADMIN).token()), 200);
+        UUID authored = posting(approvedRequisition(readyBody), completePosting, Identity.ADMIN);
+        Map<String, Object> authoredContent = new java.util.HashMap<>(completePosting);
+        authoredContent.putAll(Map.of("title", "Lập trình viên", "jobDescription", "Mô tả công việc",
+                "candidateRequirements", "Yêu cầu", "expectedRevision", 1));
+        expect(request("PUT", "/api/v1/job-postings/" + authored, json.writeValueAsString(authoredContent),
+                actors.get(Identity.HR_MANAGER).token()), 200);
+        submitPosting(authored, 2, Identity.ADMIN);
         Map<String, Object> changedPosting = Map.of("title", "Bị đổi", "jobDescription", "Mô tả mới",
                 "candidateRequirements", "Yêu cầu mới", "showSalary", true, "expectedRevision", 1);
         Map<String, Object> rejection = Map.of("action", "REJECT", "comment", "Không phù hợp", "expectedRevision", 1);
@@ -552,7 +577,19 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.NO_ROLE, "POST", "/api/v1/job-postings", newPosting),
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings", newPosting),
                 new Attack(Identity.INTERVIEWER, "PUT", "/api/v1/job-postings/" + posting, changedPosting),
-                new Attack(Identity.RECRUITER, "PUT", "/api/v1/job-postings/" + posting, changedPosting));
+                new Attack(Identity.RECRUITER, "PUT", "/api/v1/job-postings/" + posting, changedPosting),
+                // Task 308: only JOB_POSTINGS_WRITE_ALL reviews and publishes; HR never approves a posting it wrote, edited or last
+                // submitted; a recruiter submits only postings of its requisitions.
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + waiting + "/approvals", Map.of("action", "APPROVE", "expectedRevision", 2)),
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + waiting + "/approvals", Map.of("action", "REQUEST_REVISION", "comment", "Sửa lại", "expectedRevision", 2)),
+                new Attack(Identity.HR_MANAGER, "POST", "/api/v1/job-postings/" + waiting + "/approvals", Map.of("action", "APPROVE", "expectedRevision", 2)),
+                new Attack(Identity.HR_MANAGER, "POST", "/api/v1/job-postings/" + authored + "/approvals", Map.of("action", "APPROVE", "expectedRevision", 3)),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/job-postings/" + reviewed + "/publish", Map.of("expectedRevision", 3)),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + reviewed + "/publish", Map.of("expectedRevision", 3)),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/job-postings/" + reviewed + "/publish", Map.of("expectedRevision", 3)),
+                // The "posting" fixture has every portal detail, so a submit that slipped through would change it.
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)),
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -637,7 +674,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "DELETE /api/v1/requisitions/" + UNKNOWN_ID + "/approvals",
                 // Task 303: the frontend's draft path does not exist; postings are never deleted or patched.
                 "POST /api/v1/job-postings/draft", "DELETE /api/v1/job-postings/" + UNKNOWN_ID,
-                "PATCH /api/v1/job-postings/" + UNKNOWN_ID)) {
+                "PATCH /api/v1/job-postings/" + UNKNOWN_ID,
+                // Task 308: a review step or a publication is never edited, deleted or patched.
+                "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/publish",
+                "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/approvals",
+                "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/submit")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
@@ -695,6 +736,20 @@ class ApiAuthorizationMatrixIntegrationTest {
         expect(request("POST", "/api/v1/requisitions/" + id + "/approvals", json.writeValueAsString(Map.of(
                 "action", "APPROVE", "expectedRevision", 1)), actors.get(Identity.HR_MANAGER).token()), 200);
         return id;
+    }
+
+    // Task 308: a posting of the requisition with the given content (every portal detail), created by the identity.
+    private UUID posting(UUID requisition, Map<String, Object> content, Identity author) throws Exception {
+        Map<String, Object> body = new java.util.HashMap<>(content);
+        body.put("requisitionId", requisition);
+        return UUID.fromString(expect(request("POST", "/api/v1/job-postings", json.writeValueAsString(body),
+                actors.get(author).token()), 201).path("id").asText());
+    }
+
+    // Task 308: the identity sends the posting for review.
+    private void submitPosting(UUID posting, int expectedRevision, Identity submitter) throws Exception {
+        expect(request("POST", "/api/v1/job-postings/" + posting + "/submit", json.writeValueAsString(Map.of(
+                "expectedRevision", expectedRevision)), actors.get(submitter).token()), 200);
     }
 
     // Task 303: an active value of a shared catalog, created by ADMIN.
