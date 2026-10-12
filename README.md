@@ -39,6 +39,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [competency-frameworks](docs/api/competency-frameworks.md)
 - [departments](docs/api/departments.md)
 - [evaluation-criteria](docs/api/evaluation-criteria.md)
+- [interview-questions](docs/api/interview-questions.md)
 - [password-reset](docs/api/password-reset.md)
 - [positions](docs/api/positions.md)
 - [profile](docs/api/profile.md)

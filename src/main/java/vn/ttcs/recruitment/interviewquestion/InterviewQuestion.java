@@ -48,17 +48,36 @@ public class InterviewQuestion {
     protected InterviewQuestion() {
     }
 
-    // A new question is active. The caller (the question API of later tasks) checks the criterion and the texts.
+    // A new question that is in use (active).
     public InterviewQuestion(UUID criterionId, String content, InterviewQuestionDifficulty difficulty,
                              String answerHint, Instant createdAt) {
+        this(criterionId, content, difficulty, answerHint, true, createdAt);
+    }
+
+    // Jira 221: InterviewQuestionService checks the criterion and the texts before calling this.
+    // active=false keeps a new question in the bank without using it yet.
+    public InterviewQuestion(UUID criterionId, String content, InterviewQuestionDifficulty difficulty,
+                             String answerHint, boolean active, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.criterionId = criterionId;
         this.content = content;
         this.difficulty = difficulty;
         this.answerHint = answerHint;
-        this.active = true;
+        this.active = active;
         this.createdAt = createdAt;
         this.updatedAt = createdAt;
+    }
+
+    // Jira 221: edits the question in place, so its id and createdAt never change. The question may move to another
+    // criterion, even one of another framework; InterviewQuestionService checks that criterion first.
+    public void update(UUID criterionId, String content, InterviewQuestionDifficulty difficulty, String answerHint,
+                       boolean active, Instant updatedAt) {
+        this.criterionId = criterionId;
+        this.content = content;
+        this.difficulty = difficulty;
+        this.answerHint = answerHint;
+        this.active = active;
+        this.updatedAt = updatedAt;
     }
 
     public UUID getId() { return id; }

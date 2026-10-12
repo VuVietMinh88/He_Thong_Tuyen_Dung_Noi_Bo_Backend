@@ -9,11 +9,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface CompetencyCriterionRepository extends JpaRepository<CompetencyCriterion, UUID> {
 
     List<CompetencyCriterion> findByFrameworkIdOrderBySortOrderAsc(UUID frameworkId);
+
+    // Only the framework id of one criterion (Jira 221). It does not load the criterion entity, so a findById after
+    // locking the framework still reads the criterion row from the database instead of an older copy.
+    @Query("select c.frameworkId from CompetencyCriterion c where c.id = :id")
+    Optional<UUID> findFrameworkIdById(@Param("id") UUID id);
 
     // Number of criteria of each listed framework, in one query instead of one query per framework.
     // A framework without criteria has no row in the result.

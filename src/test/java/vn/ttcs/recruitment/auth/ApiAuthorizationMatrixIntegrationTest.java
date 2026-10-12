@@ -123,11 +123,14 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), null, 404),
-            endpoint("GET", "/api/v1/positions/{id}/evaluation-criteria", permission(ORGANIZATION_READ_ALL), null, 404));
+            endpoint("GET", "/api/v1/positions/{id}/evaluation-criteria", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("GET", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/interview-questions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
-            "competency_frameworks", "competency_criteria");
+            "competency_frameworks", "competency_criteria", "interview_questions");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;

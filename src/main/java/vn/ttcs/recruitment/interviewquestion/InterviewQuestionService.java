@@ -1,0 +1,217 @@
+package vn.ttcs.recruitment.interviewquestion;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.account.Account;
+import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSessionRepository;
+import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.competency.CompetencyCriterion;
+import vn.ttcs.recruitment.competency.CompetencyCriterionRepository;
+import vn.ttcs.recruitment.competency.CompetencyFramework;
+import vn.ttcs.recruitment.competency.CompetencyFrameworkRepository;
+import vn.ttcs.recruitment.security.PermissionService;
+
+import java.sql.SQLException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Map;
+import java.util.UUID;
+
+// Jira 221: create, edit and read the questions of the interview question bank (story S2-07). Every question belongs
+// to one criterion of a competency framework, so it is checked against that criterion.
+// The question bank is organization data like the frameworks: reading needs ORGANIZATION_READ_ALL (every internal
+// role, interviewers included), writing needs ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER).
+@Service
+public class InterviewQuestionService {
+    private final InterviewQuestionRepository questions;
+    private final CompetencyCriterionRepository criteria;
+    private final CompetencyFrameworkRepository frameworks;
+    private final AccountRepository accounts;
+    private final AuthSessionRepository sessions;
+    private final AuthService auth;
+    private final PermissionService permissions;
+    private final Clock clock;
+
+    public InterviewQuestionService(InterviewQuestionRepository questions, CompetencyCriterionRepository criteria,
+                                    CompetencyFrameworkRepository frameworks, AccountRepository accounts,
+                                    AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
+                                    Clock clock) {
+        this.questions = questions;
+        this.criteria = criteria;
+        this.frameworks = frameworks;
+        this.accounts = accounts;
+        this.sessions = sessions;
+        this.auth = auth;
+        this.permissions = permissions;
+        this.clock = clock;
+    }
+
+    // REPEATABLE_READ: the question, its criterion and its framework come from the same snapshot, never from the
+    // middle of an edit.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public InterviewQuestionView get(Jwt jwt, UUID id) {
+        requireReadAccess(jwt);
+        var question = questions.findById(id).orElseThrow(InterviewQuestionService::notFound);
+        // The V9 foreign key keeps the criterion of a question, and the V8 foreign key the framework of a criterion,
+        // so both rows always exist.
+        var criterion = criteria.findById(question.getCriterionId()).orElseThrow();
+        var framework = frameworks.findById(criterion.getFrameworkId()).orElseThrow();
+        return InterviewQuestionView.from(question, criterion, framework);
+    }
+
+    @Transactional
+    public InterviewQuestionView create(Jwt jwt, InterviewQuestionRequest request) {
+        requireWriteAccess(jwt);
+        Target target = lockCriterion(request.criterionId());
+        // Without active in the request, a new question is in use.
+        boolean active = request.active() == null || request.active();
+        var question = new InterviewQuestion(request.criterionId(), request.content(), request.difficulty(),
+                request.answerHint(), active, now());
+        try {
+            question = questions.saveAndFlush(question);
+        } catch (DataIntegrityViolationException exception) {
+            throw translateConstraintViolation(exception);
+        }
+        return InterviewQuestionView.from(question, target.criterion(), target.framework());
+    }
+
+    // Checks in order: the question exists (404), then the criterion it should point to (400).
+    @Transactional
+    public InterviewQuestionView update(Jwt jwt, UUID id, InterviewQuestionRequest request) {
+        requireWriteAccess(jwt);
+        // Locked before the framework, so two edits of the same question run one after the other.
+        InterviewQuestion question = questions.findByIdForUpdate(id).orElseThrow(InterviewQuestionService::notFound);
+        Target target = lockCriterion(request.criterionId());
+        // Without active in the request, the question stays in use or out of use as it is.
+        boolean active = request.active() == null ? question.isActive() : request.active();
+        question.update(request.criterionId(), request.content(), request.difficulty(), request.answerHint(), active,
+                now());
+        try {
+            questions.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw translateConstraintViolation(exception);
+        }
+        return InterviewQuestionView.from(question, target.criterion(), target.framework());
+    }
+
+    // Finds the criterion a question will point to and locks the row of its framework with SELECT ... FOR SHARE
+    // (the same lock PositionService takes to assign a framework, Jira 214):
+    // - an edit of the framework (CompetencyFrameworkService locks it FOR UPDATE and may delete criteria) waits until
+    //   this write commits, and then sees the question, so it refuses to delete its criterion with 409;
+    // - if such an edit is running now, this waits for it and then reads the criterion again, so a criterion the edit
+    //   has just deleted becomes a 400 here instead of an error from the foreign key;
+    // - question writes on the same framework share the lock and do not wait for each other.
+    // A criterion of a DRAFT framework is accepted: HR may prepare the questions while the framework is still drafted.
+    private Target lockCriterion(UUID criterionId) {
+        UUID frameworkId = criteria.findFrameworkIdById(criterionId)
+                .orElseThrow(InterviewQuestionService::unknownCriterion);
+        CompetencyFramework framework = frameworks.findByIdForShare(frameworkId)
+                .orElseThrow(InterviewQuestionService::unknownCriterion);
+        // Read after the lock, so this is the latest committed criterion row: it may have been deleted or renamed
+        // while this request waited.
+        CompetencyCriterion criterion = criteria.findById(criterionId)
+                .orElseThrow(InterviewQuestionService::unknownCriterion);
+        return new Target(criterion, framework);
+    }
+
+    private void requireReadAccess(Jwt jwt) {
+        requireUnexpiredToken(jwt, clock.instant());
+        Account actor = auth.requireActiveAccount(jwt);
+        if (!permissions.forUser(actor.getId()).contains("ORGANIZATION_READ_ALL")) {
+            throw new AccessDeniedException("Interview question access requires ORGANIZATION_READ_ALL");
+        }
+    }
+
+    private void requireWriteAccess(Jwt jwt) {
+        UUID actorId;
+        UUID sessionId;
+        try {
+            actorId = UUID.fromString(jwt.getSubject());
+            sessionId = UUID.fromString(jwt.getId());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        // Same lock order as the other write services: the actor's account first, then the actor's session.
+        // The question and framework rows are locked only after these.
+        accounts.findByIdForUpdate(actorId).filter(Account::isAccessAllowed)
+                .orElseThrow(AuthenticationFailureException::sessionInvalid);
+        var session = sessions.findByIdForUpdate(sessionId)
+                .orElseThrow(AuthenticationFailureException::sessionInvalid);
+
+        // The request may have waited for those locks. Recheck the token, session and permission now.
+        var now = clock.instant();
+        requireUnexpiredToken(jwt, now);
+        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
+            throw new AccessDeniedException("Interview question management requires ORGANIZATION_WRITE_ALL");
+        }
+    }
+
+    private void requireUnexpiredToken(Jwt jwt, Instant now) {
+        if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+    }
+
+    // PostgreSQL TIMESTAMPTZ keeps microseconds, so write responses show the same time a later GET reads.
+    private Instant now() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    // The framework lock stops deletions made through the framework API. A criterion deleted another way (direct SQL)
+    // after the check above is still refused by the V9 foreign key (23503); it ends as the same 400, not a 500.
+    // InterviewQuestionRequest removes the spaces around the texts, so the V9 text CHECKs (23514) should not fail.
+    // Which characters PostgreSQL counts as spaces depends on the database locale, though, so if one is still
+    // refused the caller gets a 400 that names the field, not a 500.
+    private RuntimeException translateConstraintViolation(DataIntegrityViolationException exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (!(cause instanceof SQLException sql) || sql.getMessage() == null) {
+                continue;
+            }
+            String message = sql.getMessage();
+            if ("23503".equals(sql.getSQLState()) && message.contains("interview_questions_criterion_id_fkey")) {
+                return unknownCriterion();
+            }
+            if ("23514".equals(sql.getSQLState()) && message.contains("valid_interview_question_content")) {
+                return refusedText("content", "Nội dung câu hỏi không được bắt đầu hoặc kết thúc bằng khoảng trắng.");
+            }
+            if ("23514".equals(sql.getSQLState()) && message.contains("valid_interview_question_answer_hint")) {
+                return refusedText("answerHint",
+                        "Gợi ý câu trả lời không được bắt đầu hoặc kết thúc bằng khoảng trắng.");
+            }
+        }
+        return exception;
+    }
+
+    // Same code and message as the other field errors of the body (ApiExceptionHandler, VALIDATION_ERROR).
+    private static ApiException refusedText(String field, String error) {
+        return new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra dữ liệu đã nhập.",
+                Map.of(field, error));
+    }
+
+    private static ApiException notFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "INTERVIEW_QUESTION_NOT_FOUND",
+                "Không tìm thấy câu hỏi phỏng vấn.");
+    }
+
+    // 400 like other unknown ids sent in a body (INVALID_COMPETENCY_FRAMEWORK): the URL itself was found.
+    private static ApiException unknownCriterion() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_COMPETENCY_CRITERION",
+                "Tiêu chí đánh giá không tồn tại.",
+                Map.of("criterionId", "Không tìm thấy tiêu chí này trong khung năng lực nào."));
+    }
+
+    // The criterion a question points to, with its framework for the response.
+    private record Target(CompetencyCriterion criterion, CompetencyFramework framework) { }
+}
