@@ -78,6 +78,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String USER_ADMIN_WRITE_ALL = "USER_ADMIN_WRITE_ALL";
     private static final String ORGANIZATION_READ_ALL = "ORGANIZATION_READ_ALL";
     private static final String ORGANIZATION_WRITE_ALL = "ORGANIZATION_WRITE_ALL";
+    private static final String SALARY_RANGES_READ_ALL = "SALARY_RANGES_READ_ALL";
+    private static final String SALARY_RANGES_WRITE_ALL = "SALARY_RANGES_WRITE_ALL";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -113,8 +115,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/positions", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/positions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
-            endpoint("POST", "/api/v1/positions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/positions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("POST", "/api/v1/positions", allOf(ORGANIZATION_WRITE_ALL, SALARY_RANGES_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/positions/{id}", allOf(ORGANIZATION_WRITE_ALL, SALARY_RANGES_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions");
@@ -261,7 +263,7 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "code", "TARGET", "name", "Target", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID position = UUID.fromString(expect(request("POST", "/api/v1/positions", json.writeValueAsString(
-                positionBody("TARGET", "Target")), actors.get(Identity.ADMIN).token()), 201).path("id").asText());
+                positionBody("TARGET", "Target")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -287,7 +289,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                         Map.of("currentPassword", PASSWORD, "newPassword", "ChangedPassword123")),
                 new Attack(Identity.INTERVIEWER, "POST", "/api/v1/positions", positionBody("SHADOW", "Shadow")),
                 new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/positions/" + position,
-                        positionBody("TARGET", "Taken over")));
+                        positionBody("TARGET", "Taken over")),
+                // ADMIN has ORGANIZATION_WRITE_ALL but not SALARY_RANGES_WRITE_ALL, and every position write sets salaries.
+                new Attack(Identity.ADMIN, "POST", "/api/v1/positions", positionBody("SHADOW", "Shadow")),
+                new Attack(Identity.ADMIN, "PUT", "/api/v1/positions/" + position, positionBody("TARGET", "Taken over")));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -335,6 +340,28 @@ class ApiAuthorizationMatrixIntegrationTest {
         jdbc.update("INSERT INTO role_permissions (role_code, permission_code) VALUES ('RECRUITER', ?)", ORGANIZATION_READ_ALL);
         for (Endpoint endpoint : organizationReads) {
             assertAllowed(endpoint, call(endpoint, Identity.RECRUITER));
+        }
+    }
+
+    @Test
+    void positionSalaryBandIsReturnedOnlyToIdentitiesGrantedSalaryRangeRead() throws Exception {
+        UUID position = UUID.fromString(expect(request("POST", "/api/v1/positions", json.writeValueAsString(
+                positionBody("BAND", "Band")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        for (Identity identity : Identity.values()) {
+            String token = actors.get(identity).token();
+            if (!identity.expectedGrants().contains(ORGANIZATION_READ_ALL)) {
+                assertForbidden(identity + " GET /api/v1/positions/{id}", request("GET", "/api/v1/positions/" + position, null, token));
+                continue;
+            }
+            // Field-level rule: the server drops the band, so a caller who skips the UI still cannot read it.
+            boolean seesBand = identity.expectedGrants().contains(SALARY_RANGES_READ_ALL);
+            JsonNode detail = expect(request("GET", "/api/v1/positions/" + position, null, token), 200);
+            JsonNode item = expect(request("GET", "/api/v1/positions", null, token), 200).path("items").path(0);
+            for (JsonNode view : List.of(detail, item)) {
+                assertThat(view.path("code").asText()).as(identity.name()).isEqualTo("BAND");
+                assertThat(view.has("salaryMin")).as(identity + " salaryMin").isEqualTo(seesBand);
+                assertThat(view.has("salaryMax")).as(identity + " salaryMax").isEqualTo(seesBand);
+            }
         }
     }
 

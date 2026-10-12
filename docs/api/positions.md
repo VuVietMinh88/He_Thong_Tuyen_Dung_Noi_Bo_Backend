@@ -1,14 +1,45 @@
 # API danh mục chức danh
 
-Phạm vi TKNHTTDNB1-203 (API) và TKNHTTDNB1-204 (kiểm tra dữ liệu, giới hạn dải lương), story TKNHTTDNB1-24. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `POSITION_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-203 (API), TKNHTTDNB1-204 (kiểm tra dữ liệu, giới hạn dải lương) và TKNHTTDNB1-205 (phân quyền xem dải lương), story TKNHTTDNB1-24. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `POSITION_*` dùng `Cache-Control: no-store`.
 
-Đọc cần `ORGANIZATION_READ_ALL`; ghi cần `ORGANIZATION_WRITE_ALL`. Ma trận hiện tại cấp quyền đọc cho cả sáu vai trò nội bộ, ghi cho ADMIN và HR_MANAGER. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu và kiểm lại phiên/quyền sau khi khóa tài khoản người gọi khi ghi.
+Backend đọc quyền hiện tại trong database ở mỗi yêu cầu và kiểm lại phiên/quyền sau khi khóa tài khoản người gọi khi ghi.
 
-**Tạm thời:** mọi người có `ORGANIZATION_READ_ALL` đều thấy `salaryMin`/`salaryMax`. Tiêu chí "chỉ Trưởng phòng Nhân sự xem được dải lương" thuộc task 205, chưa có trong task này.
+| Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
+|---|---|---|
+|`GET /positions`, `GET /positions/{id}`|`ORGANIZATION_READ_ALL`|6 vai trò nội bộ|
+|Thấy `salaryMin`/`salaryMax` trong response|Thêm `SALARY_RANGES_READ_ALL`|Chỉ HR_MANAGER|
+|`POST /positions`, `PUT /positions/{id}`|`ORGANIZATION_WRITE_ALL` **và** `SALARY_RANGES_WRITE_ALL`|Chỉ HR_MANAGER|
+
+## Ai được xem dải lương
+
+Tiêu chí của story 24: "chỉ Trưởng phòng Nhân sự xem được dải lương". Migration V7_1 thêm module quyền `SALARY_RANGES` và chỉ cấp `SALARY_RANGES_READ_ALL`, `SALARY_RANGES_WRITE_ALL` cho HR_MANAGER. ADMIN cố ý **không** được cấp, chờ BA/PO trả lời câu hỏi 4 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md).
+
+Dải lương bị loại ngay trên server, không chỉ ẩn trên giao diện:
+
+- Người gọi có `SALARY_RANGES_READ_ALL`: mỗi chức danh có đủ 9 trường như ví dụ bên dưới.
+- Người gọi không có quyền này: response **không có hai khóa** `salaryMin` và `salaryMax` (không phải giá trị `null` hay `0`), chỉ còn 7 trường `id`, `code`, `name`, `level`, `active`, `createdAt`, `updatedAt`. Áp dụng cho `GET /positions/{id}`, từng phần tử `items` của `GET /positions` và response của POST/PUT.
+- `SALARY_RANGES_READ_SCOPED` chưa có ý nghĩa nghiệp vụ và chưa vai trò nào được cấp, nên server coi như không có quyền xem.
+- Quyền ghi không bao gồm quyền xem: nếu một vai trò chỉ có `SALARY_RANGES_WRITE_ALL`, POST/PUT vẫn lưu dải lương nhưng response không trả lại hai khóa trên.
+
+Quyền được đọc lại ở mỗi yêu cầu, nên khi cấp hoặc thu hồi `SALARY_RANGES_READ_ALL`, cùng access token sẽ thấy hoặc mất dải lương ngay ở yêu cầu kế tiếp. Frontend nên hiện cột lương khi `GET /auth/permissions` có `SALARY_RANGES_READ_ALL` và hiện nút tạo/sửa chức danh khi có cả `ORGANIZATION_WRITE_ALL` lẫn `SALARY_RANGES_WRITE_ALL`; dù vậy, server vẫn tự kiểm tra.
+
+Ví dụ một chức danh trả cho người không có quyền xem dải lương:
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000003",
+  "code": "DEV_JUNIOR",
+  "name": "Lập trình viên",
+  "level": "Junior",
+  "active": true,
+  "createdAt": "2026-10-07T08:00:00Z",
+  "updatedAt": "2026-10-07T08:00:00Z"
+}
+```
 
 ## Tạo và sửa
 
-`POST /positions` tạo chức danh, trả **201**. `PUT /positions/{id}` thay thế toàn bộ trường của chức danh có UUID tương ứng, trả **200**.
+`POST /positions` tạo chức danh, trả **201**. `PUT /positions/{id}` thay thế toàn bộ trường của chức danh có UUID tương ứng, trả **200**. Vì lương tối thiểu/tối đa là trường bắt buộc, cả hai thao tác cần đồng thời `ORGANIZATION_WRITE_ALL` và `SALARY_RANGES_WRITE_ALL`. Với seed hiện tại chỉ HR_MANAGER làm được; ADMIN có `ORGANIZATION_WRITE_ALL` nhưng vẫn nhận 403.
 
 ```json
 {
@@ -38,7 +69,7 @@ Thứ tự kiểm tra: trước hết từng trường riêng lẻ (bắt buộc
 
 PUT phải gửi đủ sáu trường; nên GET chi tiết trước rồi gửi lại các giá trị muốn giữ. Giữ nguyên mã của chính chức danh đang sửa không bị coi là trùng. Trường ngoài hợp đồng như `id`, `createdAt` bị từ chối với HTTP 400 `INVALID_JSON`.
 
-Response của tạo/sửa và `GET /positions/{id}`:
+Response của tạo/sửa và `GET /positions/{id}` cho người có `SALARY_RANGES_READ_ALL`:
 
 ```json
 {
@@ -67,7 +98,7 @@ UUID trong ví dụ chỉ minh họa. `createdAt` giữ nguyên khi sửa; `upda
 |page|Từ 0, mặc định 0|
 |size|Từ 1 đến 100, mặc định 20|
 
-Response: `{items, page, size, totalElements, totalPages}`; mỗi item có cấu trúc chi tiết ở trên. Sắp xếp theo code rồi UUID để phân trang ổn định; trang ngoài phạm vi có items rỗng.
+Response: `{items, page, size, totalElements, totalPages}`; mỗi item có cấu trúc chi tiết ở trên, và cũng không có `salaryMin`/`salaryMax` nếu người gọi thiếu `SALARY_RANGES_READ_ALL`. Danh sách không lọc hay sắp xếp theo lương. Sắp xếp theo code rồi UUID để phân trang ổn định; trang ngoài phạm vi có items rỗng.
 
 ## Lỗi
 
@@ -77,7 +108,7 @@ Response: `{items, page, size, totalElements, totalPages}`; mỗi item có cấu
 |400|INVALID_JSON|JSON sai, lương không phải số nguyên JSON trong giới hạn `long`, hoặc có trường ngoài hợp đồng|
 |400|POSITION_SALARY_RANGE_INVALID|`salaryMin` lớn hơn `salaryMax`; `fieldErrors.salaryMax` có lời nhắn để form hiển thị; dữ liệu không thay đổi|
 |401|Lỗi xác thực/phiên|Thiếu, sai, hết hạn token; phiên thu hồi; người gọi bị khóa|
-|403|FORBIDDEN|Thiếu quyền tổ chức tương ứng|
+|403|FORBIDDEN|Đọc thiếu `ORGANIZATION_READ_ALL`; ghi thiếu `ORGANIZATION_WRITE_ALL` hoặc `SALARY_RANGES_WRITE_ALL` (kể cả ADMIN)|
 |404|POSITION_NOT_FOUND|Không tìm thấy chức danh đích|
 |409|POSITION_CODE_EXISTS|Mã đã được chức danh khác dùng, kể cả khi hai yêu cầu ghi cùng mã đồng thời|
 
@@ -97,4 +128,4 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 
 ## Database và phạm vi
 
-Dùng bảng `positions` của V7 và quyền ORGANIZATION của V3; task 203 và 204 không thêm migration hoặc thay `.env`. Không có DELETE: muốn ngừng dùng thì PUT `active=false`. Chưa có liên kết chức danh với phòng ban, yêu cầu tuyển dụng hay offer; kiểm tra hạn mức offer theo dải lương sẽ làm ở các task sau.
+Dùng bảng `positions` của V7, quyền ORGANIZATION của V3 và quyền SALARY_RANGES của V7_1. Task 203 và 204 không thêm migration; task 205 chỉ thêm V7_1 (4 mã quyền, 2 dòng cấp quyền cho HR_MANAGER), không đổi bảng `positions` và không cần sửa `.env`. Không có DELETE: muốn ngừng dùng thì PUT `active=false`. Chưa có liên kết chức danh với phòng ban, yêu cầu tuyển dụng hay offer; kiểm tra hạn mức offer theo dải lương sẽ làm ở các task sau.
