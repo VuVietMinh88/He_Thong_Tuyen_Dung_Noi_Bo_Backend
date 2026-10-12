@@ -219,7 +219,7 @@ class CompetencyFrameworkRepositoryIntegrationTest {
                 new BigDecimal("40"), 2));
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            // The entity has no update methods yet (they come with the criteria API), so SQL swaps the order.
+            // SQL swaps the order, so the test controls which statement runs first (Hibernate would choose).
             // Between the two statements both rows have sort_order 2, which the deferred constraint allows.
             jdbc.update("UPDATE competency_criteria SET sort_order=2 WHERE id=?", coding.getId());
             jdbc.update("UPDATE competency_criteria SET sort_order=1 WHERE id=?", teamwork.getId());

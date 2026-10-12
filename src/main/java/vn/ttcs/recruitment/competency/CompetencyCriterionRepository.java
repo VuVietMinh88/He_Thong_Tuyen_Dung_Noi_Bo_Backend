@@ -3,15 +3,32 @@ package vn.ttcs.recruitment.competency;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
 public interface CompetencyCriterionRepository extends JpaRepository<CompetencyCriterion, UUID> {
 
     List<CompetencyCriterion> findByFrameworkIdOrderBySortOrderAsc(UUID frameworkId);
+
+    // Number of criteria of each listed framework, in one query instead of one query per framework.
+    // A framework without criteria has no row in the result.
+    @Query("""
+            select c.frameworkId as frameworkId, count(c) as criterionCount
+            from CompetencyCriterion c
+            where c.frameworkId in :frameworkIds
+            group by c.frameworkId
+            """)
+    List<CriterionCount> countByFrameworkIds(@Param("frameworkIds") Collection<UUID> frameworkIds);
+
+    interface CriterionCount {
+        UUID getFrameworkId();
+        long getCriterionCount();
+    }
 
     // V8 checks the unique name and sort order of criteria only at COMMIT. COMMIT runs after the service method
     // has returned, so a duplicate found there cannot be turned into a 409 and would end as a 500.

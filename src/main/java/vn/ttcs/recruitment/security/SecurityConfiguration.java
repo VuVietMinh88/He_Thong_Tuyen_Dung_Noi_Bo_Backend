@@ -126,6 +126,14 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*").access(AuthorizationManagers.allOf(
                                 AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
                                 AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
+                        // Competency frameworks are organization data: every internal role reads them (interviewers
+                        // score with them), and only organization writers create or edit them.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/competency-frameworks",
+                                "/api/v1/competency-frameworks/*").hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/competency-frameworks")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/competency-frameworks/*")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
