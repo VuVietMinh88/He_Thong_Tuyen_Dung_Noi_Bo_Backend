@@ -3,6 +3,7 @@ package vn.ttcs.recruitment.jobposting;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
 import vn.ttcs.recruitment.security.AccessScope;
 
@@ -72,9 +73,9 @@ class JobPostingReadRepository {
     }
 
     // One page of the postings the caller may see, newest first; the id keeps the order stable. status = null means
-    // every status. SCOPED callers only get postings of the requisitions they are assigned to: the filter is part of
-    // the SQL query, so other postings never leave the database. The status is bound by name: PgJDBC cannot bind a
-    // Java enum.
+    // every status. SCOPED callers only get postings of the requisitions they are assigned to
+    // (RecruiterAssignmentAccess): the filter is part of the SQL query, so other postings never leave the database.
+    // The status is bound by name: PgJDBC cannot bind a Java enum.
     JobPostingPage page(AccessScope scope, UUID me, JobPostingStatus status, int page, int size) {
         var parameters = new MapSqlParameterSource();
         StringBuilder where = new StringBuilder(" WHERE 1 = 1 ");
@@ -83,9 +84,9 @@ class JobPostingReadRepository {
             where.append(" AND p.status = :status ");
         }
         if (scope != AccessScope.ALL) {
-            parameters.addValue("me", me);
-            where.append(" AND p.requisition_id IN (SELECT requisition_id FROM requisition_recruiters"
-                    + " WHERE recruiter_id = :me) ");
+            parameters.addValue(RecruiterAssignmentAccess.ASSIGNEE, me);
+            where.append(" AND p.requisition_id IN (").append(RecruiterAssignmentAccess.ASSIGNED_REQUISITION_IDS)
+                    .append(") ");
         }
         long total = jdbc.queryForObject("SELECT count(*) FROM job_postings p" + where, parameters, Long.class);
         parameters.addValue("size", size).addValue("offset", (long) page * size);

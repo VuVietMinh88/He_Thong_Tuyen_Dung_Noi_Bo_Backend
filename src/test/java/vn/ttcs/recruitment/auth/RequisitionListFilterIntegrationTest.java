@@ -42,9 +42,10 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static vn.ttcs.recruitment.auth.ApprovalTestSupport.step;
 
 // Task 297 (story S3-08): GET /api/v1/requisitions filtered by status, department, primary recruiter and needed-by
-// dates. Every filter only narrows what the caller may already see (the department scope of task 245); a filter
-// outside that scope is an empty page, never a 403. Department tree of the fixture: IT (head) > IT_DEV (devlead) >
-// IT_QA (lead); SALES is separate. Every requisition is created by HR, so the result cannot come from "who created it".
+// dates. Every filter only narrows what the caller may already see (the department scope of task 245 and, task 285,
+// the requisitions the caller is assigned to); a filter outside that scope is an empty page, never a 403. Department
+// tree of the fixture: IT (head) > IT_DEV (devlead) > IT_QA (lead); SALES is separate. Every requisition is created by
+// HR, so the result cannot come from "who created it".
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -77,7 +78,8 @@ class RequisitionListFilterIntegrationTest {
     private ApprovalTestSupport api;
     private String passwordHash;
     private UUID positionId;
-    // Access tokens of the callers by name (admin, hr, head, lead, nobody, approver, r1), logged in when first used.
+    // Access tokens of the callers by name (admin, hr, head, lead, nobody, approver, r1, r2), logged in when first
+    // used.
     private final Map<String, String> tokens = new HashMap<>();
     // Departments, recruiters and requisitions by the name a query or an expectation uses ({IT}, {r1}, "qa"...).
     private final Map<String, UUID> ids = new LinkedHashMap<>();
@@ -186,7 +188,18 @@ class RequisitionListFilterIntegrationTest {
                 arguments("lead", "", List.of("qaRejected", "qa")),
                 arguments("lead", "departmentId={IT}", List.of()),
                 arguments("lead", "departmentId={IT_QA}&status=REJECTED", List.of("qaRejected")),
-                // A SCOPED caller who manages no department sees nothing, whatever the filters.
+                // Task 285: a recruiter lists the requisitions assigned to them, primary or supporting; filters narrow
+                // that too.
+                arguments("r1", "", List.of("sales", "qa", "itApproved", "it")),
+                arguments("r1", "recruiterId={r1}", List.of("sales", "qa", "it")),
+                arguments("r1", "status=APPROVED", List.of("sales", "itApproved")),
+                arguments("r1", "status=APPROVED&recruiterId={r1}", List.of("sales")),
+                arguments("r1", "departmentId={IT}", List.of("itApproved", "it")),
+                arguments("r1", "departmentId={IT_DEV}", List.of()),
+                arguments("r1", "recruiterId={r2}", List.of("itApproved")),
+                arguments("r2", "", List.of("itApproved")),
+                // A SCOPED caller who manages no department and is assigned to nothing (nobody) sees nothing, whatever
+                // the filters.
                 arguments("nobody", "departmentId={IT}", List.of()),
                 arguments("nobody", "status=DRAFT&recruiterId={r1}&startDate=2026-11-01", List.of()));
     }
@@ -203,14 +216,11 @@ class RequisitionListFilterIntegrationTest {
         assertThat(names(page("hr", "recruiterId={r2}"))).containsExactly("itApproved", "it");
         assertThat(names(page("hr", "recruiterId={UNKNOWN}"))).isEmpty();
 
-        // Filtering on a recruiter never widens the scope (task 285): r1 has REQUISITIONS_READ_SCOPED and manages no
-        // department, so r1 sees nothing, not even the requisitions r1 is the primary of.
-        for (String query : List.of("recruiterId={r1}", "", "status=APPROVED&recruiterId={r1}")) {
-            JsonNode page = page("r1", query);
-            assertThat(page.path("items").size()).as(query).isZero();
-            assertThat(page.path("totalElements").asLong()).as(query).isZero();
-            assertThat(page.path("totalPages").asLong()).as(query).isZero();
-        }
+        // Task 285: the list follows the current team: the old primary loses it with the handover. The filter on the
+        // primary recruiter only narrows what the caller is assigned to.
+        assertPage("r1", "", List.of("sales", "qa", "itApproved"));
+        assertPage("r1", "recruiterId={r1}", List.of("sales", "qa"));
+        assertPage("r2", "", List.of("itApproved", "it"));
 
         // An approval participant reads the requisition they decide (task 262), but the list still follows the
         // departments they manage.
@@ -219,6 +229,27 @@ class RequisitionListFilterIntegrationTest {
         for (String query : List.of("", "departmentId={IT_QA}&status=PENDING_APPROVAL", "recruiterId={r1}")) {
             assertThat(names(page("approver", query))).as(query).isEmpty();
         }
+    }
+
+    // Task 285: a caller who manages a department and is assigned elsewhere sees both, and every filter narrows both
+    // (the scope is one parenthesised condition). r2 manages SALES (sales, APPROVED) and is the primary of itApproved
+    // (IT, APPROVED). Without the parentheses, status=DRAFT would list sales and departmentId={IT} would list both.
+    @Test
+    void aCallerWhoManagesADepartmentAndIsAssignedElsewhereSeesBoth() throws Exception {
+        assertThat(jdbc.update("UPDATE departments SET manager_user_id = ? WHERE id = ?", ids.get("r2"),
+                ids.get("SALES"))).isOne();
+        assertPage("r2", "", List.of("sales", "itApproved"));
+        assertPage("r2", "status=DRAFT", List.of());
+        assertPage("r2", "departmentId={IT}", List.of("itApproved"));
+        assertPage("r2", "departmentId={SALES}&recruiterId={r1}", List.of("sales"));
+        List<String> walked = new ArrayList<>();
+        for (int number = 0; number < 2; number++) {
+            JsonNode one = page("r2", "size=1&page=" + number);
+            assertThat(one.path("totalElements").asLong()).isEqualTo(2);
+            assertThat(one.path("totalPages").asLong()).isEqualTo(2);
+            walked.addAll(names(one));
+        }
+        assertThat(walked).containsExactly("sales", "itApproved");
     }
 
     @Test
@@ -431,6 +462,13 @@ class RequisitionListFilterIntegrationTest {
         JsonNode page = api.expect(response, 200);
         noStore(response);
         return page;
+    }
+
+    // The page of the named caller lists exactly these requisitions, and its total says so.
+    private void assertPage(String caller, String query, List<String> expected) throws Exception {
+        JsonNode page = page(caller, query);
+        assertThat(names(page)).as(caller + " ?" + query).containsExactlyElementsOf(expected);
+        assertThat(page.path("totalElements").asLong()).as(caller + " ?" + query).isEqualTo(expected.size());
     }
 
     private List<String> names(JsonNode page) {

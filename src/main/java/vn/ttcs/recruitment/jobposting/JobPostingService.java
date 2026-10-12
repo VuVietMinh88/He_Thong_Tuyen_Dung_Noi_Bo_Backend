@@ -99,8 +99,9 @@ public class JobPostingService {
      * Checks in order: write and read access (401/403, before any lookup), the requisition exists (400, a form error
      * of requisitionId), it is assigned to a SCOPED caller (403), it is approved (409), it has no posting yet (409),
      * the application deadline is not in the past (400, task 304), the catalog values exist in their own catalog and
-     * are still in use (400). Creating a posting does not need a REQUISITIONS permission: a recruiter may compose
-     * postings of requisitions they cannot read (task 285).
+     * are still in use (400). Creating a posting does not need a REQUISITIONS permission: JOB_POSTINGS_*_SCOPED follows
+     * the recruiter assignment (RecruiterAssignmentAccess), the same rule that, since task 285, also lets an assigned
+     * recruiter read the requisition itself.
      */
     @Transactional // READ COMMITTED: FOR SHARE after a wait must see new commits
     public JobPostingView create(Jwt jwt, JobPostingCreateRequest request) {
@@ -276,9 +277,10 @@ public class JobPostingService {
     // The body's content, with the title, the job description and the candidate requirements it leaves out taken from
     // the requisition. The copy is plain text read through JDBC; nothing is written back to the requisition.
     // Task 304: the copied texts get \n line breaks like a text typed into the posting (the requisition API keeps
-    // \r\n). They are not checked for plain text: a requisition may contain HTML, and the recruiter cannot read the
-    // requisition to retype it. The copy is stored as it is, and the next save of the posting reports it. The position
-    // name has no spaces at its ends already (V7 valid_position_name).
+    // \r\n). They are not checked for plain text: a requisition may contain HTML, but the text was approved with the
+    // requisition and the person writing the posting cannot edit an approved requisition. The copy is stored as it is,
+    // and the next save of the posting reports it. The position name has no spaces at its ends already (V7
+    // valid_position_name).
     private static JobPostingContent inherit(JobPostingCreateRequest request, SourceRequisition source) {
         return new JobPostingContent(
                 request.title() != null ? request.title() : source.positionName(),

@@ -9,6 +9,7 @@ import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.security.AccessScope;
 import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
@@ -24,10 +25,10 @@ import java.util.UUID;
  * requisition helpers (RequisitionService), which are private to the requisition package.
  * <p>
  * Every internal posting call needs a JOB_POSTINGS write permission and the matching read permission: ALL (HR_MANAGER,
- * ADMIN) reaches every posting, SCOPED (RECRUITER) only the postings of the requisitions the caller is the primary or a
- * supporting recruiter of (V16). JOB_POSTINGS_READ_ALL alone (HIRING_MANAGER, APPROVER) reads only the public portal.
- * Who created a posting does not matter: after a handover the new recruiter takes its drafts over. Out of scope is
- * the standard 403 FORBIDDEN, not a 404.
+ * ADMIN) reaches every posting, SCOPED (RECRUITER) only the postings of the requisitions the caller is assigned to
+ * (RecruiterAssignmentAccess, task 285: the primary or a supporting recruiter, V16). JOB_POSTINGS_READ_ALL alone
+ * (HIRING_MANAGER, APPROVER) reads only the public portal. Who created a posting does not matter: after a handover
+ * the new recruiter takes its drafts over. Out of scope is the standard 403 FORBIDDEN, not a 404.
  */
 @Component
 class JobPostingAccess {
@@ -35,16 +36,16 @@ class JobPostingAccess {
     private final AuthSessionRepository sessions;
     private final AuthService auth;
     private final PermissionService permissions;
-    private final JobPostingSourceRepository sources;
+    private final RecruiterAssignmentAccess assignments;
     private final Clock clock;
 
     JobPostingAccess(AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
-                     PermissionService permissions, JobPostingSourceRepository sources, Clock clock) {
+                     PermissionService permissions, RecruiterAssignmentAccess assignments, Clock clock) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.auth = auth;
         this.permissions = permissions;
-        this.sources = sources;
+        this.assignments = assignments;
         this.clock = clock;
     }
 
@@ -115,13 +116,15 @@ class JobPostingAccess {
         return caller(actor.getId(), permissions.forUser(actor.getId()));
     }
 
-    // ALL reaches every posting. SCOPED only reaches the postings of a requisition the caller is assigned to. A write
-    // calls it while it holds the requisition row lock, so a handover committed while it waited is respected.
+    // ALL reaches every posting. SCOPED only reaches the postings of a requisition the caller is assigned to
+    // (RecruiterAssignmentAccess, the rule shared with requisition reads). A write calls it while it holds the
+    // requisition row lock, which every change of the team takes first, so a handover committed while it waited is
+    // respected.
     void requireInScope(Caller caller, UUID requisitionId) {
         if (caller.scope() == AccessScope.ALL) {
             return;
         }
-        if (!sources.isAssigned(requisitionId, caller.id())) {
+        if (!assignments.isAssigned(requisitionId, caller.id())) {
             throw new AccessDeniedException("The posting's requisition is not assigned to the caller");
         }
     }

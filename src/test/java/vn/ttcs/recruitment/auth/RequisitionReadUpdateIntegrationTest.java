@@ -283,6 +283,8 @@ class RequisitionReadUpdateIntegrationTest {
         forbidden(request("GET", BASE + "/" + sales, null, leadToken));
     }
 
+    // SCOPED callers who manage no department and are assigned to nothing (task 285 opens reading to the recruiters
+    // of a requisition, RequisitionRecruiterAccessIntegrationTest).
     @ParameterizedTest
     @EnumSource(value = Role.class, names = {"RECRUITER", "APPROVER", "HIRING_MANAGER"})
     void scopedCallersWhoManageNoDepartmentSeeAnEmptyListAndCannotOpenOrEditAnything(Role role) throws Exception {

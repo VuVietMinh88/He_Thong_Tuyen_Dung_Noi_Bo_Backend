@@ -12,7 +12,7 @@ Tiêu chí của story S3-07:
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
-|`POST /requisitions/{id}/status-changes`|`REQUISITIONS_WRITE_ALL` ở matcher và kiểm lại sau mỗi khóa, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt)|HR_MANAGER, ADMIN|
+|`POST /requisitions/{id}/status-changes`|`REQUISITIONS_WRITE_ALL` ở matcher và kiểm lại sau mỗi khóa, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt và recruiter được phân công)|HR_MANAGER, ADMIN|
 |Đọc lịch sử (`GET /requisitions/{id}/approvals`)|Như `GET /requisitions/{id}` (xem [tiến độ duyệt](requisition-approvals.md))|Như xem yêu cầu|
 
 - Tạm dừng, mở lại, đóng vì đã tuyển đủ và hủy là quyết định của Trưởng phòng Nhân sự, giống phân công recruiter (mục 7.13 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). Trưởng bộ phận có `REQUISITIONS_WRITE_SCOPED` nhưng bị 403, kể cả với bản nháp của chính mình; recruiter được phân công và người duyệt cũng vậy. Không thêm mã quyền mới.
@@ -87,7 +87,7 @@ Lỗi đầu tiên gặp phải được trả về:
 5. Khóa dòng yêu cầu, rồi kiểm lại người gọi lần nữa (401 / 403).
 6. Người gọi phải có `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED` (403, trước khi biết yêu cầu có tồn tại hay không).
 7. Yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`).
-8. Người chỉ có `REQUISITIONS_READ_SCOPED` phụ trách phòng ban của yêu cầu (403); người tham gia duyệt không được tính.
+8. Người chỉ có `REQUISITIONS_READ_SCOPED` phụ trách phòng ban của yêu cầu (403); người tham gia duyệt và recruiter được phân công (task 285) không được tính.
 9. Thay đổi được phép từ trạng thái hiện tại (409 `REQUISITION_STATUS_CHANGE_NOT_ALLOWED`).
 10. `expectedRevision` bằng số của sự kiện mới nhất trong lịch sử (409 `REQUISITION_STATE_CHANGED`).
 11. Chỗ nối `beforeChange` (task 291 sau này): lỗi của nó được trả nguyên, không ghi gì.

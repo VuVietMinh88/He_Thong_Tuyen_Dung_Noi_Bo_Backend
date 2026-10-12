@@ -3,6 +3,7 @@ package vn.ttcs.recruitment.jobposting;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
 import vn.ttcs.recruitment.security.AccessScope;
 
@@ -50,20 +51,9 @@ class JobPostingSourceRepository {
                 .stream().findFirst();
     }
 
-    // JOB_POSTINGS_*_SCOPED: is the user the primary or a supporting recruiter of the requisition (V16)? Writers call
-    // it while they hold the requisition row lock, which every change of the recruiters takes first, so the team
-    // cannot change before they commit.
-    boolean isAssigned(UUID requisitionId, UUID userId) {
-        return jdbc.queryForObject("""
-                SELECT EXISTS (SELECT 1 FROM requisition_recruiters
-                               WHERE requisition_id = :requisitionId AND recruiter_id = :userId)
-                """, new MapSqlParameterSource("requisitionId", requisitionId).addValue("userId", userId),
-                Boolean.class);
-    }
-
     // The requisitions a posting may be made from: status in statuses, no posting yet, and for SCOPED callers only
-    // those they are assigned to (the filter is part of the SQL query). Newest first; the id keeps the order stable.
-    // The statuses are bound by name: PgJDBC cannot bind a Java enum.
+    // those they are assigned to (RecruiterAssignmentAccess; the filter is part of the SQL query). Newest first; the id
+    // keeps the order stable. The statuses are bound by name: PgJDBC cannot bind a Java enum.
     SourceRequisitionPage findSources(AccessScope scope, UUID me, Set<RequisitionStatus> statuses, int page,
                                       int size) {
         var parameters = new MapSqlParameterSource("sourceStatuses",
@@ -73,8 +63,8 @@ class JobPostingSourceRepository {
                    AND NOT EXISTS (SELECT 1 FROM job_postings jp WHERE jp.requisition_id = r.id)
                 """;
         if (scope != AccessScope.ALL) {
-            parameters.addValue("me", me);
-            where += " AND r.id IN (SELECT requisition_id FROM requisition_recruiters WHERE recruiter_id = :me) ";
+            parameters.addValue(RecruiterAssignmentAccess.ASSIGNEE, me);
+            where += " AND r.id IN (" + RecruiterAssignmentAccess.ASSIGNED_REQUISITION_IDS + ") ";
         }
         long total = jdbc.queryForObject("SELECT count(*) FROM recruitment_requisitions r" + where, parameters,
                 Long.class);

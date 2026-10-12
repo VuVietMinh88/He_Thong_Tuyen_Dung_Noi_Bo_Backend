@@ -71,8 +71,9 @@ public class RequisitionApprovalService {
     /**
      * Task 267: the chain of the latest round with the state of each level, who the requisition waits for, whether
      * the caller may decide now, and every event of every round, newest first (story S3-03). Access is exactly that of
-     * GET /requisitions/{id}: read permission (401/403), the requisition exists (404), then department scope or a part
-     * in its approval (403). One REPEATABLE_READ snapshot, no locks.
+     * GET /requisitions/{id}: read permission (401/403), the requisition exists (404), then department scope, its
+     * current recruiters (task 285) or a part in its approval (403). One REPEATABLE_READ snapshot, no locks.
+     * actions.canDecide stays ApproverRule's: reading through the assignment never lets a recruiter decide.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ApprovalProgressView progress(Jwt jwt, UUID id) {
@@ -187,9 +188,10 @@ public class RequisitionApprovalService {
      * Task 262: the current level decides. Checks in order: the body (400), a comment when the action needs one (400,
      * before any lock), write access (401/403), read access to requisitions at all (403, before the lookup: the answer
      * shows the requisition), the requisition exists (404), the caller may read it, by department or as a participant
-     * of its approval (403), it waits for approval (409), the caller looks at its latest progress (409), the caller
-     * may decide its current level (403). The two 409s come before the last 403 on purpose: an approver who lost a race
-     * to another holder of the same role gets a message to reload, not a permission error.
+     * of its approval (403; being its recruiter does not count, task 285), it waits for approval (409), the caller
+     * looks at its latest progress (409), the caller may decide its current level (403). The two 409s come before the
+     * last 403 on purpose: an approver who lost a race to another holder of the same role gets a message to reload,
+     * not a permission error.
      * <p>
      * Lock order like every requisition write: the actor's account, the actor's session, the requisition row, then the
      * department row FOR SHARE, so that a change of its manager (which decides who may take a HIRING_MANAGER level)

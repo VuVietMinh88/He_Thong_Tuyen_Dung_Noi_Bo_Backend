@@ -21,14 +21,14 @@ Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308), bản xem t
 
 - Mọi API nội bộ của tin dành cho **người soạn tin**. Matcher ở `SecurityConfiguration` cho `JOB_POSTINGS_WRITE_ALL` hoặc `JOB_POSTINGS_WRITE_SCOPED`; `JobPostingService` còn đòi quyền đọc `JOB_POSTINGS_READ_*`, vì quyền ghi không bao gồm quyền đọc và mọi thao tác ghi trả về cả tin. Người chỉ có quyền ghi bị 403 trước khi backend tra cứu gì, kể cả với `{id}` hay `requisitionId` không tồn tại. Theo seed hiện tại, ai có quyền ghi tin cũng có quyền đọc cùng phạm vi.
 - Phạm vi là `ALL` khi cả quyền ghi lẫn quyền đọc là `ALL`; còn lại là `SCOPED` (mục "Phạm vi dữ liệu").
-- Tạo tin **không** cần quyền đọc yêu cầu tuyển dụng (`REQUISITIONS_READ_*`). Recruiter được phân công vẫn chưa đọc được yêu cầu (task 285) nhưng phải soạn được tin của nó. Đây là khác biệt có chủ ý với sao chép yêu cầu (task 278), vốn đòi quyền đọc bản gốc. Qua tin, recruiter thấy bản sao mô tả công việc, yêu cầu ứng viên, chức danh, phòng ban, số lượng và lương đề xuất đã duyệt của yêu cầu; không thấy giải trình lương, lý do tuyển hay lịch sử duyệt.
+- Tạo tin **không** cần quyền đọc yêu cầu tuyển dụng (`REQUISITIONS_READ_*`); phạm vi tin là phân công recruiter, cùng quy tắc mà từ task 285 cũng cho recruiter được phân công đọc chính yêu cầu. Đây là khác biệt có chủ ý với sao chép yêu cầu (task 278), vốn đòi quyền đọc bản gốc. Qua tin, recruiter thấy bản sao mô tả công việc, yêu cầu ứng viên, chức danh, phòng ban, số lượng và lương đề xuất đã duyệt của yêu cầu; không thấy giải trình lương, lý do tuyển hay lịch sử duyệt (từ task 285, recruiter được phân công xem những phần đó qua `GET /requisitions/{id}` và tiến độ duyệt).
 - `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER; CANDIDATE cũng có trong seed nhưng không tài khoản nào mang vai trò này) nhận 403 ở mọi API trên: không xem bản nháp. Họ xem tin đã xuất bản qua cổng tuyển dụng công khai (task 309, mục "Tin công khai" của [API duyệt và xuất bản](job-posting-publication.md)), giống trang giới thiệu công ty. INTERVIEWER và tài khoản không có vai trò cũng nhận 403.
 - Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi, backend kiểm lại hạn token, phiên, quyền ghi và quyền đọc sau mỗi lần chờ khóa (mục "Khóa và đồng thời").
 
 ## Phạm vi dữ liệu (task 303)
 
 - Người có `ALL` (ADMIN, HR_MANAGER) soạn và xem tin của mọi yêu cầu.
-- Người chỉ có `SCOPED` (RECRUITER) chỉ soạn và xem tin của yêu cầu mà mình là recruiter chính **hoặc** recruiter hỗ trợ ([API phân công recruiter](requisition-recruiters.md), bảng `requisition_recruiters` của V16). Danh sách tin và danh sách yêu cầu nguồn đưa điều kiện này vào câu SQL, nên tin của yêu cầu khác không được đọc ra khỏi database. Tạo, xem chi tiết và sửa trả 403 `FORBIDDEN` khi yêu cầu của tin không được phân công cho người gọi.
+- Người chỉ có `SCOPED` (RECRUITER) chỉ soạn và xem tin của yêu cầu mà mình là recruiter chính **hoặc** recruiter hỗ trợ ([API phân công recruiter](requisition-recruiters.md), bảng `requisition_recruiters` của V16). Danh sách tin và danh sách yêu cầu nguồn đưa điều kiện này vào câu SQL, nên tin của yêu cầu khác không được đọc ra khỏi database. Từ task 285, câu SQL và kiểm tra từng tin lấy từ `RecruiterAssignmentAccess`, quy tắc phân công dùng chung với việc xem yêu cầu tuyển dụng; hành vi của tin không đổi. Tạo, xem chi tiết và sửa trả 403 `FORBIDDEN` khi yêu cầu của tin không được phân công cho người gọi.
 - UUID không tồn tại trả 404 `JOB_POSTING_NOT_FOUND` (xem, sửa) hoặc 400 `INVALID_JOB_POSTING_REQUISITION` (tạo) với mọi người gọi, trước khi kiểm phạm vi. UUID là ngẫu nhiên nên không đoán được mã tin của người khác.
 - Người tạo tin không quyết định quyền. Khi HR bàn giao recruiter chính hoặc bỏ một recruiter hỗ trợ, người cũ mất quyền với tin ngay ở lần gọi kế tiếp, còn người được giao tiếp nhận bản nháp. `createdById` vẫn giữ người tạo.
 - Khi ghi, phạm vi được kiểm trong lúc giữ khóa dòng yêu cầu tuyển dụng. Mọi thay đổi nhóm recruiter cũng khóa dòng này trước, nên một lần bàn giao commit trong lúc thao tác đang chờ khóa sẽ được thấy, và nhóm không đổi được cho tới khi thao tác lưu xong.
@@ -62,7 +62,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 }
 ```
 
-UUID trong ví dụ chỉ minh họa. Danh sách chỉ có đủ thông tin để chọn: không có mô tả công việc, lương hay giải trình. Nội dung đầy đủ hiện trên bản nháp sau khi tạo. Yêu cầu biến mất khỏi danh sách ngay khi đã có tin. API này thay cho `GET /requisitions?status=APPROVED` mà frontend đang gọi: recruiter nhận danh sách rỗng hoặc 403 ở API đó.
+UUID trong ví dụ chỉ minh họa. Danh sách chỉ có đủ thông tin để chọn: không có mô tả công việc, lương hay giải trình. Nội dung đầy đủ hiện trên bản nháp sau khi tạo. Yêu cầu biến mất khỏi danh sách ngay khi đã có tin. API này thay cho `GET /requisitions?status=APPROVED` mà frontend đang gọi: trước task 285 recruiter nhận danh sách rỗng hoặc 403 ở API đó; từ task 285 API đó trả yêu cầu đã duyệt mà recruiter được phân công nhưng gồm cả yêu cầu đã có tin.
 
 `page` từ 0 (mặc định 0), `size` từ 1 đến 100 (mặc định 20), `page × size` không vượt 2.147.483.647; sai thì 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.". `page`/`size` không phải số nguyên trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.".
 
@@ -296,7 +296,7 @@ Tin giữ bản sao riêng của mô tả công việc và yêu cầu ứng viê
 
 ### Nội dung kế thừa có thẻ HTML
 
-API yêu cầu tuyển dụng chỉ chặn ký tự NUL, nên mô tả công việc hay yêu cầu ứng viên của yêu cầu có thể chứa thẻ HTML hoặc xuống dòng kiểu Windows. Khi tạo tin, phần kế thừa **không** bị kiểm văn bản thuần, vì recruiter chưa đọc được yêu cầu để gõ lại (task 285): backend chép nó (chỉ đổi xuống dòng thành `\n`) và tạo tin vẫn trả 201. Bản nháp giữ nguyên văn bản đó. Lần `PUT` gửi lại văn bản có thẻ thì nhận 400 với `fieldErrors.jobDescription` (hoặc `candidateRequirements`): người soạn phải sửa phần có thẻ trước khi lưu lại được, và trước khi gửi duyệt (task 308 kiểm lại văn bản đã lưu). Văn bản gửi trong body khi tạo vẫn bị kiểm như khi sửa.
+API yêu cầu tuyển dụng chỉ chặn ký tự NUL, nên mô tả công việc hay yêu cầu ứng viên của yêu cầu có thể chứa thẻ HTML hoặc xuống dòng kiểu Windows. Khi tạo tin, phần kế thừa **không** bị kiểm văn bản thuần, vì đó là văn bản đã được duyệt cùng yêu cầu và người soạn không sửa được yêu cầu đã duyệt: backend chép nó (chỉ đổi xuống dòng thành `\n`) và tạo tin vẫn trả 201. Bản nháp giữ nguyên văn bản đó. Lần `PUT` gửi lại văn bản có thẻ thì nhận 400 với `fieldErrors.jobDescription` (hoặc `candidateRequirements`): người soạn phải sửa phần có thẻ trước khi lưu lại được, và trước khi gửi duyệt (task 308 kiểm lại văn bản đã lưu). Văn bản gửi trong body khi tạo vẫn bị kiểm như khi sửa.
 
 ## Khóa và đồng thời
 
@@ -347,7 +347,7 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`)
 
 | Frontend hiện tại | Backend |
 |---|---|
-|Chọn yêu cầu bằng `GET /requisitions?status=APPROVED&size=100` rồi `GET /requisitions/{id}`; recruiter nhận danh sách rỗng hoặc 403 rồi bị đưa sang `/unauthorized`|`GET /job-postings/source-requisitions?size=100`, rồi `POST /job-postings {requisitionId, …}`. Server tự chép tiêu đề, mô tả công việc, yêu cầu ứng viên; không tự ánh xạ trường của yêu cầu ở client (task 301)|
+|Chọn yêu cầu bằng `GET /requisitions?status=APPROVED&size=100` rồi `GET /requisitions/{id}`; trước task 285 recruiter nhận danh sách rỗng hoặc 403 rồi bị đưa sang `/unauthorized`; từ task 285 recruiter thấy yêu cầu đã duyệt mình được phân công, kể cả yêu cầu đã có tin|`GET /job-postings/source-requisitions?size=100`, rồi `POST /job-postings {requisitionId, …}`. Server tự chép tiêu đề, mô tả công việc, yêu cầu ứng viên; không tự ánh xạ trường của yêu cầu ở client (task 301)|
 |`saveDraft` gửi `POST /job-postings/draft` với id do client tạo (`jp-draft-…`)|Lần lưu đầu `POST /job-postings` (201, server cấp UUID); các lần sau `PUT /job-postings/{id}` kèm `expectedRevision`. `/job-postings/draft` trả 403 (không khai báo). Không bao giờ gửi `id` (task 300)|
 |"Đăng tin" gửi `POST /job-postings` với `status: 'PUBLISHED'`|Chỉ lưu bản nháp; gửi duyệt là `POST /job-postings/{id}/submit` của task 308, người soạn không tự xuất bản (task 300)|
 |Body là cả `JobPostingData`|`POST`: `requisitionId` và tùy chọn `title`, `jobDescription`, `candidateRequirements`, `benefits`, `workLocationId`, `employmentTypeId`, `applicationDeadline`, `showSalary`. `PUT`: như vậy nhưng không có `requisitionId`, thêm `expectedRevision`. Trường khác trả `INVALID_JSON` (task 300)|
@@ -376,7 +376,7 @@ Dùng hai bảng của V21 (task 302): `job_postings` và `job_posting_authors`,
 Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 16 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md). Gồm:
 
 - `JOB_POSTINGS_*_SCOPED` của Recruiter là tin của yêu cầu mà người đó là recruiter chính hoặc hỗ trợ, kiểm lại ở mỗi lần gọi; bàn giao xong thì người cũ mất quyền ngay;
-- tạo tin không cần quyền đọc yêu cầu tuyển dụng; recruiter đọc bản sao mô tả công việc, yêu cầu ứng viên và lương đề xuất của yêu cầu qua tin dù chưa đọc được yêu cầu (task 285);
+- tạo tin không cần quyền đọc yêu cầu tuyển dụng; phạm vi tin theo phân công recruiter (từ task 285 recruiter được phân công cũng đọc được yêu cầu);
 - `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER) không xem bản nháp, chỉ xem cổng công khai (task 309), giống trang giới thiệu công ty;
 - mỗi yêu cầu chỉ có một tin;
 - không có trạng thái Từ chối cho tin; người duyệt dùng "yêu cầu chỉnh sửa" (task 308);

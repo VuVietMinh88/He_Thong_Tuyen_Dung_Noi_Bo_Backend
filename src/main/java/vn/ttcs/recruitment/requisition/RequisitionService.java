@@ -34,7 +34,6 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,6 +71,7 @@ public class RequisitionService {
     private final RequisitionApprovalRepository approvals;
     private final ApprovalParticipants participants;
     private final ApproverDirectory approverDirectory;
+    private final RecruiterAssignmentAccess assignments;
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
@@ -83,7 +83,8 @@ public class RequisitionService {
                               SalaryBandService salaryBands, HeadcountQuota headcountQuota,
                               ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
                               ApprovalParticipants participants, ApproverDirectory approverDirectory,
-                              Validator validator, BusinessCalendar calendar, Clock clock) {
+                              RecruiterAssignmentAccess assignments, Validator validator, BusinessCalendar calendar,
+                              Clock clock) {
         this.requisitions = requisitions;
         this.listing = listing;
         this.positions = positions;
@@ -98,6 +99,7 @@ public class RequisitionService {
         this.approvals = approvals;
         this.participants = participants;
         this.approverDirectory = approverDirectory;
+        this.assignments = assignments;
         this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
@@ -137,9 +139,9 @@ public class RequisitionService {
      * and department, department scope, standard band, headcount plan), so a copy can never be a draft that create
      * would refuse. headcountOverrideReason plays the same role as in the create body.
      * Checks in order: write access (401/403), read access to requisitions at all (403), the source exists (404),
-     * the source's department is in the read scope (403), then the checks of create. The read permission comes before
-     * the lookup, so a caller who may only write cannot learn which ids exist. The source is only read, never locked
-     * or changed.
+     * the source's department is in the read scope (403; being assigned or an approval participant does not count,
+     * tasks 262/285), then the checks of create. The read permission comes before the lookup, so a caller who may only
+     * write cannot learn which ids exist. The source is only read, never locked or changed.
      * <p>
      * Task 279: the copy starts its own life as a draft. Only the content listed above is taken; everything about
      * the source's life is not: its status (any status may be copied, the copy is always DRAFT), its creator and
@@ -209,9 +211,9 @@ public class RequisitionService {
     }
 
     // Task 245: one page of the requisitions the caller may see, newest first. Task 297: filtered by status, department,
-    // primary recruiter and needed-by dates, each only narrowing the department scope. Task 298: items add daysOpen,
+    // primary recruiter and needed-by dates, each only narrowing the scope. Task 298: items add daysOpen,
     // daysUntilNeededBy and overdue against one business today per page. REPEATABLE_READ: the managed departments, the
-    // count, the ids and the requisitions all come from one snapshot.
+    // assignments, the count, the ids and the requisitions all come from one snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionPage list(Jwt jwt, RequisitionListFilter filter, int page, int size) {
         Caller caller = requireReadAccess(jwt);
@@ -224,12 +226,9 @@ public class RequisitionService {
         if (!filter.neededByRangeValid()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Khoảng ngày cần người không hợp lệ.");
         }
-        // SCOPED: the department filter is part of the SQL query, so other departments never leave the database.
-        Set<UUID> scope = listScope(caller);
-        if (scope != null && scope.isEmpty()) {
-            return new RequisitionPage(List.of(), page, size, 0, 0);
-        }
-        var found = listing.search(filter, scope, page, size);
+        // SCOPED: the managed departments and (task 285) the requisitions the caller is assigned to are part of the SQL
+        // query, so other requisitions never leave the database.
+        var found = listing.search(filter, listScope(caller), page, size);
         Map<UUID, RecruitmentRequisition> byId = requisitions.findAllById(found.ids()).stream()
                 .collect(Collectors.toMap(RecruitmentRequisition::getId, requisition -> requisition));
         LocalDate today = calendar.today();
@@ -238,14 +237,18 @@ public class RequisitionService {
         return new RequisitionPage(items, page, size, found.total(), (found.total() + size - 1) / size);
     }
 
-    // Task 297: the departments whose requisitions the caller may list: null for READ_ALL, else the departments the
-    // caller manages with their sub-departments (task 249). Task 285 widens this in one place.
-    private Set<UUID> listScope(Caller caller) {
-        return caller.scope() == AccessScope.ALL ? null : departments.findManagedDepartmentIds(caller.id());
+    // Task 297: null for READ_ALL. Task 285: otherwise the departments the caller manages (with their sub-departments,
+    // task 249; possibly none) and the caller's id for the requisitions assigned to them (RecruiterAssignmentAccess).
+    // Approval participants (task 262) still do not widen the list.
+    private RequisitionListRepository.Scope listScope(Caller caller) {
+        return caller.scope() == AccessScope.ALL ? null
+                : new RequisitionListRepository.Scope(departments.findManagedDepartmentIds(caller.id()), caller.id());
     }
 
     // Task 262: also open to the people of the requisition's approval (ApprovalParticipants), so that an approver who
-    // manages none of its departments can read what they decide. GET /assignment and /assignment-history use this too.
+    // manages none of its departments can read what they decide. Task 285: also open to its current primary and
+    // supporting recruiters (RecruiterAssignmentAccess). GET /assignment, /assignment-history and /approvals use this
+    // too.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionView get(Jwt jwt, UUID id) {
         Reader reader = requireReader(jwt);
@@ -336,7 +339,8 @@ public class RequisitionService {
     }
 
     // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same permission
-    // as GET /requisitions/{id} but only its department scope: approval participants are not admitted. Only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
+    // as GET /requisitions/{id} but only its department scope: approval participants and assigned recruiters (task
+    // 285) are not admitted. Only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
     // An exception keeps the department of the plan it went over, and the requisition may have moved since: a SCOPED
     // caller only sees the exceptions of departments they manage, never the plan numbers of another department.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -370,14 +374,20 @@ public class RequisitionService {
         return new Reader(new Caller(actor.getId(), scope, granted), actor);
     }
 
-    // Task 262: the department scope of the reader, or a part in the requisition's approval. Out of both is the
-    // standard 403.
+    // Who may read one requisition (GET /requisitions/{id} and the reads built on it): READ_ALL; a SCOPED reader who
+    // manages its department (task 245); its current primary or supporting recruiter (task 285); a participant of its
+    // approval (task 262). Cheapest first: the approval history is loaded only when nothing else answers. Out of all of
+    // them is the standard 403. Reads only: writes keep the department rule (requireInScope, requireInReadScope), and a
+    // decision keeps ApprovalParticipants.readable, which must not count the assignment.
     private void requireReadable(Reader reader, RecruitmentRequisition requisition) {
-        var candidate = approverDirectory.candidate(reader.account(), reader.caller().permissions());
-        if (!participants.readable(candidate, reader.caller().scope(), requisition,
-                () -> approvals.findEvents(requisition.getId()))) {
-            throw new AccessDeniedException("The requisition is outside the caller's scope and approval");
+        Caller caller = reader.caller();
+        var candidate = approverDirectory.candidate(reader.account(), caller.permissions());
+        if (ApprovalParticipants.byDepartment(candidate, caller.scope(), requisition)
+                || assignments.isAssigned(requisition.getId(), caller.id())
+                || participants.isParticipant(candidate, requisition, approvals.findEvents(requisition.getId()))) {
+            return;
         }
+        throw new AccessDeniedException("The requisition is outside the caller's scope, assignment and approval");
     }
 
     // The caller of a write after lockWriter: the account id and the session row this transaction has locked.
@@ -431,9 +441,11 @@ public class RequisitionService {
         return new Caller(writer.id(), readScope, writer.permissions());
     }
 
-    // Task 284: the department rule of GET /requisitions/{id} for the recruiter writes, which answer with the team and
-    // so must be allowed to read the requisition (RequisitionRecruiterService.lockRequisition). One rule for both keeps
-    // them in step when the scope rules change. readScope is the caller's READ scope of REQUISITIONS, ALL or SCOPED.
+    // Task 284: the department rule of GET /requisitions/{id}, without the approval participants and the assigned
+    // recruiters (task 285), for the HR writes, which answer with the requisition or its team and so must be allowed
+    // to read it (RequisitionRecruiterService.lockRequisition, RequisitionStatusService.change). One rule for them
+    // keeps them in step when the department rule changes. readScope is the caller's READ scope of REQUISITIONS, ALL or
+    // SCOPED.
     void requireInReadScope(UUID actorId, AccessScope readScope, UUID departmentId) {
         requireInScope(new Caller(actorId, readScope, Set.of()), departmentId);
     }
