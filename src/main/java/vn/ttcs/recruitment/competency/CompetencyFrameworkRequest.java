@@ -28,11 +28,12 @@ public record CompetencyFrameworkRequest(
     // Far more than an interview form needs; it only keeps one request and one evaluation form small.
     static final int MAX_CRITERIA = 50;
 
-    // Same text rules as CompetencyCriterionRequest: trimmed code and name, blank description stored as null.
+    // Same text rules as CompetencyCriterionRequest: trimmed code and name; a description without a visible character
+    // is stored as null (CompetencyText).
     public CompetencyFrameworkRequest {
         code = code == null ? null : code.trim();
         name = name == null ? null : name.trim();
-        description = description == null || description.isBlank() ? null : description.strip();
+        description = CompetencyText.description(description);
     }
 
     @JsonAnySetter
