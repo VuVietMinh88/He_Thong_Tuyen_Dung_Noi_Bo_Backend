@@ -24,6 +24,7 @@ import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -36,12 +37,19 @@ import java.util.regex.Pattern;
 // role, interviewers included), writing needs ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER).
 // Jira 222: InterviewQuestionRequest checks each field on its own; this service checks the criterion and that the
 // criterion does not already hold the same question.
+// Jira 223: search and filter the bank by text, position, criterion, difficulty and active.
 @Service
 public class InterviewQuestionService {
     // A run of characters Unicode calls white space: spaces (non-breaking ones too), tabs and line breaks.
     private static final Pattern SPACES = Pattern.compile("\\p{IsWhite_Space}+");
+    // Unicode category Cc (U+0000-U+001F, U+007F-U+009F). PostgreSQL cannot take U+0000 in a text parameter.
+    private static final Pattern CONTROL_CHARACTERS = Pattern.compile("\\p{Cc}");
+    // Same limits as the other lists (departments, positions, competency frameworks).
+    private static final int MAX_SEARCH_TEXT = 255;
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final InterviewQuestionRepository questions;
+    private final InterviewQuestionSearchRepository search;
     private final CompetencyCriterionRepository criteria;
     private final CompetencyFrameworkRepository frameworks;
     private final AccountRepository accounts;
@@ -50,11 +58,12 @@ public class InterviewQuestionService {
     private final PermissionService permissions;
     private final Clock clock;
 
-    public InterviewQuestionService(InterviewQuestionRepository questions, CompetencyCriterionRepository criteria,
-                                    CompetencyFrameworkRepository frameworks, AccountRepository accounts,
-                                    AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                                    Clock clock) {
+    public InterviewQuestionService(InterviewQuestionRepository questions, InterviewQuestionSearchRepository search,
+                                    CompetencyCriterionRepository criteria, CompetencyFrameworkRepository frameworks,
+                                    AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
+                                    PermissionService permissions, Clock clock) {
         this.questions = questions;
+        this.search = search;
         this.criteria = criteria;
         this.frameworks = frameworks;
         this.accounts = accounts;
@@ -62,6 +71,28 @@ public class InterviewQuestionService {
         this.auth = auth;
         this.permissions = permissions;
         this.clock = clock;
+    }
+
+    // Jira 223: one page of the questions that match every filter given; a filter left out (null) matches all.
+    // Checks in order: read permission (403), the search text and paging (400 VALIDATION_ERROR), the position
+    // (400 INVALID_POSITION), the criterion (400 INVALID_COMPETENCY_CRITERION).
+    // REPEATABLE_READ: the checks, the total and the page all come from the same snapshot, so totalElements always
+    // matches the items even while HR is saving questions. Nothing is locked, so a search never waits for an edit.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public InterviewQuestionPage list(Jwt jwt, String query, UUID positionId, UUID criterionId,
+                                      InterviewQuestionDifficulty difficulty, Boolean active, int page, int size) {
+        requireReadAccess(jwt);
+        String text = searchText(query);
+        requireValidSearch(text, page, size);
+        // An unknown id is an error rather than an empty page, so a screen can tell "this position or criterion no
+        // longer exists" from "it has no questions yet".
+        if (positionId != null && !search.positionExists(positionId)) {
+            throw unknownPosition();
+        }
+        if (criterionId != null && !criteria.existsById(criterionId)) {
+            throw unknownCriterion();
+        }
+        return search.search(text, positionId, criterionId, difficulty, active, page, size);
     }
 
     // REPEATABLE_READ: the question, its criterion and its framework come from the same snapshot, never from the
@@ -175,6 +206,38 @@ public class InterviewQuestionService {
         return SPACES.matcher(composed).replaceAll(" ").toLowerCase(Locale.ROOT);
     }
 
+    // Jira 223: the search text as it is compared with the content. Like a saved question it is put in Unicode form
+    // NFC, so a Vietnamese letter typed as a base letter plus combining marks still finds the stored text; each run
+    // of spaces, tabs and line breaks becomes one space and the spaces around it are removed. "" means no search.
+    // Upper/lower case is left to lower() in the SQL, so both sides use the same rule.
+    private static String searchText(String query) {
+        if (query == null) {
+            return "";
+        }
+        String composed = Normalizer.normalize(query, Normalizer.Form.NFC);
+        return SPACES.matcher(composed).replaceAll(" ").strip();
+    }
+
+    // Every wrong parameter is reported at once in fieldErrors, named like the query parameter.
+    private static void requireValidSearch(String text, int page, int size) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        if (text.length() > MAX_SEARCH_TEXT) {
+            errors.put("q", "Từ khóa tìm kiếm tối đa 255 ký tự.");
+        } else if (CONTROL_CHARACTERS.matcher(text).find()) {
+            errors.put("q", "Từ khóa tìm kiếm không được chứa ký tự điều khiển.");
+        }
+        if (page < 0) {
+            errors.put("page", "Số trang phải từ 0 trở lên.");
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            errors.put("size", "Số câu hỏi mỗi trang phải từ 1 đến 100.");
+        }
+        if (!errors.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Trang, số lượng hoặc từ khóa tìm kiếm câu hỏi phỏng vấn không hợp lệ.", errors);
+        }
+    }
+
     private void requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
@@ -268,6 +331,12 @@ public class InterviewQuestionService {
         return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_COMPETENCY_CRITERION",
                 "Tiêu chí đánh giá không tồn tại.",
                 Map.of("criterionId", "Không tìm thấy tiêu chí này trong khung năng lực nào."));
+    }
+
+    // Jira 223: the positionId filter names no position. 400 like an unknown criterion: the URL itself was found.
+    private static ApiException unknownPosition() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POSITION", "Chức danh không tồn tại.",
+                Map.of("positionId", "Không tìm thấy chức danh này."));
     }
 
     // The criterion a question points to, with its framework for the response.

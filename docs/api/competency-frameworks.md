@@ -278,4 +278,4 @@ Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) 
 
 Tiêu chí và trọng số theo từng chức danh cho phiếu đánh giá phỏng vấn (task 215) đọc qua `GET /positions/{id}/evaluation-criteria`, xem [API tiêu chí đánh giá theo chức danh](evaluation-criteria.md).
 
-Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và tìm kiếm/lọc câu hỏi phỏng vấn (task 223). Tạo, sửa và đọc từng câu hỏi theo tiêu chí xem [API câu hỏi phỏng vấn](interview-questions.md) (task 221).
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE` và phiếu đánh giá (Sprint 6). Tạo, sửa, đọc từng câu hỏi theo tiêu chí (task 221) và tìm kiếm/lọc câu hỏi theo chức danh, tiêu chí (task 223) xem [API câu hỏi phỏng vấn](interview-questions.md).
