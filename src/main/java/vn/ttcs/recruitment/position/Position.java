@@ -34,6 +34,10 @@ public class Position {
     @Column(nullable = false)
     private boolean active;
 
+    // Competency framework used to evaluate candidates for this position; null until one is assigned.
+    // Several positions may share one framework, so its criteria are never copied per position.
+    private UUID competencyFrameworkId;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -78,6 +82,7 @@ public class Position {
     public long getSalaryMin() { return salaryMin; }
     public long getSalaryMax() { return salaryMax; }
     public boolean isActive() { return active; }
+    public UUID getCompetencyFrameworkId() { return competencyFrameworkId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 }
