@@ -49,6 +49,8 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 |description|Như mô tả của khung|
 |weight|Trọng số phần trăm, bắt buộc, phải là **số JSON**, lớn hơn 0 và không quá 100, tối đa 2 chữ số thập phân|
 
+Ký tự bị bỏ ở đầu/cuối mã và tên khung, tên tiêu chí gồm khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060. Ký tự ở giữa được giữ; giới hạn độ dài và kiểm tra trùng dùng giá trị sau khi bỏ, nên `HR` kèm một ký tự như vậy ở cuối vẫn là mã `HR`. Mã hoặc tên không có ký tự nhìn thấy được bị coi là trống: HTTP 400 `VALIDATION_ERROR`.
+
 Không có trường `sortOrder` trong request: **thứ tự trong mảng chính là thứ tự tiêu chí** (phần tử đầu có `sortOrder` 1, tiếp theo 2, 3...). Muốn đổi thứ tự thì gửi mảng theo thứ tự mới. Trường ngoài hợp đồng, như `id` hay `createdAt` của khung hoặc `sortOrder` của tiêu chí, bị từ chối với HTTP 400 `INVALID_JSON`.
 
 ### Trọng số
