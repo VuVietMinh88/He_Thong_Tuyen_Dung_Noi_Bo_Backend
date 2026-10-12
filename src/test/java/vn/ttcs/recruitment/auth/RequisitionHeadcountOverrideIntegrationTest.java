@@ -182,6 +182,31 @@ class RequisitionHeadcountOverrideIntegrationTest {
         assertThat(count("requisition_headcount_overrides")).isOne();
     }
 
+    // A reason without a visible character is no reason, like a blank one. Before, the no-break spaces U+00A0, U+2007,
+    // U+202F and U+0085, U+180E passed String.isBlank() and failed V15's CHECK (500), and a reason made of zero-width
+    // characters (U+200B, U+FEFF, U+2060) was stored as a confirmation that shows nothing.
+    @Test
+    void aReasonWithoutAVisibleCharacterIsNoReasonOnCreateAndUpdate() throws Exception {
+        plan(itId, 1, null);
+        UUID draft = id(create(body(itId, 1, null, null), headToken));
+        for (int invisible : new int[] {0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x200B, 0xFEFF, 0x2060}) {
+            String reason = new String(new int[] {invisible, '\n', invisible}, 0, 3);
+            String description = Integer.toHexString(invisible);
+            assertThat(expect(create(body(itId, 1, null, reason), hrToken), 409).path("code").asText())
+                    .as(description).isEqualTo("HEADCOUNT_LIMIT_EXCEEDED");
+            assertThat(expect(update(draft, body(itId, 2, null, reason), hrToken), 409).path("code").asText())
+                    .as(description).isEqualTo("HEADCOUNT_LIMIT_EXCEEDED");
+        }
+        assertThat(count("recruitment_requisitions")).isOne();
+        assertThat(count("requisition_headcount_overrides")).isZero();
+
+        // One visible character is enough, and the reason is stored exactly as typed, its no-break space included.
+        String reason = "Dự" + new String(new int[] {0x00A0}, 0, 1) + "án gấp";
+        expect(update(draft, body(itId, 2, null, reason), hrToken), 200);
+        assertThat(jdbc.queryForObject("SELECT reason FROM requisition_headcount_overrides", String.class))
+                .isEqualTo(reason);
+    }
+
     @Test
     void aReasonOnASaveThatFitsThePlanIsIgnored() throws Exception {
         plan(itId, 5, null);

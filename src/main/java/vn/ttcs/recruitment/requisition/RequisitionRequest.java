@@ -59,7 +59,8 @@ public record RequisitionRequest(
                 message = "Yêu cầu ứng viên chứa ký tự không hợp lệ.")
         String candidateRequirements,
         // Task 275: only read when this save goes over the headcount plan; only HEADCOUNT_PLANS_WRITE_ALL (the HR
-        // manager) may then give it, and it is stored with the exception. It is not a field of the requisition.
+        // manager) may then give it, and it is stored with the exception. It is not a field of the requisition. A reason
+        // without a visible character is no reason (RequisitionText), as V15 requires one that is not only spaces.
         @Size(max = 1_000, message = "Lý do vượt định biên tối đa 1.000 ký tự.")
         @Pattern(regexp = RequisitionRequest.NO_NUL_CHARACTER,
                 message = "Lý do vượt định biên chứa ký tự không hợp lệ.")
@@ -78,11 +79,7 @@ public record RequisitionRequest(
         salaryJustification = RequisitionText.invisibleToNull(salaryJustification);
         jobDescription = RequisitionText.invisibleToNull(jobDescription);
         candidateRequirements = RequisitionText.invisibleToNull(candidateRequirements);
-        headcountOverrideReason = blankToNull(headcountOverrideReason);
-    }
-
-    private static String blankToNull(String text) {
-        return text == null || text.isBlank() ? null : text;
+        headcountOverrideReason = RequisitionText.invisibleToNull(headcountOverrideReason);
     }
 
     // The reason as the enum the entity stores. Only call it after @Valid has accepted the request: reason is

@@ -292,9 +292,9 @@ Giao diện nên gọi `GET /headcount-plans/remaining?departmentId=...&year=...
 
 ### Trưởng phòng Nhân sự xác nhận vượt định biên (task 275)
 
-Story S3-04: "cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do". Lần lưu vượt định biên vẫn được lưu khi body có `headcountOverrideReason` (không trống) **và** người gọi có `HEADCOUNT_PLANS_WRITE_ALL` (hiện chỉ HR_MANAGER). Backend ghi thêm một dòng vào lịch sử ngoại lệ (bảng `requisition_headcount_overrides`, V15): người xác nhận, thời điểm (bằng `createdAt` khi tạo, `updatedAt` khi sửa), lý do, định biên lúc đó (chỉ tiêu, ngân sách), số các yêu cầu khác đã dùng, số người và chi phí năm lần lưu này xin, và giới hạn nào bị vượt.
+Story S3-04: "cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do". Lần lưu vượt định biên vẫn được lưu khi body có `headcountOverrideReason` (có ít nhất một ký tự nhìn thấy được) **và** người gọi có `HEADCOUNT_PLANS_WRITE_ALL` (hiện chỉ HR_MANAGER). Backend ghi thêm một dòng vào lịch sử ngoại lệ (bảng `requisition_headcount_overrides`, V15): người xác nhận, thời điểm (bằng `createdAt` khi tạo, `updatedAt` khi sửa), lý do, định biên lúc đó (chỉ tiêu, ngân sách), số các yêu cầu khác đã dùng, số người và chi phí năm lần lưu này xin, và giới hạn nào bị vượt.
 
-- Không có lý do (hoặc lý do chỉ có khoảng trắng): vẫn 409 như trên, kể cả với HR.
+- Không có lý do (hoặc lý do không có ký tự nhìn thấy được: rỗng, chỉ có khoảng trắng hay ký tự rộng 0, như văn bản ở `POST`): vẫn 409 như trên, kể cả với HR, và không lưu ngoại lệ nào.
 - Có lý do nhưng người gọi không có `HEADCOUNT_PLANS_WRITE_ALL` (Trưởng bộ phận, ADMIN...): 403 `FORBIDDEN`, không lưu gì. Quyền được đọc lại sau khi khóa tài khoản người gọi và một lần nữa sau khi giữ được khóa dòng định biên: nếu `HEADCOUNT_PLANS_WRITE_ALL` bị gỡ trong lúc request chờ khóa đó thì trả 403 `FORBIDDEN` và không lưu gì.
 - Lần lưu không vượt định biên: lý do không cần và bị bỏ qua, không ghi lịch sử.
 - Mỗi lần lưu vượt cần lý do riêng: HR đã xác nhận một lần thì nháp vẫn sửa được nội dung khác mà không cần lý do (không xin thêm), nhưng lần tăng tiếp theo cần xác nhận lần nữa.
