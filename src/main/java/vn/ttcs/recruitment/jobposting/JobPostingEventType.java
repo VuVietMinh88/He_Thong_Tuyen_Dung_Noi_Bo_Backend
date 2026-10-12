@@ -10,5 +10,8 @@ public enum JobPostingEventType {
     // HR asked the authors for changes, with a comment saying what to change.
     REVISION_REQUESTED,
     // HR published the approved posting.
-    PUBLISHED
+    PUBLISHED,
+    // Task 292: the requisition was closed as filled or cancelled; actor, time and reason are the requisition's. Must
+    // match V25 valid_job_posting_event_type.
+    CLOSED
 }

@@ -724,7 +724,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // does), and the candidate count of task 291 is not built yet.
                 "PATCH /api/v1/requisitions/" + UNKNOWN_ID + "/status",
                 "PATCH /api/v1/job-requisitions/" + UNKNOWN_ID + "/status",
-                "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count")) {
+                "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count",
+                // Task 292: a posting is closed only with its requisition; there is no route to close one by hand.
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

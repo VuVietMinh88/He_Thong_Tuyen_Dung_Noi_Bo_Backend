@@ -20,8 +20,9 @@ package vn.ttcs.recruitment.requisition;
 // valid_requisition_workflow_event_transition in a new migration. Decisions only happen in PENDING_APPROVAL.
 // Task 303: decide whether job postings may be made from, and still changed for, a requisition in the new status
 // (JobPostingService.SOURCE_STATUSES; the public portal shows a posting only while its requisition is in that set).
-// JobPostingSourceStatusTest does not compile until the new status is given its group there. Closing postings with
-// their requisition is task 292.
+// JobPostingSourceStatusTest does not compile until the new status is given its group there.
+// Task 292: decide whether reaching the new status closes the requisition's job postings
+// (JobPostingRequisitionSync.CLOSING_STATUSES). JobPostingClosingStatusTest does not compile until it is.
 // Task 297: decide whether a requisition in the new status can still be overdue in GET /requisitions
 // (RequisitionListItemView.OVERDUE_STATUSES). RequisitionOverdueStatusTest does not compile until it is.
 // Tasks 293/290: decide from which statuses a requisition may reach the new status and where it may go next

@@ -48,7 +48,8 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 
 // Task 290 (story S3-07): "Kiểm tra quyền, trạng thái và lý do phù hợp cho tuyển đủ/tạm dừng/hủy". HR pauses, resumes,
 // closes as filled or cancels a requisition with POST /requisitions/{id}/status-changes; task 293 records each change
-// in the history. No RequisitionStatusListener bean exists in this context, so a change works without listeners.
+// in the history. Task 292's JobPostingRequisitionSync is the only RequisitionStatusListener in this context; what it
+// does to postings is tested in JobPostingClosureIntegrationTest.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
