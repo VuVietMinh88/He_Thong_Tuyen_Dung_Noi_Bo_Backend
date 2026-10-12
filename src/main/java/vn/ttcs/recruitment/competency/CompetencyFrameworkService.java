@@ -38,6 +38,7 @@ import java.util.UUID;
 // Jira 213: a complete (ACTIVE) framework must have criteria weights that total exactly 100%; a DRAFT may still
 // be incomplete.
 // Jira 214: positions share a framework (PositionService assigns it); the detail lists the positions using it.
+// Jira 220: interview questions point to criteria (V9), so PUT may not drop a criterion that still has questions.
 @Service
 public class CompetencyFrameworkService {
     // The weights of an ACTIVE framework add up to this many percent.
@@ -48,6 +49,13 @@ public class CompetencyFrameworkService {
             SELECT id, code, name, level, active FROM positions
             WHERE competency_framework_id = ?
             ORDER BY code, id
+            """;
+    // The criteria of one framework that have at least one interview question, active or not (V9 ON DELETE RESTRICT
+    // counts every question). Plain SQL for the same reason: the interview question package depends on this one.
+    private static final String CRITERIA_WITH_QUESTIONS_QUERY = """
+            SELECT c.id FROM competency_criteria c
+            WHERE c.framework_id = ?
+              AND EXISTS (SELECT 1 FROM interview_questions q WHERE q.criterion_id = c.id)
             """;
 
     private final CompetencyFrameworkRepository frameworks;
@@ -126,7 +134,7 @@ public class CompetencyFrameworkService {
             // Saved first, so the criteria rows below have their framework row (foreign key).
             framework = frameworks.saveAndFlush(framework);
         } catch (DataIntegrityViolationException exception) {
-            throw translateDuplicate(exception);
+            throw translateConstraintViolation(exception);
         }
         var saved = replaceCriteria(framework.getId(), request.criteria(), List.of());
         checkCriteriaNow();
@@ -147,6 +155,7 @@ public class CompetencyFrameworkService {
         current.forEach(criterion -> currentIds.add(criterion.getId()));
         // Step 2: check the final criteria list.
         requireValidCriteria(request.criteria(), currentIds);
+        requireNoQuestionsOnRemovedCriteria(id, current, request.criteria());
         // The status was read under the lock too, so an activation committed meanwhile is seen here and an
         // edit prepared while the framework was still a DRAFT must now also keep the total at 100%.
         CompetencyFrameworkStatus status = statusAfterEdit(framework, request.status());
@@ -178,7 +187,8 @@ public class CompetencyFrameworkService {
     // - an item with an id updates that criterion and keeps its id, so whatever points to it later
     //   (interview questions) keeps working;
     // - an item without an id becomes a new criterion with a new id;
-    // - a stored criterion missing from the list is deleted.
+    // - a stored criterion missing from the list is deleted (update() has already refused this for a criterion
+    //   that has interview questions).
     // The position in the list becomes sortOrder 1, 2, 3... Returns the criteria in that order.
     private List<CompetencyCriterion> replaceCriteria(UUID frameworkId, List<CompetencyCriterionRequest> requested,
                                                       List<CompetencyCriterion> current) {
@@ -202,6 +212,38 @@ public class CompetencyFrameworkService {
         }
         criteria.deleteAll(notRequested.values());
         return result;
+    }
+
+    // Jira 220: an interview question points to its criterion by id and V9 forbids deleting a criterion that still
+    // has questions (ON DELETE RESTRICT). PUT deletes every stored criterion left out of the list, so such a
+    // criterion must be sent back with its id; otherwise the edit is refused with 409 and nothing changes.
+    // Sending the same name without the id counts as leaving it out, because it would create a new row.
+    // The framework row is locked, but a question added by a transaction that has not committed yet is invisible
+    // here; the foreign key still stops that deletion and translateConstraintViolation() gives the same 409.
+    private void requireNoQuestionsOnRemovedCriteria(UUID frameworkId, List<CompetencyCriterion> current,
+                                                     List<CompetencyCriterionRequest> requested) {
+        Set<UUID> keptIds = new HashSet<>();
+        for (var item : requested) {
+            if (item.id() != null) {
+                keptIds.add(item.id());
+            }
+        }
+        List<CompetencyCriterion> removed = current.stream()
+                .filter(criterion -> !keptIds.contains(criterion.getId()))
+                .toList();
+        if (removed.isEmpty()) {
+            return;
+        }
+        Set<UUID> withQuestions = new HashSet<>(jdbc.queryForList(CRITERIA_WITH_QUESTIONS_QUERY, UUID.class,
+                frameworkId));
+        // current is in sortOrder, so the names are listed in the order the user sees them.
+        List<String> names = removed.stream()
+                .filter(criterion -> withQuestions.contains(criterion.getId()))
+                .map(CompetencyCriterion::getName)
+                .toList();
+        if (!names.isEmpty()) {
+            throw criterionInUse(names);
+        }
     }
 
     // Rules for the whole list, checked before anything is written:
@@ -275,11 +317,12 @@ public class CompetencyFrameworkService {
     // The last step of every write. It flushes all pending changes and checks the V8 deferred UNIQUE constraints
     // now instead of at COMMIT, so a duplicate becomes a 409 here. With the framework row locked and the names
     // checked above, this is a safety net for writes that do not go through this service.
+    // The flush also runs the criterion deletions, so a deletion refused by the V9 foreign key ends here as a 409.
     private void checkCriteriaNow() {
         try {
             criteria.checkUniqueConstraintsNow();
         } catch (DataIntegrityViolationException exception) {
-            throw translateDuplicate(exception);
+            throw translateConstraintViolation(exception);
         }
     }
 
@@ -339,14 +382,23 @@ public class CompetencyFrameworkService {
     }
 
     // The checks above miss rows another transaction has not committed yet; the constraints still catch them.
-    private RuntimeException translateDuplicate(DataIntegrityViolationException exception) {
+    // 23505 is a duplicate (UNIQUE), 23503 a foreign key refusal: here, deleting a criterion that a question
+    // committed meanwhile points to (V9).
+    private RuntimeException translateConstraintViolation(DataIntegrityViolationException exception) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLException sql && "23505".equals(sql.getSQLState()) && sql.getMessage() != null) {
-                if (sql.getMessage().contains("competency_frameworks_code_key")) {
-                    return duplicateCode();
+            if (cause instanceof SQLException sql && sql.getMessage() != null) {
+                if ("23505".equals(sql.getSQLState())) {
+                    if (sql.getMessage().contains("competency_frameworks_code_key")) {
+                        return duplicateCode();
+                    }
+                    if (sql.getMessage().contains("competency_criteria_framework_name_key")) {
+                        return duplicateCriterionName(Map.of());
+                    }
                 }
-                if (sql.getMessage().contains("competency_criteria_framework_name_key")) {
-                    return duplicateCriterionName(Map.of());
+                if ("23503".equals(sql.getSQLState())
+                        && sql.getMessage().contains("interview_questions_criterion_id_fkey")) {
+                    // PostgreSQL reports only the criterion id, not its name, so the response lists no names.
+                    return criterionInUse(List.of());
                 }
             }
         }
@@ -361,6 +413,15 @@ public class CompetencyFrameworkService {
     private static ApiException duplicateCode() {
         return new ApiException(HttpStatus.CONFLICT, "COMPETENCY_FRAMEWORK_CODE_EXISTS",
                 "Mã khung năng lực đã được sử dụng.");
+    }
+
+    // names: the criteria that still have questions, or empty when they are not known.
+    private static ApiException criterionInUse(List<String> names) {
+        String detail = "Hãy giữ lại (gửi kèm id) các tiêu chí đang có câu hỏi phỏng vấn"
+                + (names.isEmpty() ? "." : ": " + String.join(", ", names) + ".");
+        return new ApiException(HttpStatus.CONFLICT, "COMPETENCY_CRITERION_IN_USE",
+                "Không thể xóa tiêu chí đang có câu hỏi phỏng vấn khỏi khung năng lực.",
+                Map.of("criteria", detail));
     }
 
     private static ApiException duplicateCriterionName(Map<String, String> fieldErrors) {

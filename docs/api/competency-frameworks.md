@@ -1,6 +1,6 @@
 # API khung năng lực
 
-Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá), TKNHTTDNB1-213 "Kiểm tra tổng trọng số khung năng lực bằng 100%" và TKNHTTDNB1-214 "Xử lý dùng lại khung năng lực cho nhiều chức danh" (trường `positions` của chi tiết khung), story TKNHTTDNB1-25 (S2-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá), TKNHTTDNB1-213 "Kiểm tra tổng trọng số khung năng lực bằng 100%" và TKNHTTDNB1-214 "Xử lý dùng lại khung năng lực cho nhiều chức danh" (trường `positions` của chi tiết khung), story TKNHTTDNB1-25 (S2-06). TKNHTTDNB1-220 (story S2-07, bảng câu hỏi phỏng vấn V9) bổ sung quy tắc giữ tiêu chí đang có câu hỏi phỏng vấn khi PUT. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
 
 Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi, service khóa tài khoản người gọi rồi phiên, kiểm lại trạng thái tài khoản, phiên, hạn JWT và quyền, sau đó mới khóa khung năng lực.
 
@@ -127,7 +127,21 @@ PUT làm cho danh sách tiêu chí đã lưu **giống hệt** mảng `criteria`
 2. Phần tử không có `id`: tạo tiêu chí mới với `id` mới.
 3. Tiêu chí đang có nhưng không xuất hiện trong mảng: **bị xóa**.
 
-Vì câu hỏi phỏng vấn (task 221) và phiếu đánh giá sau này sẽ trỏ tới tiêu chí theo `id`, frontend phải gửi lại `id` của mọi tiêu chí muốn giữ. Gửi lại cùng tên nhưng không kèm `id` nghĩa là xóa tiêu chí cũ và tạo tiêu chí mới có `id` khác. **Quyết định tạm thời của task 212:** đây là thay thế đơn giản, chưa chặn việc xóa tiêu chí đã có câu hỏi phỏng vấn; quy tắc "tiêu chí đang được câu hỏi dùng thì không được xóa" sẽ được bổ sung khi có bảng câu hỏi.
+Vì câu hỏi phỏng vấn (bảng `interview_questions` của V9) và phiếu đánh giá sau này trỏ tới tiêu chí theo `id`, frontend phải gửi lại `id` của mọi tiêu chí muốn giữ. Gửi lại cùng tên nhưng không kèm `id` nghĩa là xóa tiêu chí cũ và tạo tiêu chí mới có `id` khác.
+
+**Tiêu chí đang có câu hỏi phỏng vấn không được xóa (task 220).** Task 212 ban đầu chưa chặn việc này; từ task 220, khóa ngoại V9 `ON DELETE RESTRICT` cấm xóa tiêu chí còn câu hỏi, kể cả câu hỏi đã ngừng dùng (`active = false`). Vì vậy PUT bỏ một tiêu chí như thế khỏi mảng, hoặc gửi lại cùng tên nhưng không kèm `id`, bị từ chối với 409 `COMPETENCY_CRITERION_IN_USE` và không có gì thay đổi. Gửi kèm `id` thì vẫn đổi được tên, mô tả, trọng số và thứ tự của tiêu chí đó; câu hỏi đi theo tiêu chí. Muốn bỏ hẳn tiêu chí thì trước hết không được còn câu hỏi nào trỏ tới nó; cách xóa hoặc chuyển câu hỏi sang tiêu chí khác do API câu hỏi (task 221) quyết định.
+
+```json
+{
+  "code": "COMPETENCY_CRITERION_IN_USE",
+  "message": "Không thể xóa tiêu chí đang có câu hỏi phỏng vấn khỏi khung năng lực.",
+  "fieldErrors": {
+    "criteria": "Hãy giữ lại (gửi kèm id) các tiêu chí đang có câu hỏi phỏng vấn: Giao tiếp, Tư duy."
+  }
+}
+```
+
+Tên tiêu chí được liệt kê theo thứ tự hiện có trong khung.
 
 Cách làm an toàn ở frontend: `GET /competency-frameworks/{id}`, sửa trên dữ liệu vừa đọc, rồi PUT đủ mọi trường. Một lần PUT có thể đổi chỗ tên hoặc thứ tự của hai tiêu chí (ví dụ đổi tên A thành B và B thành A) vì database chỉ kiểm trùng trên kết quả cuối cùng. Đổi `code`, `name`, `description` của khung không làm đổi `id` của khung hay `createdAt`.
 
@@ -137,12 +151,13 @@ Cách làm an toàn ở frontend: `GET /competency-frameworks/{id}`, sửa trên
 2. PUT: khung phải tồn tại (404). Service khóa dòng khung (`SELECT ... FOR UPDATE`) rồi mới đọc các tiêu chí hiện có.
 3. `id` của tiêu chí phải thuộc khung và chỉ xuất hiện một lần (400 `INVALID_COMPETENCY_CRITERION`).
 4. Tên tiêu chí không trùng trong danh sách (409 `COMPETENCY_CRITERION_NAME_DUPLICATE`).
-5. PUT: khung đang `ACTIVE` không chuyển về `DRAFT` (409 `COMPETENCY_FRAMEWORK_ALREADY_ACTIVE`).
-6. Nếu trạng thái sau khi lưu là `ACTIVE`: tổng trọng số đúng 100 (400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`).
-7. Mã khung không trùng khung khác (409 `COMPETENCY_FRAMEWORK_CODE_EXISTS`).
-8. Ghi, rồi kiểm ngay hai ràng buộc UNIQUE "kiểm lúc COMMIT" của V8 (`checkUniqueConstraintsNow`) để lỗi trùng còn sót vẫn thành 409 thay vì 500.
+5. PUT: tiêu chí bị bỏ khỏi mảng không còn câu hỏi phỏng vấn (409 `COMPETENCY_CRITERION_IN_USE`, task 220).
+6. PUT: khung đang `ACTIVE` không chuyển về `DRAFT` (409 `COMPETENCY_FRAMEWORK_ALREADY_ACTIVE`).
+7. Nếu trạng thái sau khi lưu là `ACTIVE`: tổng trọng số đúng 100 (400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`).
+8. Mã khung không trùng khung khác (409 `COMPETENCY_FRAMEWORK_CODE_EXISTS`).
+9. Ghi, rồi kiểm ngay hai ràng buộc UNIQUE "kiểm lúc COMMIT" của V8 (`checkUniqueConstraintsNow`) để lỗi trùng còn sót vẫn thành 409 thay vì 500. Lệnh này cũng chạy các lệnh xóa tiêu chí; nếu khóa ngoại V9 từ chối xóa thì kết quả là 409 `COMPETENCY_CRITERION_IN_USE`, không phải 500.
 
-Một lần gán khung cho chức danh (task 214) đọc khung bằng `SELECT ... FOR SHARE`, nên PUT khung chờ lần gán đang chạy commit, và lần gán đến trong lúc PUT khung đang chạy cũng chờ rồi đọc trạng thái mới nhất. Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Trạng thái cũng được đọc sau khi khóa: nếu người trước vừa chuyển khung sang `ACTIVE`, PUT không gửi `status` của người sau sẽ giữ `ACTIVE` nên phải có tổng đúng 100, nếu không nhận 400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409.
+Một lần gán khung cho chức danh (task 214) đọc khung bằng `SELECT ... FOR SHARE`, nên PUT khung chờ lần gán đang chạy commit, và lần gán đến trong lúc PUT khung đang chạy cũng chờ rồi đọc trạng thái mới nhất. Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Trạng thái cũng được đọc sau khi khóa: nếu người trước vừa chuyển khung sang `ACTIVE`, PUT không gửi `status` của người sau sẽ giữ `ACTIVE` nên phải có tổng đúng 100, nếu không nhận 400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409. Nếu trong lúc PUT đang xóa một tiêu chí, một transaction khác thêm câu hỏi cho tiêu chí đó nhưng chưa commit, lệnh xóa chờ transaction kia; khi nó commit, PUT nhận 409 `COMPETENCY_CRITERION_IN_USE` (lúc này `fieldErrors.criteria` không nêu tên tiêu chí, vì PostgreSQL chỉ báo `id`) và không có gì thay đổi.
 
 Response của tạo/sửa và `GET /competency-frameworks/{id}`:
 
@@ -241,6 +256,7 @@ Sắp xếp theo code rồi UUID để phân trang ổn định; trang ngoài ph
 |409|COMPETENCY_FRAMEWORK_CODE_EXISTS|Mã đã được khung khác dùng, kể cả khi hai yêu cầu ghi cùng mã đồng thời|
 |409|COMPETENCY_CRITERION_NAME_DUPLICATE|Hai tiêu chí trong cùng khung trùng tên (sau khi bỏ khoảng trắng đầu/cuối); `fieldErrors` chỉ ra từng dòng bị trùng|
 |409|COMPETENCY_FRAMEWORK_ALREADY_ACTIVE|PUT gửi `"status": "DRAFT"` cho khung đang `ACTIVE`; `fieldErrors.status`|
+|409|COMPETENCY_CRITERION_IN_USE|PUT bỏ khỏi mảng (hoặc gửi lại không kèm `id`) một tiêu chí đang có câu hỏi phỏng vấn, kể cả câu hỏi đã ngừng dùng; `fieldErrors.criteria` nêu tên các tiêu chí đó khi biết|
 
 Ví dụ lỗi trùng tên tiêu chí:
 
@@ -258,8 +274,8 @@ Mọi lỗi đều không thay đổi dữ liệu: cả khung lẫn danh sách t
 
 ## Database và phạm vi
 
-Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Task 214 cũng không thêm migration hay mã quyền: chi tiết khung đọc thêm cột `positions.competency_framework_id` của V8, còn hai endpoint gán/bỏ khung nằm ở [API chức danh](positions.md#khung-năng-lực-của-chức-danh-task-214). Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
+Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Task 214 cũng không thêm migration hay mã quyền: chi tiết khung đọc thêm cột `positions.competency_framework_id` của V8, còn hai endpoint gán/bỏ khung nằm ở [API chức danh](positions.md#khung-năng-lực-của-chức-danh-task-214). Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409. Task 220 thêm migration V9 (bảng `interview_questions`) nhưng không thêm endpoint hay mã quyền; PUT đọc thêm bảng này bằng SQL thuần để biết tiêu chí nào còn câu hỏi.
 
 Tiêu chí và trọng số theo từng chức danh cho phiếu đánh giá phỏng vấn (task 215) đọc qua `GET /positions/{id}/evaluation-criteria`, xem [API tiêu chí đánh giá theo chức danh](evaluation-criteria.md).
 
-Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và câu hỏi phỏng vấn (task 220–223).
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, phiếu đánh giá (Sprint 6) và API câu hỏi phỏng vấn (task 221–223; task 220 mới có bảng `interview_questions`).
