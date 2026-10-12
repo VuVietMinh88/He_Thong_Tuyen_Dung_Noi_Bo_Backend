@@ -22,6 +22,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -133,12 +134,14 @@ public class PositionService {
         }
     }
 
-    // @PositiveOrZero already rejects negative salaries. This keeps an inverted band from reaching the
-    // V7 CHECK constraint, which would otherwise surface as a 500.
+    // PositionRequest has already checked each salary on its own (whole VND, 0 to MAX_SALARY_VND).
+    // Equal values are a valid band. The V7 CHECK stays as the last line of defence, but an inverted band
+    // never reaches it: that would surface as a 500 instead of an error the form can show on salaryMax.
     private static void requireValidSalaryBand(PositionRequest request) {
         if (request.salaryMin() > request.salaryMax()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "POSITION_SALARY_RANGE_INVALID",
-                    "Lương tối thiểu không được lớn hơn lương tối đa.");
+                    "Lương tối thiểu không được lớn hơn lương tối đa.",
+                    Map.of("salaryMax", "Lương tối đa phải lớn hơn hoặc bằng lương tối thiểu."));
         }
     }
 

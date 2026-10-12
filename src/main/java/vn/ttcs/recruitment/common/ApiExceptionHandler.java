@@ -29,7 +29,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
-                .body(ApiError.of(exception.getCode(), exception.getMessage()));
+                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
     }
 
     @ExceptionHandler(DepartmentException.class)

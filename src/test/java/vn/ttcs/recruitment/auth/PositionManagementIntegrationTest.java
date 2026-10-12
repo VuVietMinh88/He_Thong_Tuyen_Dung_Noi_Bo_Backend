@@ -58,6 +58,8 @@ class PositionManagementIntegrationTest {
     private static final Instant START = Instant.parse("2026-10-06T00:00:00Z");
     // Larger than Integer.MAX_VALUE, so the API must keep salaries as whole-dong long values end to end.
     private static final long THREE_BILLION_VND = 3_000_000_000L;
+    // The largest salary the API accepts: 1.000 tỷ đồng.
+    private static final long SALARY_CEILING = 1_000_000_000_000L;
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -207,12 +209,16 @@ class PositionManagementIntegrationTest {
         boolean writer = role == Role.ADMIN || role == Role.HR_MANAGER;
         var created = create(payload("NEW", "New position", "Junior", 1L, 2L, true), token);
         var updated = update(target, payload("READ", "Updated", "Senior", 3L, 4L, false), token);
+        // Without write permission the salary band rules are never reached: the answer is 403, not 400.
+        var inverted = update(target, payload("READ", "Inverted", "Senior", 5L, 4L, true), token);
         if (writer) {
             expect(created, 201);
             assertThat(expect(updated, 200).path("name").asText()).isEqualTo("Updated");
+            error(inverted, 400, "POSITION_SALARY_RANGE_INVALID");
         } else {
             error(created, 403, "FORBIDDEN");
             error(updated, 403, "FORBIDDEN");
+            error(inverted, 403, "FORBIDDEN");
             assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT name FROM positions WHERE id = ?", String.class, target))
                     .isEqualTo("Read position");
@@ -230,11 +236,12 @@ class PositionManagementIntegrationTest {
             assertThat(body.path("fieldErrors").has(field)).as(field).isTrue();
         }
         for (String field : List.of("code", "name", "level")) {
+            int limit = field.equals("name") ? 255 : 50;
             Map<String, Object> invalid = new LinkedHashMap<>(valid);
-            invalid.put(field, " \t ");
-            error(create(invalid, adminToken), 400, "VALIDATION_ERROR");
-            invalid.put(field, "x".repeat(field.equals("name") ? 256 : 51));
-            error(create(invalid, adminToken), 400, "VALIDATION_ERROR");
+            for (String value : List.of("", " \t\n ", "x".repeat(limit + 1), "  " + "x".repeat(limit + 1) + "  ")) {
+                invalid.put(field, value);
+                fieldErrors(create(invalid, adminToken), field);
+            }
         }
         Map<String, Object> unknown = new LinkedHashMap<>(valid);
         unknown.put("id", UUID.randomUUID());
@@ -244,8 +251,13 @@ class PositionManagementIntegrationTest {
         error(create(notANumber, adminToken), 400, "INVALID_JSON");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isZero();
 
-        UUID boundary = position("c".repeat(50), "n".repeat(255), "l".repeat(50), 0L, 0L, true);
+        // Values are trimmed before the length check, so padding around a value at the limit is accepted.
+        UUID boundary = position("  " + "c".repeat(50) + "\t", " " + "n".repeat(255) + " ", "\n" + "l".repeat(50) + " ",
+                0L, 0L, true);
         Map<String, Object> before = jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", boundary);
+        assertThat(before.get("code")).isEqualTo("c".repeat(50));
+        assertThat(before.get("name")).isEqualTo("n".repeat(255));
+        assertThat(before.get("level")).isEqualTo("l".repeat(50));
         Map<String, Object> blankName = new LinkedHashMap<>(valid);
         blankName.put("name", "");
         error(update(boundary, blankName, adminToken), 400, "VALIDATION_ERROR");
@@ -253,29 +265,73 @@ class PositionManagementIntegrationTest {
     }
 
     @Test
-    void rejectsNegativeAndInvertedSalaryBandsWithoutChangingRows() throws Exception {
+    void rejectsNegativeAndInvertedSalaryBandsWithFieldErrorsWithoutChangingRows() throws Exception {
         UUID existing = position("KEEP", "Keep", "Junior", 10L, 20L, true);
         Map<String, Object> before = jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", existing);
+        Map<String, String> negativeMessages = Map.of("salaryMin", "Lương tối thiểu không được âm.",
+                "salaryMax", "Lương tối đa không được âm.");
         for (String field : List.of("salaryMin", "salaryMax")) {
             Map<String, Object> negative = payload("NEGATIVE", "Negative", "Junior", 1L, 2L, true);
             negative.put(field, -1L);
             for (var response : List.of(create(negative, adminToken), update(existing, negative, adminToken))) {
-                JsonNode body = expect(response, 400);
-                assertThat(body.path("code").asText()).isEqualTo("VALIDATION_ERROR");
-                assertThat(body.path("fieldErrors").has(field)).as(field).isTrue();
+                assertThat(fieldErrors(response, field).path(field).asText()).isEqualTo(negativeMessages.get(field));
             }
         }
-        Map<String, Object> inverted = payload("INVERTED", "Inverted", "Junior", 5L, 2L, true);
+        // The smallest possible inversion: the minimum is one dong above the maximum.
+        Map<String, Object> inverted = payload("INVERTED", "Inverted", "Junior", 20_000_001L, 20_000_000L, true);
         for (var response : List.of(create(inverted, adminToken), update(existing, inverted, adminToken))) {
-            error(response, 400, "POSITION_SALARY_RANGE_INVALID");
+            JsonNode body = expect(response, 400);
             noStore(response);
+            assertThat(body.path("code").asText()).isEqualTo("POSITION_SALARY_RANGE_INVALID");
+            assertThat(body.path("message").asText()).isEqualTo("Lương tối thiểu không được lớn hơn lương tối đa.");
+            assertThat(body.path("fieldErrors").size()).isEqualTo(1);
+            assertThat(body.path("fieldErrors").path("salaryMax").asText())
+                    .isEqualTo("Lương tối đa phải lớn hơn hoặc bằng lương tối thiểu.");
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", existing)).isEqualTo(before);
 
-        // Equal minimum and maximum is still a valid band.
+        // Equal minimum and maximum is still a valid band, on create and on update.
+        JsonNode fixed = expect(create(payload("FIXED", "Fixed salary", "Junior", 20_000_000L, 20_000_000L, true),
+                adminToken), 201);
+        assertThat(fixed.path("salaryMin").asLong()).isEqualTo(20_000_000L);
+        assertThat(fixed.path("salaryMax").asLong()).isEqualTo(20_000_000L);
         assertThat(expect(update(existing, payload("KEEP", "Keep", "Junior", 7L, 7L, true), adminToken), 200)
                 .path("salaryMax").asLong()).isEqualTo(7L);
+        assertThat(jdbc.queryForObject("SELECT salary_min FROM positions WHERE id = ?", Long.class, existing)).isEqualTo(7L);
+    }
+
+    @Test
+    void acceptsSalariesUpToTheCeilingAndRejectsOneDongMoreOnEitherField() throws Exception {
+        UUID existing = position("KEEP", "Keep", "Junior", 10L, 20L, true);
+        Map<String, Object> before = jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", existing);
+        Map<String, String> ceilingMessages = Map.of(
+                "salaryMin", "Lương tối thiểu không được vượt quá 1.000.000.000.000 đồng.",
+                "salaryMax", "Lương tối đa không được vượt quá 1.000.000.000.000 đồng.");
+        for (String field : List.of("salaryMin", "salaryMax")) {
+            Map<String, Object> tooLarge = payload("LARGE", "Large", "Junior", SALARY_CEILING, SALARY_CEILING, true);
+            tooLarge.put(field, SALARY_CEILING + 1);
+            // When salaryMin is too large the band is also inverted, but only the field error is reported:
+            // the band is compared after each salary passes its own checks.
+            for (var response : List.of(create(tooLarge, adminToken), update(existing, tooLarge, adminToken))) {
+                assertThat(fieldErrors(response, field).path(field).asText()).isEqualTo(ceilingMessages.get(field));
+            }
+        }
+        // Several broken fields are reported together, so a form can mark all of them in one round trip.
+        fieldErrors(create(payload(" ", "All wrong", "Junior", -1L, SALARY_CEILING + 1, true), adminToken),
+                "code", "salaryMin", "salaryMax");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", existing)).isEqualTo(before);
+
+        // The ceiling itself is allowed, even as a fixed band, and is stored exactly.
+        JsonNode top = expect(create(payload("TOP", "Top", "Executive", SALARY_CEILING, SALARY_CEILING, true),
+                adminToken), 201);
+        assertThat(top.path("salaryMin").asLong()).isEqualTo(SALARY_CEILING);
+        assertThat(top.path("salaryMax").asLong()).isEqualTo(SALARY_CEILING);
+        assertThat(jdbc.queryForObject("SELECT salary_max FROM positions WHERE id = ?", Long.class,
+                UUID.fromString(top.path("id").asText()))).isEqualTo(SALARY_CEILING);
+        assertThat(expect(update(existing, payload("KEEP", "Keep", "Junior", 0L, SALARY_CEILING, true), adminToken), 200)
+                .path("salaryMax").asLong()).isEqualTo(SALARY_CEILING);
     }
 
     @Test
@@ -294,11 +350,15 @@ class PositionManagementIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", existing)).isEqualTo(before);
 
-        // The same JSON template with whole numbers is accepted, and the largest long is stored exactly.
-        JsonNode largest = expect(request("POST", BASE, positionJson("0", "9223372036854775807"), adminToken), 201);
-        assertThat(largest.path("salaryMax").asLong()).isEqualTo(Long.MAX_VALUE);
+        // The largest long is a whole number, so it parses, then fails the salary ceiling as a field error.
+        fieldErrors(request("POST", BASE, positionJson("0", "9223372036854775807"), adminToken), "salaryMax");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(1);
+
+        // The same JSON template with whole numbers up to the ceiling is accepted and stored exactly.
+        JsonNode largest = expect(request("POST", BASE, positionJson("0", "1000000000000"), adminToken), 201);
+        assertThat(largest.path("salaryMax").asLong()).isEqualTo(SALARY_CEILING);
         assertThat(jdbc.queryForObject("SELECT salary_max FROM positions WHERE id = ?", Long.class,
-                UUID.fromString(largest.path("id").asText()))).isEqualTo(Long.MAX_VALUE);
+                UUID.fromString(largest.path("id").asText()))).isEqualTo(SALARY_CEILING);
     }
 
     @Test
@@ -462,6 +522,17 @@ class PositionManagementIntegrationTest {
 
     private void error(HttpResponse<String> response, int status, String code) {
         assertThat(expect(response, status).path("code").asText()).isEqualTo(code);
+    }
+
+    // A 400 VALIDATION_ERROR whose fieldErrors names exactly these request fields.
+    private JsonNode fieldErrors(HttpResponse<String> response, String... fields) {
+        JsonNode body = expect(response, 400);
+        assertThat(body.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(body.path("fieldErrors").size()).as(body.toString()).isEqualTo(fields.length);
+        for (String field : fields) {
+            assertThat(body.path("fieldErrors").path(field).asText()).as(field).isNotBlank();
+        }
+        return body.path("fieldErrors");
     }
 
     private void noStore(HttpResponse<String> response) {
