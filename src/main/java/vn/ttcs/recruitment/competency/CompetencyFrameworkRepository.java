@@ -24,6 +24,14 @@ public interface CompetencyFrameworkRepository extends JpaRepository<CompetencyF
     @Query("select f from CompetencyFramework f where f.id = :id")
     Optional<CompetencyFramework> findByIdForUpdate(@Param("id") UUID id);
 
+    // SELECT ... FOR SHARE (Jira 214): assigning a framework to a position reads its status with this lock, so an
+    // edit of the framework (FOR UPDATE above) waits until the assignment commits, and an assignment that comes
+    // while an edit is running waits and then reads the committed status. Several assignments of the same framework
+    // share the lock and still run in parallel.
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select f from CompetencyFramework f where f.id = :id")
+    Optional<CompetencyFramework> findByIdForShare(@Param("id") UUID id);
+
     // Same rules as PositionRepository.search: parameters are never null, and the pattern is already escaped
     // with '!', so % and _ typed by users stay literal.
     @Query("""

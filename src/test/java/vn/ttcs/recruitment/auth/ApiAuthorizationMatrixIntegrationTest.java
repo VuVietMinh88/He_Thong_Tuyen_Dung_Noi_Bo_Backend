@@ -120,7 +120,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/competency-frameworks", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/competency-frameworks", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/competency-frameworks/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/positions/{id}/competency-framework", permission(ORGANIZATION_WRITE_ALL), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
