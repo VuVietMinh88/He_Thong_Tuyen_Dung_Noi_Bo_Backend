@@ -1,6 +1,6 @@
 # API khung năng lực
 
-Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá), story TKNHTTDNB1-25 (S2-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-212 "Xây dựng API quản lý khung năng lực" (tạo, sửa và đọc khung cùng bộ tiêu chí đánh giá) và TKNHTTDNB1-213 "Kiểm tra tổng trọng số khung năng lực bằng 100%", story TKNHTTDNB1-25 (S2-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi nghiệp vụ của nhóm này (`COMPETENCY_*`, `INVALID_COMPETENCY_CRITERION`) dùng `Cache-Control: no-store`.
 
 Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi, service khóa tài khoản người gọi rồi phiên, kiểm lại trạng thái tài khoản, phiên, hạn JWT và quyền, sau đó mới khóa khung năng lực.
 
@@ -15,7 +15,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 
 - **Khung năng lực** là một bộ tiêu chí đánh giá dùng lại được: nhiều chức danh trỏ tới cùng một khung qua cột `positions.competency_framework_id` (V8), tiêu chí chỉ lưu một lần và không bị sao chép theo từng chức danh. Sửa khung là sửa cho mọi chức danh đang dùng khung đó. API gán khung cho chức danh chưa có trong task này.
 - **Tiêu chí** có tên, mô tả tùy chọn, trọng số phần trăm và thứ tự hiển thị. Đây là bộ tiêu chí sẽ sinh phiếu đánh giá phỏng vấn ở Sprint 6.
-- **Trạng thái** `DRAFT` (đang soạn, tổng trọng số có thể chưa đủ) hoặc `ACTIVE` (đã hoàn chỉnh). Trong task 212: khung mới luôn là `DRAFT`, PUT giữ nguyên trạng thái hiện có, request không có trường `status`. Chưa có API chuyển sang `ACTIVE`, và **API này chưa kiểm tổng trọng số bằng 100%**: tổng có thể nhỏ hơn hoặc lớn hơn 100. Quy tắc tổng 100% khi khung hoàn chỉnh thuộc task 213.
+- **Trạng thái** `DRAFT` (bản nháp đang soạn: tổng trọng số có thể chưa đủ hoặc vượt 100) hoặc `ACTIVE` (khung hoàn chỉnh: tổng trọng số **đúng 100%**). Request có trường `status` tùy chọn; gửi `"ACTIVE"` để lưu khung hoàn chỉnh. Quy tắc nằm ở mục [Khung hoàn chỉnh và tổng trọng số 100%](#khung-hoàn-chỉnh-và-tổng-trọng-số-100) (task 213).
 
 ## Tạo và sửa
 
@@ -39,6 +39,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 |code|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 50 ký tự; duy nhất và phân biệt hoa/thường (`HR` khác `hr`), giống mã chức danh|
 |name|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 255 ký tự|
 |description|Tùy chọn, tối đa 1000 ký tự sau khi bỏ khoảng trắng đầu/cuối (kể cả tab, xuống dòng); xuống dòng ở giữa được giữ. Bỏ trường, `null`, chuỗi rỗng hoặc chỉ có khoảng trắng đều được lưu là `null`|
+|status|Tùy chọn, là chuỗi JSON `"DRAFT"` hoặc `"ACTIVE"` (viết hoa đúng như vậy). Bỏ trường hoặc `null`: POST tạo `DRAFT`, PUT giữ trạng thái hiện có. Giá trị khác như `"active"`, `""`, số `1`, `true` trả `INVALID_JSON`. `ACTIVE` bắt buộc tổng trọng số đúng 100% (xem bên dưới)|
 |criteria|Bắt buộc, là mảng; `[]` hợp lệ (khung `DRAFT` có thể chưa có tiêu chí); tối đa 50 tiêu chí; phần tử không được là `null`|
 
 | Trường của một tiêu chí | Quy tắc |
@@ -48,7 +49,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 |description|Như mô tả của khung|
 |weight|Trọng số phần trăm, bắt buộc, phải là **số JSON**, lớn hơn 0 và không quá 100, tối đa 2 chữ số thập phân|
 
-Không có trường `sortOrder` trong request: **thứ tự trong mảng chính là thứ tự tiêu chí** (phần tử đầu có `sortOrder` 1, tiếp theo 2, 3...). Muốn đổi thứ tự thì gửi mảng theo thứ tự mới. Trường ngoài hợp đồng, như `status`, `id` hay `createdAt` của khung hoặc `sortOrder` của tiêu chí, bị từ chối với HTTP 400 `INVALID_JSON`.
+Không có trường `sortOrder` trong request: **thứ tự trong mảng chính là thứ tự tiêu chí** (phần tử đầu có `sortOrder` 1, tiếp theo 2, 3...). Muốn đổi thứ tự thì gửi mảng theo thứ tự mới. Trường ngoài hợp đồng, như `id` hay `createdAt` của khung hoặc `sortOrder` của tiêu chí, bị từ chối với HTTP 400 `INVALID_JSON`.
 
 ### Trọng số
 
@@ -58,6 +59,65 @@ Trọng số lưu `NUMERIC(5,2)` và Java dùng `BigDecimal`, không dùng số 
 - Không hợp lệ (`VALIDATION_ERROR`, lỗi ở trường `criteria[i].weight`): thiếu hoặc `null`, `0`, số âm, lớn hơn `100`, có chữ số thập phân thứ ba khác 0 như `33.335` hoặc `0.001`. Backend từ chối thay vì để PostgreSQL tự làm tròn `33.335` thành `33.34`.
 - Không phải số JSON (`"40"`, `true`, `{}`, `[40]`) trả `INVALID_JSON`.
 - Response luôn trả đúng 2 chữ số thập phân như database lưu: gửi `40` nhận `40.00`, gửi `35.5` nhận `35.50`.
+
+### Khung hoàn chỉnh và tổng trọng số 100%
+
+Task 213: một khung là **hoàn chỉnh** khi có trạng thái `ACTIVE`. Phiếu đánh giá phỏng vấn (Sprint 6) chấm theo khung hoàn chỉnh, nên backend **từ chối lưu khung `ACTIVE` khi tổng trọng số các tiêu chí khác 100%**. Khung `DRAFT` không bị kiểm tổng.
+
+Tổng được tính trên **mảng `criteria` trong request** (chính là danh sách sau khi lưu), cộng bằng `BigDecimal` nên chính xác tới 2 chữ số thập phân, và phải bằng đúng 100 (`100`, `100.0`, `100.00` như nhau):
+
+| Trọng số gửi lên | Tổng | Khung `ACTIVE` |
+|---|---|---|
+|`33.33`, `33.33`, `33.34`|100.00|Hợp lệ|
+|`100`|100.00|Hợp lệ (một tiêu chí)|
+|`5e1`, `50.000`|100.00|Hợp lệ|
+|`33.33`, `33.33`, `33.33`|99.99|400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`|
+|`60`, `40.01`|100.01|400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`|
+|`[]` (không có tiêu chí)|0.00|400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`|
+|`33.335`, `66.665`|Không tính|400 `VALIDATION_ERROR` ở từng dòng, vì chữ số thập phân thứ ba bị từ chối trước khi cộng|
+
+Vì mỗi trọng số lớn hơn 0 và tổng phải là 100, khung hoàn chỉnh luôn có ít nhất một tiêu chí.
+
+Trạng thái sau khi lưu:
+
+| Yêu cầu | `status` trong request | Kết quả |
+|---|---|---|
+|POST|bỏ trống, `null` hoặc `"DRAFT"`|Tạo khung `DRAFT`, không kiểm tổng|
+|POST|`"ACTIVE"`|Tạo khung `ACTIVE` nếu tổng đúng 100|
+|PUT khung đang `DRAFT`|bỏ trống, `null` hoặc `"DRAFT"`|Vẫn `DRAFT`, không kiểm tổng|
+|PUT khung đang `DRAFT`|`"ACTIVE"`|Chuyển sang `ACTIVE` nếu tổng đúng 100|
+|PUT khung đang `ACTIVE`|bỏ trống, `null` hoặc `"ACTIVE"`|Vẫn `ACTIVE`; **mọi lần sửa phải giữ tổng đúng 100**|
+|PUT khung đang `ACTIVE`|`"DRAFT"`|409 `COMPETENCY_FRAMEWORK_ALREADY_ACTIVE`, không thay đổi gì|
+
+Muốn thêm, bỏ hoặc đổi trọng số của khung `ACTIVE` thì gửi một PUT có cả danh sách tiêu chí mới đã cân lại đủ 100%; không cần (và không thể) chuyển về `DRAFT` trước. **Quyết định tạm thời của task 213:** khung `ACTIVE` không quay lại `DRAFT`, vì chức danh (task 214) và phiếu đánh giá sau này dựa vào khung luôn hoàn chỉnh. Nếu nghiệp vụ cần "ngừng dùng" một khung, BA/PO cần bổ sung yêu cầu riêng.
+
+Ví dụ kích hoạt khung đang có hai tiêu chí (gửi lại `id` của cả hai để giữ chúng):
+
+```json
+{
+  "code": "DEV_CORE",
+  "name": "Năng lực lập trình viên",
+  "status": "ACTIVE",
+  "criteria": [
+    { "id": "00000000-0000-0000-0000-000000000011", "name": "Kỹ năng lập trình", "weight": 50.5 },
+    { "id": "00000000-0000-0000-0000-000000000012", "name": "Thiết kế hệ thống", "weight": 49.5 }
+  ]
+}
+```
+
+Lỗi khi tổng khác 100 (ví dụ 99.99); `message` và `fieldErrors.criteria` đều nêu tổng hiện tại với 2 chữ số thập phân:
+
+```json
+{
+  "code": "COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID",
+  "message": "Khung năng lực hoàn chỉnh (ACTIVE) cần tổng trọng số các tiêu chí đúng 100%; tổng hiện tại là 99.99%.",
+  "fieldErrors": {
+    "criteria": "Tổng trọng số hiện tại là 99.99%, cần đúng 100%."
+  }
+}
+```
+
+Database không có CHECK cho tổng trọng số (V8 giữ nguyên); quy tắc chỉ nằm ở `CompetencyFrameworkService`. Dữ liệu sửa trực tiếp bằng SQL không đi qua quy tắc này.
 
 ### PUT thay thế danh sách tiêu chí như thế nào
 
@@ -77,10 +137,12 @@ Cách làm an toàn ở frontend: `GET /competency-frameworks/{id}`, sửa trên
 2. PUT: khung phải tồn tại (404). Service khóa dòng khung (`SELECT ... FOR UPDATE`) rồi mới đọc các tiêu chí hiện có.
 3. `id` của tiêu chí phải thuộc khung và chỉ xuất hiện một lần (400 `INVALID_COMPETENCY_CRITERION`).
 4. Tên tiêu chí không trùng trong danh sách (409 `COMPETENCY_CRITERION_NAME_DUPLICATE`).
-5. Mã khung không trùng khung khác (409 `COMPETENCY_FRAMEWORK_CODE_EXISTS`).
-6. Ghi, rồi kiểm ngay hai ràng buộc UNIQUE "kiểm lúc COMMIT" của V8 (`checkUniqueConstraintsNow`) để lỗi trùng còn sót vẫn thành 409 thay vì 500.
+5. PUT: khung đang `ACTIVE` không chuyển về `DRAFT` (409 `COMPETENCY_FRAMEWORK_ALREADY_ACTIVE`).
+6. Nếu trạng thái sau khi lưu là `ACTIVE`: tổng trọng số đúng 100 (400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`).
+7. Mã khung không trùng khung khác (409 `COMPETENCY_FRAMEWORK_CODE_EXISTS`).
+8. Ghi, rồi kiểm ngay hai ràng buộc UNIQUE "kiểm lúc COMMIT" của V8 (`checkUniqueConstraintsNow`) để lỗi trùng còn sót vẫn thành 409 thay vì 500.
 
-Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409.
+Hai người sửa cùng một khung cùng lúc sẽ được xử lý lần lượt: người sau chờ người trước commit, rồi kiểm và ghi trên dữ liệu mới nhất. Không có kiểm tra phiên bản (optimistic lock), nên người lưu sau ghi đè thay đổi của người lưu trước; nếu người sau vẫn gửi `id` của tiêu chí người trước vừa xóa, yêu cầu bị từ chối với 400 `INVALID_COMPETENCY_CRITERION` và không có gì thay đổi. Trạng thái cũng được đọc sau khi khóa: nếu người trước vừa chuyển khung sang `ACTIVE`, PUT không gửi `status` của người sau sẽ giữ `ACTIVE` nên phải có tổng đúng 100, nếu không nhận 400 `COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID`. Hai yêu cầu tạo/sửa cùng một mã khung đồng thời: một yêu cầu thành công, yêu cầu còn lại nhận 409.
 
 Response của tạo/sửa và `GET /competency-frameworks/{id}`:
 
@@ -154,13 +216,15 @@ Sắp xếp theo code rồi UUID để phân trang ổn định; trang ngoài ph
 | HTTP | Mã | Trường hợp |
 |---|---|---|
 |400|VALIDATION_ERROR|Thiếu/sai trường, trọng số ngoài (0, 100] hoặc quá 2 chữ số thập phân, quá 50 tiêu chí, UUID trên đường dẫn, page/size, status hoặc q quá dài; lỗi theo trường nằm trong `fieldErrors`|
-|400|INVALID_JSON|JSON sai, trọng số không phải số JSON, hoặc có trường ngoài hợp đồng|
+|400|INVALID_JSON|JSON sai, trọng số không phải số JSON, `status` không phải chuỗi `"DRAFT"`/`"ACTIVE"`, hoặc có trường ngoài hợp đồng|
 |400|INVALID_COMPETENCY_CRITERION|`id` tiêu chí không thuộc khung này (kể cả mọi `id` khi POST) hoặc một `id` được gửi hai lần; `fieldErrors` chỉ ra dòng, ví dụ `criteria[1].id`|
+|400|COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID|Khung có trạng thái `ACTIVE` sau lần ghi nhưng tổng trọng số khác 100 (kể cả khi không có tiêu chí); `message` và `fieldErrors.criteria` nêu tổng hiện tại|
 |401|Lỗi xác thực/phiên|Thiếu, sai, hết hạn token; phiên thu hồi; người gọi bị khóa|
 |403|FORBIDDEN|Đọc thiếu `ORGANIZATION_READ_ALL`; ghi thiếu `ORGANIZATION_WRITE_ALL`|
 |404|COMPETENCY_FRAMEWORK_NOT_FOUND|Không tìm thấy khung đích|
 |409|COMPETENCY_FRAMEWORK_CODE_EXISTS|Mã đã được khung khác dùng, kể cả khi hai yêu cầu ghi cùng mã đồng thời|
 |409|COMPETENCY_CRITERION_NAME_DUPLICATE|Hai tiêu chí trong cùng khung trùng tên (sau khi bỏ khoảng trắng đầu/cuối); `fieldErrors` chỉ ra từng dòng bị trùng|
+|409|COMPETENCY_FRAMEWORK_ALREADY_ACTIVE|PUT gửi `"status": "DRAFT"` cho khung đang `ACTIVE`; `fieldErrors.status`|
 
 Ví dụ lỗi trùng tên tiêu chí:
 
@@ -178,6 +242,6 @@ Mọi lỗi đều không thay đổi dữ liệu: cả khung lẫn danh sách t
 
 ## Database và phạm vi
 
-Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 không thêm migration, không thêm mã quyền và không cần sửa `.env`. Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
+Dùng bảng `competency_frameworks`, `competency_criteria` của V8 (task 211) và quyền ORGANIZATION của V3; task 212 và 213 không thêm migration, không thêm mã quyền, không thêm endpoint và không cần sửa `.env`. Service làm đủ ba bước ghi tiêu chí mà [tài liệu database](../database/README.md) yêu cầu: khóa dòng khung, kiểm trùng trên danh sách cuối cùng, rồi gọi `checkUniqueConstraintsNow()` và đổi lỗi trùng thành 409.
 
-Chưa có trong task này: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), chuyển trạng thái `ACTIVE` và kiểm tổng trọng số 100% (task 213), gán khung cho chức danh (task 214), dữ liệu cho phiếu đánh giá (task 215) và câu hỏi phỏng vấn (task 220–223).
+Chưa có: DELETE khung (khung đang được chức danh dùng cũng không xóa được nhờ khóa ngoại `ON DELETE RESTRICT`), ngừng dùng khung `ACTIVE`, gán khung cho chức danh (task 214), dữ liệu cho phiếu đánh giá (task 215) và câu hỏi phỏng vấn (task 220–223).

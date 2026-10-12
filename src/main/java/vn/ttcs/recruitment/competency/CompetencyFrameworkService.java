@@ -33,9 +33,14 @@ import java.util.UUID;
 
 // Jira 212: create, edit and read competency frameworks together with their criteria.
 // Reading needs ORGANIZATION_READ_ALL (every internal role, including interviewers); writing needs
-// ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER). The 100% weight rule is not checked here.
+// ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER).
+// Jira 213: a complete (ACTIVE) framework must have criteria weights that total exactly 100%; a DRAFT may still
+// be incomplete.
 @Service
 public class CompetencyFrameworkService {
+    // The weights of an ACTIVE framework add up to this many percent.
+    private static final BigDecimal FULL_WEIGHT = new BigDecimal("100");
+
     private final CompetencyFrameworkRepository frameworks;
     private final CompetencyCriterionRepository criteria;
     private final AccountRepository accounts;
@@ -92,10 +97,18 @@ public class CompetencyFrameworkService {
         requireWriteAccess(jwt);
         // A new framework has no criteria yet, so no criterion id can belong to it.
         requireValidCriteria(request.criteria(), Set.of());
+        // Without a status the new framework is a DRAFT, which may still be incomplete.
+        boolean active = request.status() == CompetencyFrameworkStatus.ACTIVE;
+        if (active) {
+            requireCompleteWeights(request.criteria());
+        }
         if (frameworks.existsByCode(request.code())) {
             throw duplicateCode();
         }
         var framework = new CompetencyFramework(request.code(), request.name(), request.description(), now());
+        if (active) {
+            framework.activate();
+        }
         try {
             // Saved first, so the criteria rows below have their framework row (foreign key).
             framework = frameworks.saveAndFlush(framework);
@@ -120,10 +133,19 @@ public class CompetencyFrameworkService {
         current.forEach(criterion -> currentIds.add(criterion.getId()));
         // Step 2: check the final criteria list.
         requireValidCriteria(request.criteria(), currentIds);
+        // The status was read under the lock too, so an activation committed meanwhile is seen here and an
+        // edit prepared while the framework was still a DRAFT must now also keep the total at 100%.
+        CompetencyFrameworkStatus status = statusAfterEdit(framework, request.status());
+        if (status == CompetencyFrameworkStatus.ACTIVE) {
+            requireCompleteWeights(request.criteria());
+        }
         if (frameworks.existsByCodeAndIdNot(request.code(), id)) {
             throw duplicateCode();
         }
         framework.update(request.code(), request.name(), request.description(), now());
+        if (status == CompetencyFrameworkStatus.ACTIVE) {
+            framework.activate();
+        }
         var saved = replaceCriteria(id, request.criteria(), current);
         // Step 3: also flushes the framework change, so a code taken meanwhile is reported here too.
         checkCriteriaNow();
@@ -188,6 +210,43 @@ public class CompetencyFrameworkService {
         }
         if (!duplicateNames.isEmpty()) {
             throw duplicateCriterionName(duplicateNames);
+        }
+    }
+
+    // The status the framework has after an edit. Without a status in the request the current one is kept.
+    // DRAFT can become ACTIVE, but an ACTIVE framework never goes back to DRAFT (409): positions and interview
+    // evaluation forms rely on it staying complete.
+    private static CompetencyFrameworkStatus statusAfterEdit(CompetencyFramework framework,
+                                                             CompetencyFrameworkStatus requested) {
+        if (requested == null) {
+            return framework.getStatus();
+        }
+        if (framework.getStatus() == CompetencyFrameworkStatus.ACTIVE
+                && requested == CompetencyFrameworkStatus.DRAFT) {
+            throw new ApiException(HttpStatus.CONFLICT, "COMPETENCY_FRAMEWORK_ALREADY_ACTIVE",
+                    "Khung năng lực đã hoàn chỉnh (ACTIVE) không thể chuyển lại thành bản nháp (DRAFT).",
+                    Map.of("status", "Khung đang ACTIVE chỉ có thể giữ trạng thái ACTIVE."));
+        }
+        return requested;
+    }
+
+    // Jira 213: interview evaluation forms are scored with a complete (ACTIVE) framework, so the weights of its
+    // criteria must total exactly 100%. Each weight has at most two decimals (CompetencyCriterionRequest), so the
+    // BigDecimal sum is exact: 33.33 + 33.33 + 33.34 is exactly 100.00, with no rounding error as with double.
+    // An empty list totals 0, so a complete framework always has at least one criterion.
+    private static void requireCompleteWeights(List<CompetencyCriterionRequest> requested) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (var item : requested) {
+            total = total.add(item.weight());
+        }
+        // compareTo ignores the number of decimals, so 100 and 100.00 are equal (equals would say they differ).
+        if (total.compareTo(FULL_WEIGHT) != 0) {
+            // Shown with two decimals like every weight, e.g. 90.00 or 100.01.
+            String shown = total.setScale(2).toPlainString();
+            throw new ApiException(HttpStatus.BAD_REQUEST, "COMPETENCY_FRAMEWORK_WEIGHT_TOTAL_INVALID",
+                    "Khung năng lực hoàn chỉnh (ACTIVE) cần tổng trọng số các tiêu chí đúng 100%; tổng hiện tại là "
+                            + shown + "%.",
+                    Map.of("criteria", "Tổng trọng số hiện tại là " + shown + "%, cần đúng 100%."));
         }
     }
 
