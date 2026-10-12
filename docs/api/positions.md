@@ -1,6 +1,6 @@
 # API danh mục chức danh
 
-Phạm vi TKNHTTDNB1-203 (API), TKNHTTDNB1-204 (kiểm tra dữ liệu, giới hạn dải lương) và TKNHTTDNB1-205 (phân quyền xem dải lương), story TKNHTTDNB1-24. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `POSITION_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-203 (API), TKNHTTDNB1-204 (kiểm tra dữ liệu, giới hạn dải lương), TKNHTTDNB1-205 (phân quyền xem dải lương) và TKNHTTDNB1-206 (dữ liệu dải lương chuẩn cho kiểm tra hạn mức offer, không có API mới), story TKNHTTDNB1-24. URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `POSITION_*` dùng `Cache-Control: no-store`.
 
 Backend đọc quyền hiện tại trong database ở mỗi yêu cầu và kiểm lại phiên/quyền sau khi khóa tài khoản người gọi khi ghi.
 
@@ -126,6 +126,25 @@ Ví dụ lỗi dải lương ngược:
 
 Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì quyền được kiểm tra trước dữ liệu.
 
+## Dải lương chuẩn cho kiểm tra hạn mức offer (task 206)
+
+Task 206 không thêm endpoint, không đổi request/response ở trên và không thêm migration. Backend có thêm dịch vụ nội bộ `SalaryBandService` (gói `vn.ttcs.recruitment.position`) để các chức năng làm sau, như duyệt offer và kiểm tra yêu cầu tuyển dụng, lấy dải lương chuẩn của một chức danh và so với mức lương đề xuất. HR_MANAGER vẫn xem dải lương qua `GET /positions/{id}` như trước.
+
+| Phương thức Java | Kết quả |
+|---|---|
+|`standardBand(positionId)`|`SalaryBand(positionId, salaryMin, salaryMax)`: hai mức lương là số nguyên đồng VND (`long`), đọc từ bảng `positions`|
+|`compare(positionId, proposedSalary)`|`BELOW` nếu thấp hơn `salaryMin`; `WITHIN` nếu từ `salaryMin` đến `salaryMax`; `ABOVE` nếu cao hơn `salaryMax`, tức vượt hạn mức|
+|`SalaryBand.compare(proposedSalary)`|Như dòng trên, dùng khi đã có `SalaryBand`|
+
+Quy tắc:
+
+- Cả hai đầu đều nằm trong dải: với dải 15.000.000–25.000.000, mức 15.000.000 và 25.000.000 là `WITHIN`, 25.000.001 là `ABOVE`. Dải cố định (`salaryMin = salaryMax`) chỉ nhận đúng một mức.
+- Lương đề xuất âm bị từ chối bằng `IllegalArgumentException` thay vì trả `BELOW`: module gọi phải kiểm request của mình trước (ví dụ `@PositiveOrZero`), nên giá trị âm đến được đây là lỗi lập trình.
+- Chức danh không tồn tại: `ApiException` 404 `POSITION_NOT_FOUND`, giống API ở trên.
+- **Quyết định với chức danh ngừng áp dụng:** chỉ chức danh `active=true` có dải lương chuẩn. Chức danh `active=false` trả `ApiException` 409 `POSITION_INACTIVE` ("Chức danh đã ngừng áp dụng nên không dùng dải lương của chức danh này để kiểm tra."), áp dụng cho cả yêu cầu/offer mới lẫn offer đang chờ duyệt. Lý do: "ngừng áp dụng" nghĩa là dải lương đó không còn là khung công ty đang duyệt, nên không âm thầm so với nó. Muốn tiếp tục, HR_MANAGER bật lại chức danh bằng PUT `active=true`. Quyết định này chờ BA/PO xác nhận cùng câu hỏi 5 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md).
+- **Không kiểm quyền người gọi:** dịch vụ không nhận token và không phải API, nên trả dải lương cho mọi service gọi nó. Module gọi tự kiểm quyền nghiệp vụ của mình (ví dụ quyền `OFFERS_*`) và chỉ được đưa `salaryMin`/`salaryMax` vào response cho người có `SALARY_RANGES_READ_ALL`, giống `PositionView`. Khi chỉ cần biết có vượt hạn mức không, nên gọi `compare(positionId, proposedSalary)` để không phải cầm con số. Lưu ý: kết quả `BELOW`/`WITHIN`/`ABOVE` vẫn hé lộ một phần dải lương; nếu sau này trả kết quả này cho người không có quyền xem, thử nhiều mức lương có thể đoán ra dải, nên module offer cần cân nhắc khi thiết kế response.
+- **Đồng thời:** khi được gọi trong transaction ghi của module gọi, dịch vụ đọc bằng `SELECT ... FOR SHARE` nên giữ khóa chia sẻ trên dòng chức danh đến khi transaction đó commit hoặc rollback. Trong thời gian này, PUT của HR_MANAGER (sửa lương hoặc ngừng áp dụng) phải chờ, nên offer không bị duyệt theo một dải lương vừa bị đổi; nhiều lần kiểm tra cùng chức danh vẫn chạy song song. Ngược lại, nếu PUT đang ghi dở, lần kiểm tra chờ PUT commit rồi dùng giá trị mới (hoặc trả `POSITION_INACTIVE` nếu chức danh vừa bị ngừng áp dụng). Điều này chỉ đúng khi transaction ghi của module gọi dùng mức cô lập mặc định READ COMMITTED: với `REPEATABLE_READ` hoặc `SERIALIZABLE`, nếu HR đổi dòng chức danh sau khi transaction của module gọi đã chụp snapshot, PostgreSQL từ chối `FOR SHARE` bằng lỗi serialization (SQLSTATE 40001) thay vì trả giá trị mới, và lỗi này hiện chưa được xử lý nên sẽ thành 500. Vì vậy module gọi nên gọi dịch vụ từ transaction ghi dùng mức cô lập mặc định. Module gọi nên lấy dải lương sau khi đã khóa tài khoản và phiên của người gọi, cùng thứ tự với `PositionService`, để tránh deadlock. Gọi ngoài transaction chỉ là một lần đọc, không giữ khóa. Trong transaction chỉ đọc (`readOnly`), PostgreSQL không cho `FOR SHARE`, nên dịch vụ đọc không khóa; transaction chỉ đọc không lưu gì dựa trên kết quả nên không cần khóa.
+
 ## Database và phạm vi
 
-Dùng bảng `positions` của V7, quyền ORGANIZATION của V3 và quyền SALARY_RANGES của V7_1. Task 203 và 204 không thêm migration; task 205 chỉ thêm V7_1 (4 mã quyền, 2 dòng cấp quyền cho HR_MANAGER), không đổi bảng `positions` và không cần sửa `.env`. Không có DELETE: muốn ngừng dùng thì PUT `active=false`. Chưa có liên kết chức danh với phòng ban, yêu cầu tuyển dụng hay offer; kiểm tra hạn mức offer theo dải lương sẽ làm ở các task sau.
+Dùng bảng `positions` của V7, quyền ORGANIZATION của V3 và quyền SALARY_RANGES của V7_1. Task 203 và 204 không thêm migration; task 205 chỉ thêm V7_1 (4 mã quyền, 2 dòng cấp quyền cho HR_MANAGER), không đổi bảng `positions` và không cần sửa `.env`. Task 206 chỉ đọc bảng `positions`, không thêm migration hay quyền. Không có DELETE: muốn ngừng dùng thì PUT `active=false`. Chưa có liên kết chức danh với phòng ban, yêu cầu tuyển dụng hay offer; task 206 mới chuẩn bị dải lương chuẩn và phép so sánh, còn quy tắc duyệt offer (ví dụ `ABOVE` thì cần Approver duyệt) sẽ làm ở các task offer sau.

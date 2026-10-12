@@ -195,7 +195,8 @@ public class PositionService {
         return exception;
     }
 
-    private static ApiException notFound() {
+    // Package-private: SalaryBandService reports an unknown position with the same error.
+    static ApiException notFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "POSITION_NOT_FOUND", "Không tìm thấy chức danh.");
     }
 
