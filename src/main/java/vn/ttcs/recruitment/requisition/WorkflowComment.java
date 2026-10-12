@@ -1,7 +1,7 @@
 package vn.ttcs.recruitment.requisition;
 
-// The comments of the approval workflow (the submit note, an approver's opinion) are stored in
-// requisition_workflow_events, whose CHECK (V19) requires a character PostgreSQL does not count as a space
+// The comments of the approval workflow (the submit note, an approver's opinion, HR's reason for a status change) are
+// stored in requisition_workflow_events, whose CHECK (V19) requires a character PostgreSQL does not count as a space
 // ([[:space:]]). String.isBlank() is not enough: PostgreSQL also counts the non-breaking spaces U+00A0, U+2007, U+202F
 // and U+0085, U+180E as spaces, so a comment made only of them failed the CHECK (500). A comment made only of
 // zero-width characters such as U+200B or U+FEFF passed it and was stored, yet shows nothing.

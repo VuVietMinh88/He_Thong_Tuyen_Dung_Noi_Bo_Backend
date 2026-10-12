@@ -333,12 +333,12 @@ Mọi API ở đây trả tin cùng dạng `GET /job-postings/{id}` ([API tin tu
 |---|---|
 |actions.canEdit|`PUT` qua được phần kiểm trạng thái: tin ở `DRAFT`/`REVISION_REQUESTED` và yêu cầu nguồn còn `APPROVED`|
 |actions.canSubmit|Gửi duyệt qua được phần kiểm trạng thái (cùng điều kiện như trên); chưa xét đủ thông tin|
-|actions.canApprove|Người xem có `JOB_POSTINGS_WRITE_ALL`, tin ở `PENDING_APPROVAL`, và người xem không phải người soạn hay người gửi gần nhất|
-|actions.canRequestRevision|Người xem có `JOB_POSTINGS_WRITE_ALL` và tin ở `PENDING_APPROVAL` hoặc `APPROVED`|
-|actions.canPublish|Người xem có `JOB_POSTINGS_WRITE_ALL` và tin ở `APPROVED`|
+|actions.canApprove|Người xem có `JOB_POSTINGS_WRITE_ALL`, tin ở `PENDING_APPROVAL`, yêu cầu nguồn còn `APPROVED`, và người xem không phải người soạn hay người gửi gần nhất|
+|actions.canRequestRevision|Người xem có `JOB_POSTINGS_WRITE_ALL`, tin ở `PENDING_APPROVAL` hoặc `APPROVED`, và yêu cầu nguồn còn `APPROVED`|
+|actions.canPublish|Người xem có `JOB_POSTINGS_WRITE_ALL`, tin ở `APPROVED`, và yêu cầu nguồn còn `APPROVED`|
 |lastReview|Quyết định gần nhất của HR (`APPROVED` hoặc `REVISION_REQUESTED`): nhận xét, người duyệt (id và họ tên, không email), thời điểm; `null` khi chưa có quyết định nào|
 
-Hạn nộp không nằm trong các cờ: tin quá hạn vẫn có `canApprove`/`canPublish`, và server trả 409 `JOB_POSTING_DEADLINE_PASSED` để giải thích.
+Hạn nộp không nằm trong các cờ: tin quá hạn vẫn có `canApprove`/`canPublish`, và server trả 409 `JOB_POSTING_DEADLINE_PASSED` để giải thích. Từ task 290, Trưởng phòng Nhân sự [tạm dừng, đóng hoặc hủy được yêu cầu](requisition-status.md); khi yêu cầu nguồn không còn `APPROVED`, mọi cờ đều `false`, đúng như các bước trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
 
 Mỗi bước được ghi một dòng vào `job_posting_events` (V22) trong cùng transaction với việc đổi trạng thái: số phiên bản của tin sau bước đó (`revision`), loại (`SUBMITTED`, `APPROVED`, `REVISION_REQUESTED`, `PUBLISHED`), trạng thái trước/sau, người làm, thời điểm, nhận xét. Tạo tin và lưu nội dung không phải bước duyệt nên không có sự kiện; vì vậy `revision` của lịch sử có khoảng trống. Lịch sử đọc qua `GET /job-postings/{id}/history` (task 310, mục "Lịch sử duyệt và xuất bản").
 

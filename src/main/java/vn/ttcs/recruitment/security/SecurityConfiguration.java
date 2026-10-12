@@ -192,6 +192,12 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/assign",
                                 "/api/v1/requisitions/*/unassign")
                                 .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
+                        // Task 290 (story S3-07): pausing, resuming, closing as filled and cancelling a requisition are
+                        // HR decisions (REQUISITIONS_WRITE_ALL: ADMIN, HR_MANAGER), like recruiter assignment (matrix
+                        // §7.13); RequisitionStatusService checks the code again after its locks and also requires read
+                        // access.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/status-changes")
+                                .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
                         // Task 284, 286: who is assigned, and the history of changes, are read like the requisition
                         // itself (same scope as GET /{id}).
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment",

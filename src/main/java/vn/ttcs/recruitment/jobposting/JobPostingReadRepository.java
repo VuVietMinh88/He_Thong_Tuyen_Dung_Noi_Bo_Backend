@@ -53,9 +53,9 @@ class JobPostingReadRepository {
             """;
 
     // Task 309: public means a status in JobPostingService.PUBLIC_STATUSES, an application deadline that is today or
-    // later (today: the business date, read by the caller) and a requisition still in SOURCE_STATUSES (no API moves
-    // an approved requisition out of APPROVED yet; closing postings with their requisition is task 292). Statuses are
-    // bound by name: PgJDBC cannot bind a Java enum.
+    // later (today: the business date, read by the caller) and a requisition still in SOURCE_STATUSES (task 290
+    // pauses, fills and cancels requisitions: a paused one hides its postings until it is resumed; closing postings
+    // with their requisition is task 292). Statuses are bound by name: PgJDBC cannot bind a Java enum.
     private static final String PUBLIC_WHERE = """
              WHERE p.status IN (:public) AND p.application_deadline >= :today
                AND r.status IN (:sourceStatuses)

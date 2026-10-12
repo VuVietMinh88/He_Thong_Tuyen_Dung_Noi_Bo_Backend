@@ -235,7 +235,8 @@ class RequisitionApprovalProgressIntegrationTest {
     }
 
     // Task 293: a status change is one more row of the history, with its reason, and takes the next revision. It is
-    // written here like the API of task 290 will write it: the history row and the status in one transaction.
+    // written here the way RequisitionStatusService (task 290) writes it: the history row and the status in one
+    // transaction.
     @Test
     void aStatusChangeIsShownInTheHistoryWithItsReason() throws Exception {
         api.flow(it, hrId, START, step(1, null, null, "HR_MANAGER"));
@@ -308,7 +309,8 @@ class RequisitionApprovalProgressIntegrationTest {
         api.forbidden(api.request("GET", BASE + id + "/approvals", null, approverBToken));
     }
 
-    // What task 290 will do in one transaction, under the requisition lock: the history row, then the new status.
+    // What RequisitionStatusService (task 290) does in one transaction, under the requisition lock: the history row,
+    // then the new status.
     private void changeStatus(UUID id, RequisitionStatusChange change, RequisitionStatus before, Instant at,
                               String reason) {
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
