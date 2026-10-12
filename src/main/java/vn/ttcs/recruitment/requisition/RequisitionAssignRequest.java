@@ -9,7 +9,8 @@ import java.util.UUID;
 
 // Task 284: POST /requisitions/{id}/assign. {"recruiterId": "...", "note": "..."} is what the frontend already sends:
 // role may be left out and then means PRIMARY (assign or hand over the recruiter in charge).
-// note is an optional reason for the change; it is stored with the change in the history (task 286).
+// note is an optional reason for the change; it is stored with the change in the history (task 286). A note without a
+// visible character is no note (RequisitionText), as V17 stores no note as NULL, never as a text of only spaces.
 public record RequisitionAssignRequest(
         @NotNull(message = "Vui lòng chọn recruiter được phân công.") UUID recruiterId,
         @Pattern(regexp = RequisitionRecruiterRole.CODES,
@@ -20,7 +21,7 @@ public record RequisitionAssignRequest(
         String note) {
 
     public RequisitionAssignRequest {
-        note = note == null || note.isBlank() ? null : note;
+        note = RequisitionText.invisibleToNull(note);
     }
 
     // Only call it after @Valid has accepted the request: role is then null or one of the codes.

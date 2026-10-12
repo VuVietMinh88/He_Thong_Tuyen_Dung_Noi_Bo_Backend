@@ -67,7 +67,7 @@ Tiêu chí của story:
 |---|---|
 |recruiterId|Bắt buộc. UUID tài khoản. Chuỗi không phải UUID (ví dụ `"HR01"`) là `INVALID_JSON`|
 |role|Không bắt buộc. `PRIMARY` (recruiter chính) hoặc `SUPPORTING` (recruiter hỗ trợ), đúng chữ hoa. Không gửi hoặc `null` nghĩa là `PRIMARY`, nên body `{recruiterId, note}` mà frontend đang gửi là giao hoặc chuyển giao recruiter chính|
-|note|Không bắt buộc. Tối đa 1.000 ký tự, không chứa ký tự NUL. Lý do của lần thay đổi, lưu vào lịch sử (task 286); trống thì lưu `null`|
+|note|Không bắt buộc. Tối đa 1.000 ký tự, không chứa ký tự NUL. Lý do của lần thay đổi, lưu vào lịch sử (task 286); không gửi, `null` hoặc không có ký tự nhìn thấy được (rỗng, chỉ có khoảng trắng và xuống dòng, kể cả khoảng trắng không ngắt như U+00A0, hay chỉ có ký tự rộng 0 như U+200B) thì lưu `null`|
 
 Trường khác (ví dụ `assignedBy`) trả `INVALID_JSON`.
 

@@ -205,6 +205,33 @@ class RequisitionRecruiterHistoryIntegrationTest {
                 Boolean.class)).isTrue();
     }
 
+    // A note without a visible character is no note, like a blank one, on assign and on unassign. Before, the no-break
+    // spaces U+00A0, U+2007, U+202F and U+0085, U+180E passed String.isBlank() and failed V17's CHECK (500), and a
+    // note made of zero-width characters (U+200B, U+FEFF, U+2060) was stored as a note that shows nothing.
+    @Test
+    void notesWithoutAVisibleCharacterAreStoredAsNull() throws Exception {
+        expect(assign(Map.of("recruiterId", r.get(0)), hrToken), 200);
+        int[] invisibles = {0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x200B, 0xFEFF, 0x2060};
+        for (int invisible : invisibles) {
+            String note = new String(new int[] {invisible, '\n', invisible}, 0, 3);
+            String description = Integer.toHexString(invisible);
+            expect(assign(Map.of("recruiterId", r.get(1), "role", "SUPPORTING", "note", note), hrToken), 200);
+            expect(unassign(Map.of("recruiterId", r.get(1), "note", note), hrToken), 200);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_recruiter_changes WHERE note IS NULL",
+                    Integer.class)).as(description).isEqualTo(jdbc.queryForObject(
+                            "SELECT count(*) FROM requisition_recruiter_changes", Integer.class));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_recruiter_changes", Integer.class))
+                .isEqualTo(1 + 2 * invisibles.length);
+        assertThat(expect(history(hrToken), 200).findValues("note")).hasSize(1 + 2 * invisibles.length)
+                .allMatch(JsonNode::isNull);
+
+        // One visible character is enough, and the note is stored exactly as typed, its no-break space included.
+        String note = "Bàn" + new String(new int[] {0x00A0}, 0, 1) + "giao";
+        expect(assign(Map.of("recruiterId", r.get(2), "note", note), hrToken), 200);
+        assertThat(expect(history(hrToken), 200).get(0).path("note").asText()).isEqualTo(note);
+    }
+
     @Test
     void nothingIsRecordedForNoOpsOrRefusedRequests() throws Exception {
         expect(assign(Map.of("recruiterId", r.get(0)), hrToken), 200);
