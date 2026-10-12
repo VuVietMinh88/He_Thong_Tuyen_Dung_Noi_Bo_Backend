@@ -38,6 +38,7 @@ import java.net.http.HttpResponse;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.Timestamp;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -58,6 +59,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // Jira 221: create, edit and read the questions of the interview question bank (story S2-07). Every question belongs
 // to one criterion of a competency framework.
+// Jira 222: the checks of the referenced criterion, the difficulty and the texts, and no repeated question on one
+// criterion.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -287,12 +290,11 @@ class InterviewQuestionManagementIntegrationTest {
                 "answerHint", "Gợi ý câu trả lời tối đa 4000 ký tự.")));
 
         // Fields outside the contract, values of the wrong kind and broken JSON are refused before any check.
+        // A wrong difficulty is a field error since Jira 222 (acceptsEveryDifficultyAndNames...).
         String valid = "\"criterionId\":\"" + communication + "\",\"content\":\"Câu hỏi\"";
         for (String body : List.of(
                 "{" + valid + ",\"difficulty\":\"EASY\",\"id\":\"" + UUID.randomUUID() + "\"}",
                 "{" + valid + ",\"difficulty\":\"EASY\",\"createdAt\":\"2026-10-07T00:00:00Z\"}",
-                "{" + valid + ",\"difficulty\":\"easy\"}",
-                "{" + valid + ",\"difficulty\":\"VERY_HARD\"}",
                 "{" + valid + ",\"difficulty\":\"EASY\",\"active\":\"maybe\"}",
                 "{\"criterionId\":\"not-a-uuid\",\"content\":\"Câu hỏi\",\"difficulty\":\"EASY\"}",
                 "{" + valid + ",\"difficulty\":")) {
@@ -463,7 +465,7 @@ class InterviewQuestionManagementIntegrationTest {
         Jwt interviewer = jwtDecoder.decode(interviewerToken);
         assertThatThrownBy(() -> service.get(noRole, id)).isInstanceOf(AccessDeniedException.class);
         assertThat(service.get(interviewer, id).content()).isEqualTo("Câu hỏi");
-        var request = new InterviewQuestionRequest(thinking, "Câu hỏi", InterviewQuestionDifficulty.EASY, null, null);
+        var request = new InterviewQuestionRequest(thinking, "Câu hỏi", "EASY", null, null);
         assertThatThrownBy(() -> service.create(interviewer, request)).isInstanceOf(AccessDeniedException.class);
         assertThatThrownBy(() -> service.update(interviewer, id, request)).isInstanceOf(AccessDeniedException.class);
         assertThat(jdbc.queryForList("SELECT criterion_id FROM interview_questions", UUID.class))
@@ -551,17 +553,17 @@ class InterviewQuestionManagementIntegrationTest {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             // Plays a direct SQL change that skips the framework lock: "Tư duy" is deleted but not committed yet,
-            // so the service still finds it, and only the V9 foreign key can stop the question.
+            // so the service still finds it and locks its framework.
             execute(connection, "DELETE FROM competency_criteria WHERE id = ?", thinking);
             int blockerPid = backendPid(connection);
             try (var executor = Executors.newSingleThreadExecutor()) {
                 var response = executor.submit(() -> create(question(thinking, "Câu hỏi", "EASY", null), hrToken));
                 try {
-                    // The foreign key check of the insert waits for the deleted row.
+                    // The criterion row lock (Jira 222) waits for the deleted row.
                     awaitWaiters(blockerPid);
                     assertThat(response.isDone()).isFalse();
                     connection.commit();
-                    // The foreign key refuses the question; the service answers the same 400 instead of a 500.
+                    // The lock then finds no criterion: the same 400, not a 500 from the foreign key.
                     var result = response.get(10, TimeUnit.SECONDS);
                     JsonNode body = expect(result, 400);
                     noStore(result);
@@ -586,7 +588,7 @@ class InterviewQuestionManagementIntegrationTest {
             Future<InterviewQuestionView> pending = executor.submit(() -> new TransactionTemplate(transactionManager)
                     .execute(status -> {
                         var view = service.create(hr, new InterviewQuestionRequest(thinking, "Câu hỏi đang lưu",
-                                InterviewQuestionDifficulty.HARD, null, null));
+                                "HARD", null, null));
                         writerPid.set(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
                         saved.countDown();
                         await(finish);
@@ -594,7 +596,8 @@ class InterviewQuestionManagementIntegrationTest {
                     }));
             try {
                 assertThat(saved.await(10, TimeUnit.SECONDS)).as("the question must be saved").isTrue();
-                // Another question write on the same framework shares the lock and does not wait.
+                // A question write on another criterion of the same framework shares the framework lock and does
+                // not wait.
                 expect(create(question(communication, "Câu hỏi khác", "EASY", null), adminToken), 201);
 
                 // The administrator drops "Tư duy" from the framework: the edit waits for the question...
@@ -695,6 +698,257 @@ class InterviewQuestionManagementIntegrationTest {
                     + "'ORGANIZATION_WRITE_ALL') ON CONFLICT DO NOTHING");
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_questions", Integer.class)).isZero();
+    }
+
+    // Jira 222: every difficulty the API stores is accepted, and a wrong one gets a field error that names the
+    // accepted values instead of the general INVALID_JSON.
+    @Test
+    void acceptsEveryDifficultyAndNamesTheAcceptedOnesWhenTheValueIsWrong() throws Exception {
+        // InterviewQuestionRequest lists the names by hand, so this fails if a new difficulty is forgotten there.
+        List<UUID> ids = new ArrayList<>();
+        for (InterviewQuestionDifficulty difficulty : InterviewQuestionDifficulty.values()) {
+            JsonNode created = expect(create(question(communication, "Câu hỏi mức " + difficulty, difficulty.name(),
+                    null), hrToken), 201);
+            assertThat(created.path("difficulty").asText()).isEqualTo(difficulty.name());
+            ids.add(id(created));
+        }
+        var before = questionRows();
+        assertThat(before).hasSize(3);
+
+        var wrongDifficulty = json.valueToTree(Map.of(
+                "difficulty", "Mức độ khó phải là EASY (dễ), MEDIUM (trung bình) hoặc HARD (khó)."));
+        String valid = "\"criterionId\":\"" + communication + "\",\"content\":\"Câu hỏi mới\"";
+        // Lower case, another word, an empty text and padding are not accepted; neither are a number or true/false.
+        for (String value : List.of("\"easy\"", "\"Easy\"", "\"VERY_HARD\"", "\"\"", "\" EASY\"", "1", "true")) {
+            JsonNode refused = expect(request("POST", BASE, "{" + valid + ",\"difficulty\":" + value + "}", hrToken),
+                    400);
+            assertThat(refused.path("code").asText()).as(value).isEqualTo("VALIDATION_ERROR");
+            assertThat(refused.path("fieldErrors")).as(value).isEqualTo(wrongDifficulty);
+        }
+        // A list or an object is not a single value at all, so the body does not match the contract.
+        for (String value : List.of("[\"EASY\"]", "{\"name\":\"EASY\"}")) {
+            error(request("POST", BASE, "{" + valid + ",\"difficulty\":" + value + "}", hrToken), 400,
+                    "INVALID_JSON");
+        }
+
+        // PUT checks it the same way, and reports it together with the other wrong fields.
+        JsonNode both = expect(update(ids.get(0), question(communication, " ", "medium", null), hrToken), 400);
+        assertThat(both.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(both.path("fieldErrors")).isEqualTo(json.valueToTree(Map.of(
+                "content", "Nội dung câu hỏi không được để trống.",
+                "difficulty", "Mức độ khó phải là EASY (dễ), MEDIUM (trung bình) hoặc HARD (khó).")));
+        assertThat(questionRows()).isEqualTo(before);
+    }
+
+    // Jira 222: tabs and line breaks keep a long question readable, but other control characters are invisible
+    // garbage, and PostgreSQL cannot store the NUL character at all.
+    @Test
+    void refusesControlCharactersInsideTheTextsButKeepsTabsAndLineBreaks() throws Exception {
+        JsonNode created = expect(create(question(communication, "Bước 1:\tđọc đề.\r\nBước 2:\tviết lời giải.",
+                "EASY", "Gợi ý:\n\t- nêu giả định"), hrToken), 201);
+        assertThat(created.path("content").asText()).isEqualTo("Bước 1:\tđọc đề.\r\nBước 2:\tviết lời giải.");
+        assertThat(created.path("answerHint").asText()).isEqualTo("Gợi ý:\n\t- nêu giả định");
+        UUID id = id(created);
+        var before = questionRows();
+        assertThat(before.get(0)).containsEntry("content", "Bước 1:\tđọc đề.\r\nBước 2:\tviết lời giải.");
+
+        var bothRefused = json.valueToTree(Map.of(
+                "content", "Nội dung câu hỏi không được chứa ký tự điều khiển; chỉ dùng được xuống dòng và tab.",
+                "answerHint", "Gợi ý câu trả lời không được chứa ký tự điều khiển; chỉ dùng được xuống dòng và tab."));
+        // NUL, bell, escape, delete and a C1 control character (U+009B), inside the text and at its end.
+        for (String control : List.of("\u0000", "\u0007", "\u001B", "\u007F", "\u009B")) {
+            JsonNode inside = expect(create(question(communication, "Câu" + control + "hỏi mới", "EASY",
+                    "Gợi" + control + "ý"), hrToken), 400);
+            assertThat(inside.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+            assertThat(inside.path("fieldErrors")).isEqualTo(bothRefused);
+            JsonNode atTheEnd = expect(create(question(communication, "Câu hỏi mới" + control, "EASY",
+                    "Gợi ý" + control), hrToken), 400);
+            assertThat(atTheEnd.path("fieldErrors")).isEqualTo(bothRefused);
+        }
+
+        // PUT refuses them too and leaves the question as it was.
+        JsonNode hint = expect(update(id, question(communication, "Câu hỏi đã sửa", "EASY", "Gợi ý\u0000"), hrToken),
+                400);
+        assertThat(hint.path("fieldErrors")).isEqualTo(json.valueToTree(Map.of("answerHint",
+                "Gợi ý câu trả lời không được chứa ký tự điều khiển; chỉ dùng được xuống dòng và tab.")));
+        assertThat(questionRows()).isEqualTo(before);
+    }
+
+    // Jira 222: some editors send a Vietnamese letter as a base letter plus combining marks (Unicode form NFD). The
+    // texts are stored in the composed form (NFC), so the same visible text is stored the same way, and the length
+    // limits count letters as people see them.
+    @Test
+    void storesTheTextsInComposedFormSoTheLimitsCountLettersAsPeopleSeeThem() throws Exception {
+        String composed = "Hãy kể về dự án gần nhất của bạn.";
+        String decomposed = Normalizer.normalize(composed, Normalizer.Form.NFD);
+        assertThat(decomposed).isNotEqualTo(composed);
+        JsonNode created = expect(create(question(communication, decomposed, "EASY", "Gợi ý: " + decomposed),
+                hrToken), 201);
+        assertThat(created.path("content").asText()).isEqualTo(composed);
+        assertThat(created.path("answerHint").asText()).isEqualTo("Gợi ý: " + composed);
+        assertThat(jdbc.queryForMap("SELECT content, answer_hint FROM interview_questions WHERE id = ?", id(created)))
+                .containsEntry("content", composed).containsEntry("answer_hint", "Gợi ý: " + composed);
+
+        // "ệ" and "ộ" are 3 Java characters each in NFD (letter, dot below, circumflex) but 1 letter on screen.
+        String longestContent = Normalizer.normalize("ệ".repeat(2000), Normalizer.Form.NFD);
+        String longestHint = Normalizer.normalize("ộ".repeat(4000), Normalizer.Form.NFD);
+        assertThat(longestContent).hasSize(6000);
+        JsonNode atLimit = expect(create(question(thinking, longestContent, "EASY", longestHint), hrToken), 201);
+        assertThat(atLimit.path("content").asText()).isEqualTo("ệ".repeat(2000));
+        assertThat(atLimit.path("answerHint").asText()).isEqualTo("ộ".repeat(4000));
+        // One letter more is still too long.
+        JsonNode tooLong = expect(create(question(thinking, longestContent + Normalizer.normalize("ệ",
+                Normalizer.Form.NFD), "MEDIUM", longestHint + Normalizer.normalize("ộ", Normalizer.Form.NFD)),
+                hrToken), 400);
+        assertThat(tooLong.path("fieldErrors")).isEqualTo(json.valueToTree(Map.of(
+                "content", "Nội dung câu hỏi tối đa 2000 ký tự.",
+                "answerHint", "Gợi ý câu trả lời tối đa 4000 ký tự.")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_questions", Integer.class)).isEqualTo(2);
+    }
+
+    // Jira 222: a criterion may not hold the same question twice. Upper/lower case, the spaces and line breaks
+    // between words and the way a Vietnamese letter is encoded do not make a different question.
+    @Test
+    void refusesASecondQuestionWithTheSameTextOnTheSameCriterion() throws Exception {
+        String original = "Bạn xử lý xung đột trong nhóm thế nào?";
+        UUID first = id(expect(create(question(communication, original, "MEDIUM", null), hrToken), 201));
+
+        // "ạ", "ử", "ý", "đ", "ộ", "ế", "à": NFD writes each accented letter as a base letter plus combining marks,
+        // as some editors send it. It looks the same on screen but is a different Java string.
+        String decomposed = Normalizer.normalize(original, Normalizer.Form.NFD);
+        assertThat(decomposed).isNotEqualTo(original);
+        for (String sameText : List.of(original, "  BẠN XỬ LÝ xung đột\n trong   nhóm thế nào?", decomposed)) {
+            var response = create(question(communication, sameText, "HARD", "Gợi ý khác"), adminToken);
+            JsonNode refused = expect(response, 409);
+            noStore(response);
+            assertThat(refused.path("code").asText()).isEqualTo("INTERVIEW_QUESTION_DUPLICATE");
+            assertThat(refused.path("message").asText())
+                    .isEqualTo("Tiêu chí này đã có câu hỏi phỏng vấn cùng nội dung.");
+            assertThat(refused.path("fieldErrors")).isEqualTo(json.valueToTree(Map.of(
+                    "content", "Câu hỏi này đã có trong tiêu chí đã chọn.")));
+        }
+        assertThat(jdbc.queryForList("SELECT id FROM interview_questions", UUID.class)).containsExactly(first);
+
+        // The same text on another criterion is another question: one question may check several criteria.
+        JsonNode otherCriterion = expect(create(question(thinking, original, "MEDIUM", null), hrToken), 201);
+        assertThat(otherCriterion.path("criterion").path("id").asText()).isEqualTo(thinking.toString());
+        // Only case, spaces and encoding are ignored: different punctuation makes a different text.
+        expect(create(question(communication, "Bạn xử lý xung đột trong nhóm thế nào", "MEDIUM", null), hrToken), 201);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_questions", Integer.class)).isEqualTo(3);
+    }
+
+    @Test
+    void aQuestionOutOfUseStillHoldsItsTextAndHrIsToldToPutItBackInUse() throws Exception {
+        UUID unused = id(expect(create(with(question(communication, "Mô tả một lần bạn thuyết phục sếp.", "HARD",
+                null), "active", false), hrToken), 201));
+        JsonNode refused = expect(create(question(communication, "mô tả một lần bạn thuyết phục sếp.", "EASY", null),
+                hrToken), 409);
+        assertThat(refused.path("code").asText()).isEqualTo("INTERVIEW_QUESTION_DUPLICATE");
+        assertThat(refused.path("fieldErrors")).isEqualTo(json.valueToTree(Map.of("content",
+                "Câu hỏi này đã có trong tiêu chí đã chọn nhưng đang ngừng dùng; "
+                        + "hãy dùng lại câu hỏi đó (active = true).")));
+
+        // Putting the old question back in use is the way out.
+        JsonNode back = expect(update(unused, with(question(communication, "Mô tả một lần bạn thuyết phục sếp.",
+                "HARD", null), "active", true), hrToken), 200);
+        assertThat(back.path("active").asBoolean()).isTrue();
+        assertThat(jdbc.queryForList("SELECT id FROM interview_questions", UUID.class)).containsExactly(unused);
+    }
+
+    @Test
+    void anEditMayKeepOrRecaseItsOwnTextButNotTakeTheTextOfAnotherQuestionOfTheCriterion() throws Exception {
+        UUID planning = id(expect(create(question(communication, "Bạn lập kế hoạch tuần thế nào?", "EASY", null),
+                hrToken), 201));
+        UUID feedback = id(expect(create(question(communication, "Bạn nhận góp ý ra sao?", "EASY", null), hrToken),
+                201));
+        UUID onThinking = id(expect(create(question(thinking, "Bạn nhận góp ý ra sao?", "EASY", null), hrToken), 201));
+
+        // The question itself does not count: it may keep its text, or change only its case and spaces.
+        JsonNode recased = expect(update(planning, question(communication, "Bạn lập  kế hoạch TUẦN thế nào?", "HARD",
+                "Ưu tiên việc quan trọng."), hrToken), 200);
+        assertThat(recased.path("content").asText()).isEqualTo("Bạn lập  kế hoạch TUẦN thế nào?");
+        assertThat(recased.path("difficulty").asText()).isEqualTo("HARD");
+        var before = questionRows();
+
+        // Taking the text of another question of the criterion is refused...
+        error(update(feedback, question(communication, "bạn lập kế hoạch tuần thế nào?", "EASY", null), hrToken),
+                409, "INTERVIEW_QUESTION_DUPLICATE");
+        // ...and so is moving a question to a criterion that already has its text, in either direction.
+        error(update(onThinking, question(communication, "Bạn nhận góp ý ra sao?", "EASY", null), hrToken), 409,
+                "INTERVIEW_QUESTION_DUPLICATE");
+        error(update(feedback, question(thinking, "Bạn nhận góp ý ra sao?", "EASY", null), hrToken), 409,
+                "INTERVIEW_QUESTION_DUPLICATE");
+        assertThat(questionRows()).isEqualTo(before);
+    }
+
+    @Test
+    void aTextRepeatedBeforeTheCheckExistedCanStillBeCorrectedAndTakenOutOfUse() throws Exception {
+        // Plays data saved before Jira 222 (or by direct SQL): the same question twice on one criterion.
+        UUID older = UUID.randomUUID();
+        UUID newer = UUID.randomUUID();
+        for (UUID id : List.of(older, newer)) {
+            jdbc.update("INSERT INTO interview_questions (id, criterion_id, content, difficulty, active, created_at, "
+                    + "updated_at) VALUES (?, ?, 'Câu hỏi bị lặp', 'EASY', TRUE, ?, ?)", id, communication,
+                    Timestamp.from(START), Timestamp.from(START));
+        }
+
+        // An edit that keeps the criterion and the text is not refused, so HR can take the copy out of use.
+        JsonNode outOfUse = expect(update(newer, with(question(communication, "Câu hỏi bị lặp", "MEDIUM",
+                "Gợi ý mới"), "active", false), hrToken), 200);
+        assertThat(outOfUse.path("active").asBoolean()).isFalse();
+        assertThat(outOfUse.path("answerHint").asText()).isEqualTo("Gợi ý mới");
+        // A new text is checked as usual: once changed, the copy cannot take the repeated text back.
+        expect(update(newer, question(communication, "Câu hỏi đã viết lại", "MEDIUM", null), hrToken), 200);
+        error(update(newer, question(communication, "Câu hỏi bị lặp", "MEDIUM", null), hrToken), 409,
+                "INTERVIEW_QUESTION_DUPLICATE");
+        assertThat(jdbc.queryForObject("SELECT content FROM interview_questions WHERE id = ?", String.class, newer))
+                .isEqualTo("Câu hỏi đã viết lại");
+        assertThat(jdbc.queryForObject("SELECT content FROM interview_questions WHERE id = ?", String.class, older))
+                .isEqualTo("Câu hỏi bị lặp");
+    }
+
+    // Jira 222: two writes of the same text on one criterion must not both pass the duplicate check. The criterion
+    // row is locked, so the second write waits for the first one and then sees its question.
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "update"})
+    void aWriteThatWaitsForAnotherWriteOfTheSameTextOnTheCriterionIsRefused(String operation) throws Exception {
+        UUID existing = id(expect(create(question(thinking, "Câu hỏi khác", "EASY", null), hrToken), 201));
+        Jwt hr = jwtDecoder.decode(hrToken);
+        var saved = new CountDownLatch(1);
+        var finish = new CountDownLatch(1);
+        var writerPid = new AtomicInteger();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            // Plays a question write that has passed its duplicate check but not committed yet.
+            Future<InterviewQuestionView> pending = executor.submit(() -> new TransactionTemplate(transactionManager)
+                    .execute(status -> {
+                        var view = service.create(hr, new InterviewQuestionRequest(communication, "Câu hỏi đang lưu",
+                                "HARD", null, null));
+                        writerPid.set(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+                        saved.countDown();
+                        await(finish);
+                        return view;
+                    }));
+            try {
+                assertThat(saved.await(10, TimeUnit.SECONDS)).as("the question must be saved").isTrue();
+                var second = executor.submit(() -> operation.equals("create")
+                        ? create(question(communication, "câu hỏi  đang lưu", "EASY", null), adminToken)
+                        : update(existing, question(communication, "Câu hỏi đang lưu", "EASY", null), adminToken));
+                // The second write waits for the criterion lock instead of checking before the first one commits.
+                awaitWaiters(writerPid.get());
+                assertThat(second.isDone()).isFalse();
+
+                finish.countDown();
+                assertThat(pending.get(10, TimeUnit.SECONDS).criterion().id()).isEqualTo(communication);
+                error(second.get(10, TimeUnit.SECONDS), 409, "INTERVIEW_QUESTION_DUPLICATE");
+            } finally {
+                // Release the first transaction even if an assertion above fails.
+                finish.countDown();
+            }
+        }
+        assertThat(jdbc.queryForList("SELECT content FROM interview_questions WHERE criterion_id = ?", String.class,
+                communication)).containsExactly("Câu hỏi đang lưu");
+        assertThat(jdbc.queryForObject("SELECT content FROM interview_questions WHERE id = ?", String.class, existing))
+                .isEqualTo("Câu hỏi khác");
     }
 
     private UUID account(String email, Set<Role> roles) {

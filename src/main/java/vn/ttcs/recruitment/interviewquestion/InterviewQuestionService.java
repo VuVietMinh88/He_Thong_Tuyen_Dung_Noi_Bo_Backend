@@ -20,18 +20,27 @@ import vn.ttcs.recruitment.competency.CompetencyFrameworkRepository;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.sql.SQLException;
+import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 // Jira 221: create, edit and read the questions of the interview question bank (story S2-07). Every question belongs
 // to one criterion of a competency framework, so it is checked against that criterion.
 // The question bank is organization data like the frameworks: reading needs ORGANIZATION_READ_ALL (every internal
 // role, interviewers included), writing needs ORGANIZATION_WRITE_ALL (ADMIN, HR_MANAGER).
+// Jira 222: InterviewQuestionRequest checks each field on its own; this service checks the criterion and that the
+// criterion does not already hold the same question.
 @Service
 public class InterviewQuestionService {
+    // A run of characters Unicode calls white space: spaces (non-breaking ones too), tabs and line breaks.
+    private static final Pattern SPACES = Pattern.compile("\\p{IsWhite_Space}+");
+
     private final InterviewQuestionRepository questions;
     private final CompetencyCriterionRepository criteria;
     private final CompetencyFrameworkRepository frameworks;
@@ -72,9 +81,10 @@ public class InterviewQuestionService {
     public InterviewQuestionView create(Jwt jwt, InterviewQuestionRequest request) {
         requireWriteAccess(jwt);
         Target target = lockCriterion(request.criterionId());
+        requireNewText(request.criterionId(), request.content(), null);
         // Without active in the request, a new question is in use.
         boolean active = request.active() == null || request.active();
-        var question = new InterviewQuestion(request.criterionId(), request.content(), request.difficulty(),
+        var question = new InterviewQuestion(request.criterionId(), request.content(), request.difficultyLevel(),
                 request.answerHint(), active, now());
         try {
             question = questions.saveAndFlush(question);
@@ -84,17 +94,19 @@ public class InterviewQuestionService {
         return InterviewQuestionView.from(question, target.criterion(), target.framework());
     }
 
-    // Checks in order: the question exists (404), then the criterion it should point to (400).
+    // Checks in order: the question exists (404), then the criterion it should point to (400), then that the
+    // criterion has no other question with the same text (409).
     @Transactional
     public InterviewQuestionView update(Jwt jwt, UUID id, InterviewQuestionRequest request) {
         requireWriteAccess(jwt);
         // Locked before the framework, so two edits of the same question run one after the other.
         InterviewQuestion question = questions.findByIdForUpdate(id).orElseThrow(InterviewQuestionService::notFound);
         Target target = lockCriterion(request.criterionId());
+        requireNewText(request.criterionId(), request.content(), question);
         // Without active in the request, the question stays in use or out of use as it is.
         boolean active = request.active() == null ? question.isActive() : request.active();
-        question.update(request.criterionId(), request.content(), request.difficulty(), request.answerHint(), active,
-                now());
+        question.update(request.criterionId(), request.content(), request.difficultyLevel(), request.answerHint(),
+                active, now());
         try {
             questions.flush();
         } catch (DataIntegrityViolationException exception) {
@@ -110,17 +122,57 @@ public class InterviewQuestionService {
     // - if such an edit is running now, this waits for it and then reads the criterion again, so a criterion the edit
     //   has just deleted becomes a 400 here instead of an error from the foreign key;
     // - question writes on the same framework share the lock and do not wait for each other.
-    // A criterion of a DRAFT framework is accepted: HR may prepare the questions while the framework is still drafted.
+    // Jira 222: then the criterion row itself is locked with SELECT ... FOR UPDATE. Two question writes on the same
+    // criterion run one after the other, so requireNewText of the second one sees the question the first one saved.
+    // A criterion of a DRAFT framework is accepted: HR may prepare the questions while the framework is still drafted
+    // (the framework only has to be ACTIVE to be assigned to a position, Jira 214).
     private Target lockCriterion(UUID criterionId) {
         UUID frameworkId = criteria.findFrameworkIdById(criterionId)
                 .orElseThrow(InterviewQuestionService::unknownCriterion);
         CompetencyFramework framework = frameworks.findByIdForShare(frameworkId)
                 .orElseThrow(InterviewQuestionService::unknownCriterion);
-        // Read after the lock, so this is the latest committed criterion row: it may have been deleted or renamed
-        // while this request waited.
-        CompetencyCriterion criterion = criteria.findById(criterionId)
+        // Read with the lock, so this is the latest committed criterion row: it may have been deleted or renamed
+        // while this request waited. A criterion deleted by direct SQL that has not committed yet makes this wait
+        // and then find nothing.
+        CompetencyCriterion criterion = criteria.findByIdForUpdate(criterionId)
                 .orElseThrow(InterviewQuestionService::unknownCriterion);
         return new Target(criterion, framework);
+    }
+
+    // Jira 222: a criterion may not hold the same question twice (409), active or not, otherwise interviewers would
+    // find the same question twice under the criterion. The same text on another criterion is allowed: one question
+    // may check several criteria. Runs after lockCriterion, so no other write of this criterion can add the text
+    // meanwhile.
+    // edited is the question a PUT changes (null for POST); it never counts as its own duplicate.
+    private void requireNewText(UUID criterionId, String content, InterviewQuestion edited) {
+        String text = comparableText(content);
+        // An edit that keeps the criterion and the text is not checked again. A text repeated before this check
+        // existed (or written by direct SQL) can then still be corrected or taken out of use.
+        if (edited != null && edited.getCriterionId().equals(criterionId)
+                && comparableText(edited.getContent()).equals(text)) {
+            return;
+        }
+        List<InterviewQuestion> sameText = questions.findByCriterionIdOrderByCreatedAtAscIdAsc(criterionId).stream()
+                .filter(other -> edited == null || !other.getId().equals(edited.getId()))
+                .filter(other -> comparableText(other.getContent()).equals(text))
+                .toList();
+        if (sameText.isEmpty()) {
+            return;
+        }
+        if (sameText.stream().anyMatch(InterviewQuestion::isActive)) {
+            throw duplicateText("Câu hỏi này đã có trong tiêu chí đã chọn.");
+        }
+        // Only questions out of use have this text: HR should put one of them back in use instead of writing it again.
+        throw duplicateText("Câu hỏi này đã có trong tiêu chí đã chọn nhưng đang ngừng dùng; "
+                + "hãy dùng lại câu hỏi đó (active = true).");
+    }
+
+    // The form in which two question texts are compared. Upper/lower case, the spaces and line breaks between the
+    // words and the way a Vietnamese letter is encoded (see InterviewQuestionRequest) do not make another question;
+    // any other difference does, punctuation included.
+    private static String comparableText(String text) {
+        String composed = Normalizer.normalize(text, Normalizer.Form.NFC);
+        return SPACES.matcher(composed).replaceAll(" ").toLowerCase(Locale.ROOT);
     }
 
     private void requireReadAccess(Jwt jwt) {
@@ -169,8 +221,9 @@ public class InterviewQuestionService {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
-    // The framework lock stops deletions made through the framework API. A criterion deleted another way (direct SQL)
-    // after the check above is still refused by the V9 foreign key (23503); it ends as the same 400, not a 500.
+    // The framework lock stops deletions made through the framework API, and since Jira 222 the criterion row lock
+    // also makes a deletion by direct SQL wait for this write. The V9 foreign key (23503) is kept as a safety net: if
+    // it still refuses the criterion, the caller gets the same 400, not a 500.
     // InterviewQuestionRequest removes the spaces around the texts, so the V9 text CHECKs (23514) should not fail.
     // Which characters PostgreSQL counts as spaces depends on the database locale, though, so if one is still
     // refused the caller gets a 400 that names the field, not a 500.
@@ -198,6 +251,11 @@ public class InterviewQuestionService {
     private static ApiException refusedText(String field, String error) {
         return new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra dữ liệu đã nhập.",
                 Map.of(field, error));
+    }
+
+    private static ApiException duplicateText(String error) {
+        return new ApiException(HttpStatus.CONFLICT, "INTERVIEW_QUESTION_DUPLICATE",
+                "Tiêu chí này đã có câu hỏi phỏng vấn cùng nội dung.", Map.of("content", error));
     }
 
     private static ApiException notFound() {
