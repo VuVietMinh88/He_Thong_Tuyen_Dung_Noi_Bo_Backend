@@ -133,7 +133,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 
 ## Khung năng lực của chức danh (task 214)
 
-Story 25: "khung năng lực dùng lại được cho nhiều chức danh". Mỗi chức danh **trỏ tới** một khung năng lực qua cột `positions.competency_framework_id` (V8); tiêu chí chỉ nằm trong khung và **không bị sao chép** sang từng chức danh. Các chức danh dùng chung một khung cùng đọc một bộ dòng `competency_criteria`, nên sửa khung (`PUT /competency-frameworks/{id}`) là áp dụng ngay cho mọi chức danh đang dùng nó. Danh sách chức danh đang dùng một khung nằm ở trường `positions` của `GET /competency-frameworks/{id}` ([API khung năng lực](competency-frameworks.md)).
+Story 25: "khung năng lực dùng lại được cho nhiều chức danh". Mỗi chức danh **trỏ tới** một khung năng lực qua cột `positions.competency_framework_id` (V8); tiêu chí chỉ nằm trong khung và **không bị sao chép** sang từng chức danh. Các chức danh dùng chung một khung cùng đọc một bộ dòng `competency_criteria`, nên sửa khung (`PUT /competency-frameworks/{id}`) là áp dụng ngay cho mọi chức danh đang dùng nó. Danh sách chức danh đang dùng một khung nằm ở trường `positions` của `GET /competency-frameworks/{id}` ([API khung năng lực](competency-frameworks.md)). Tiêu chí và trọng số mà một chức danh được chấm theo (task 215) đọc bằng `GET /positions/{id}/evaluation-criteria` ([API tiêu chí đánh giá theo chức danh](evaluation-criteria.md)).
 
 Hai API dưới đây chỉ đổi liên kết, không đụng tới dải lương, nên chỉ cần `ORGANIZATION_WRITE_ALL`: ADMIN cũng làm được (khác với tạo/sửa chức danh), dù response gửi cho ADMIN vẫn không có `salaryMin`/`salaryMax`.
 
