@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// Tasks 290/292/293: the HTTP and SQL helpers the status change tests share. It composes JobPostingTestSupport, so
+// Tasks 290/291/292/293: the HTTP and SQL helpers the status change tests share. It composes JobPostingTestSupport, so
 // accounts, departments, flows, requisitions and postings come from there.
 final class RequisitionStatusTestSupport {
     static final String REQUISITIONS = "/api/v1/requisitions/";
@@ -36,6 +36,12 @@ final class RequisitionStatusTestSupport {
     // reason and expectedRevision are left out of the body when null.
     HttpResponse<String> change(UUID requisition, String status, String reason, Integer expectedRevision,
                                 String token) throws Exception {
+        return change(requisition, status, reason, expectedRevision, null, token);
+    }
+
+    // Task 291: the same with confirmActiveCandidates, which is left out of the body when null.
+    HttpResponse<String> change(UUID requisition, String status, String reason, Integer expectedRevision,
+                                Boolean confirmActiveCandidates, String token) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", status);
         if (reason != null) {
@@ -44,7 +50,15 @@ final class RequisitionStatusTestSupport {
         if (expectedRevision != null) {
             body.put("expectedRevision", expectedRevision);
         }
+        if (confirmActiveCandidates != null) {
+            body.put("confirmActiveCandidates", confirmActiveCandidates);
+        }
         return change(requisition, body, token);
+    }
+
+    // Task 291: GET /requisitions/{id}/active-pipeline.
+    HttpResponse<String> activePipeline(UUID requisition, String token) throws Exception {
+        return api.request("GET", REQUISITIONS + requisition + "/active-pipeline", null, token);
     }
 
     // Any body, null values included.

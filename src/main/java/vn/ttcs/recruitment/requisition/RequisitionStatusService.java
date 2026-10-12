@@ -5,9 +5,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
@@ -34,10 +36,12 @@ import java.util.UUID;
  * exists (404), the caller may read it by department (403; taking part in its approval does not count), the change is
  * allowed from its status (409), the caller looks at its latest history (409). The status 409 comes before the
  * revision 409, as in a decision, so a second click is told the change is no longer possible rather than stale.
- * Then the listeners (task 291 may refuse before anything is written; task 292 closes postings afterwards).
+ * Then, for a closure, the active pipeline (409 unless confirmed, task 291), then the listeners (task 292 closes
+ * postings afterwards).
  * <p>
  * Lock order like every requisition write: the actor's account, the actor's session, the requisition row, then only
- * what the listeners lock after it (job postings, task 292). The caller is checked again after each lock. No
+ * what the listeners lock after it (job postings, task 292); the pipeline source reads under the requisition lock and
+ * locks nothing. The caller is checked again after each lock. No
  * department lock: no rule here depends on its manager, as in assignment. No headcount plan lock: no change leads from
  * a status the plan does not count to one it counts (CountedRequisitionStatusChangeTest). Nothing waits after the
  * requisition lock: the history row only takes FOR KEY SHARE on the requisition (ours) and on the actor's account
@@ -60,13 +64,16 @@ public class RequisitionStatusService {
     private final AccountRepository accounts;
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
+    private final AuthService auth;
+    private final RequisitionPipelineSource pipeline;
     private final ObjectProvider<RequisitionStatusListener> listeners;
     private final Clock clock;
 
     public RequisitionStatusService(RequisitionService requisitionService,
                                     RecruitmentRequisitionRepository requisitions,
                                     RequisitionApprovalRepository approvals, AccountRepository accounts,
-                                    AuthSessionRepository sessions, PermissionService permissions,
+                                    AuthSessionRepository sessions, PermissionService permissions, AuthService auth,
+                                    RequisitionPipelineSource pipeline,
                                     ObjectProvider<RequisitionStatusListener> listeners, Clock clock) {
         this.requisitionService = requisitionService;
         this.requisitions = requisitions;
@@ -74,6 +81,8 @@ public class RequisitionStatusService {
         this.accounts = accounts;
         this.sessions = sessions;
         this.permissions = permissions;
+        this.auth = auth;
+        this.pipeline = pipeline;
         this.listeners = listeners;
         this.clock = clock;
     }
@@ -99,6 +108,16 @@ public class RequisitionStatusService {
         if (request.expectedRevision() != ApprovalRound.lastRevision(approvals.findEvents(id))) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_STATE_CHANGED", STATE_CHANGED);
         }
+        // Task 291: closing while candidates are still in the pipeline needs the caller's confirmation. Asked last,
+        // under the requisition lock: a stale page reloads before anyone is asked to confirm, and an application
+        // committed while this request waited is counted. A refusal writes nothing, so the same expectedRevision can be
+        // sent again.
+        if (change.checksActivePipeline() && !request.confirmsActiveCandidates()) {
+            ActivePipeline active = pipeline.activePipeline(id);
+            if (active.count() > 0) {
+                throw new ActivePipelineConflictException(change, active);
+            }
+        }
         var transition = new RequisitionStatusTransition(id, change, before, change.target(), writer.actorId(), now(),
                 request.reason());
         listeners.orderedStream().forEach(listener -> listener.beforeChange(transition));
@@ -107,6 +126,30 @@ public class RequisitionStatusService {
         requisitions.flush();
         listeners.orderedStream().forEach(listener -> listener.afterChange(transition));
         return RequisitionView.from(requisition);
+    }
+
+    /**
+     * Task 291: the candidates still in the requisition's pipeline, for the close dialog. Same audience as a change
+     * (REQUISITIONS_WRITE_ALL, read access, department read scope), without locks. Any status.
+     * Checks in order: token and account (401), REQUISITIONS_WRITE_ALL (403), read access at all (403, before the
+     * lookup), the requisition exists (404), department read scope (403; approval participants and assigned recruiters
+     * do not count).
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public ActivePipeline activePipeline(Jwt jwt, UUID id) {
+        var now = clock.instant();
+        if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        Account actor = auth.requireActiveAccount(jwt);
+        Set<String> granted = permissions.forUser(actor.getId());
+        if (!granted.contains(WRITE_ALL)) {
+            throw new AccessDeniedException("Reading the active pipeline requires REQUISITIONS_WRITE_ALL");
+        }
+        AccessScope readScope = AccessScope.read(granted, PermissionModule.REQUISITIONS).orDeny();
+        RecruitmentRequisition requisition = requisitions.findById(id).orElseThrow(RequisitionStatusService::notFound);
+        requisitionService.requireInReadScope(actor.getId(), readScope, requisition.getDepartmentId());
+        return pipeline.activePipeline(id);
     }
 
     // The caller of a write once lockWriter holds the account and the session.

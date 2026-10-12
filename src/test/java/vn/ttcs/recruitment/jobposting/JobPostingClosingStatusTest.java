@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
+import vn.ttcs.recruitment.requisition.RequisitionStatusChange;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,6 +33,15 @@ class JobPostingClosingStatusTest {
         };
 
         assertThat(JobPostingRequisitionSync.CLOSABLE_STATUSES.contains(status)).isEqualTo(closable);
+    }
+
+    // Task 291: the changes that ask for confirmation while candidates are still in the pipeline are exactly those that
+    // close the requisition's postings: both are the final closures (FILLED, CANCELLED).
+    @ParameterizedTest
+    @EnumSource(RequisitionStatusChange.class)
+    void thePipelineIsCheckedExactlyForTheChangesThatClosePostings(RequisitionStatusChange change) {
+        assertThat(change.checksActivePipeline())
+                .isEqualTo(JobPostingRequisitionSync.CLOSING_STATUSES.contains(change.target()));
     }
 
     // A requisition that closes its postings is never one they are made from or shown for, so a closed posting never

@@ -1,12 +1,12 @@
 # Tạm dừng, đóng và hủy yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-293 (lịch sử trạng thái và lý do), TKNHTTDNB1-290 (kiểm quyền, trạng thái và lý do) và TKNHTTDNB1-292 (tự gỡ tin tuyển dụng khi đóng yêu cầu), story TKNHTTDNB1-36 (S3-07). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Task 293 thêm ba trạng thái, xếp chúng vào các nhóm trạng thái và lưu mỗi lần đổi trạng thái vào lịch sử. Task 290 thêm API đổi trạng thái `POST /requisitions/{id}/status-changes` (mục "Đổi trạng thái"); lịch sử đọc qua [tiến độ duyệt](requisition-approvals.md). Task 292 đóng tin tuyển dụng của yêu cầu đã tuyển đủ hoặc bị hủy (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)").
+Phạm vi TKNHTTDNB1-293 (lịch sử trạng thái và lý do), TKNHTTDNB1-290 (kiểm quyền, trạng thái và lý do), TKNHTTDNB1-292 (tự gỡ tin tuyển dụng khi đóng yêu cầu) và TKNHTTDNB1-291 (kiểm tra ứng viên đang xử lý trước khi đóng yêu cầu), story TKNHTTDNB1-36 (S3-07). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Task 293 thêm ba trạng thái, xếp chúng vào các nhóm trạng thái và lưu mỗi lần đổi trạng thái vào lịch sử. Task 290 thêm API đổi trạng thái `POST /requisitions/{id}/status-changes` (mục "Đổi trạng thái"); lịch sử đọc qua [tiến độ duyệt](requisition-approvals.md). Task 292 đóng tin tuyển dụng của yêu cầu đã tuyển đủ hoặc bị hủy (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)"). Task 291 thêm API xem ứng viên còn trong quy trình và bước xác nhận khi đóng yêu cầu (mục "Ứng viên còn trong quy trình (task 291)").
 
 Tiêu chí của story S3-07:
 
 - "Ba trạng thái kết thúc có lý do riêng: Đã tuyển đủ, Tạm dừng, Huỷ": đã có (290, 293). Task 293 thêm ba trạng thái và lưu người thao tác, thời điểm, trạng thái trước/sau và lý do; task 290 thêm API, chỉ cho Trưởng phòng Nhân sự, bắt lý do khi tạm dừng, đóng hay hủy.
 - "Đóng yêu cầu tự động gỡ tin tuyển dụng đang đăng": đã có (292). Đã tuyển đủ hoặc hủy chuyển mọi tin chưa đóng của yêu cầu sang `CLOSED` (Đã đóng) trong cùng transaction: tin rời cổng tuyển dụng ngay, không sửa, duyệt hay xuất bản được nữa, và lịch sử tin ghi người đóng, thời điểm và lý do. Tạm dừng chỉ ẩn tin (task 309), không đóng.
-- "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng": thuộc task 291, chưa làm vì chưa có module ứng viên; backend không trả số ứng viên giả.
+- "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng": đã có API và bước xác nhận (291, mục "Ứng viên còn trong quy trình (task 291)"); nguồn ứng viên chờ module ứng viên: hiện số luôn là 0 (nghĩa là backend chưa có dữ liệu ứng viên, không phải đã kiểm và không còn ai) và đóng yêu cầu không bị chặn; backend không trả số ứng viên giả. Tiêu chí này chỉ đạt đủ khi có module ứng viên.
 
 ## Quyền
 
@@ -14,10 +14,12 @@ Tiêu chí của story S3-07:
 |---|---|---|
 |`POST /requisitions/{id}/status-changes`|`REQUISITIONS_WRITE_ALL` ở matcher và kiểm lại sau mỗi khóa, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt và recruiter được phân công)|HR_MANAGER, ADMIN|
 |Đọc lịch sử (`GET /requisitions/{id}/approvals`)|Như `GET /requisitions/{id}` (xem [tiến độ duyệt](requisition-approvals.md))|Như xem yêu cầu|
+|`GET /requisitions/{id}/active-pipeline` (task 291)|`REQUISITIONS_WRITE_ALL` ở matcher và kiểm lại trong service, **và** quyền xem theo phạm vi phòng ban như đổi trạng thái|HR_MANAGER, ADMIN|
 
 - Tạm dừng, mở lại, đóng vì đã tuyển đủ và hủy là quyết định của Trưởng phòng Nhân sự, giống phân công recruiter (mục 7.13 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). Trưởng bộ phận có `REQUISITIONS_WRITE_SCOPED` nhưng bị 403, kể cả với bản nháp của chính mình; recruiter được phân công và người duyệt cũng vậy. Không thêm mã quyền mới.
 - Service kiểm lại đúng mã `REQUISITIONS_WRITE_ALL` sau mỗi lần chờ khóa, không chỉ "có quyền ghi": nếu quyền của HR bị thu hẹp thành `REQUISITIONS_WRITE_SCOPED` trong lúc lệnh đang chờ, lệnh vẫn bị 403.
 - Quyền ghi không bao gồm quyền đọc. Response trả cả yêu cầu, nên người gọi còn phải có `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED`; thiếu cả hai thì 403 ngay, kể cả với `{id}` không tồn tại (403 trước 404). Người chỉ có `REQUISITIONS_READ_SCOPED` phải phụ trách phòng ban của yêu cầu. Theo seed hiện tại HR_MANAGER và ADMIN có `REQUISITIONS_READ_ALL`, nên hai điều này chỉ có tác dụng khi ma trận quyền đổi.
+- Ứng viên đang xử lý (task 291) chỉ dành cho hộp thoại đóng yêu cầu của người đóng: trưởng bộ phận và recruiter được phân công (task 285) xem được yêu cầu nhưng nhận 403 ở `GET /requisitions/{id}/active-pipeline`. API này dùng đúng các bước kiểm quyền của đổi trạng thái, không khóa gì.
 
 ## Trạng thái
 
@@ -65,14 +67,16 @@ Thêm ví dụ:
 - Tạm dừng: `{"status": "PAUSED", "reason": "Chờ ngân sách quý 4", "expectedRevision": 2}`
 - Mở lại: `{"status": "APPROVED", "expectedRevision": 3}` (lý do không bắt buộc)
 - Hủy một bản nháp chưa gửi duyệt: `{"status": "CANCELLED", "reason": "Trùng yêu cầu khác", "expectedRevision": 0}`
+- Đóng khi còn ứng viên, sau khi đã xác nhận (task 291): `{"status": "FILLED", "reason": "Đã tuyển đủ 2 người.", "expectedRevision": 2, "confirmActiveCandidates": true}`
 
 | Trường | Quy tắc |
 |---|---|
 |status|Bắt buộc. Trạng thái mới, đúng chữ hoa: `PAUSED` (tạm dừng), `APPROVED` (mở lại sau khi tạm dừng), `FILLED` (đã tuyển đủ) hoặc `CANCELLED` (hủy). Giá trị khác, kể cả `CLOSED` của frontend, trả 400 `VALIDATION_ERROR`|
 |reason|Lý do, giữ đúng tên trường frontend đang gửi. **Bắt buộc** khi tạm dừng, đã tuyển đủ và hủy; không bắt buộc khi mở lại. Tối đa 2.000 ký tự, không chứa ký tự NUL; để trống hoặc không có ký tự nhìn thấy được (chỉ gồm khoảng trắng, kể cả U+00A0, xuống dòng, hoặc ký tự vô hình như U+200B) coi như không có, như nhận xét của luồng duyệt; lý do có ký tự nhìn thấy được lưu đúng như gửi, giữ nguyên xuống dòng. Lưu vào `comment` của dòng lịch sử|
 |expectedRevision|Bắt buộc, số nguyên ≥ 0: `revision` của `GET /requisitions/{id}/approvals` mà người gọi đang xem (0 khi yêu cầu chưa từng gửi duyệt). Lệch với lịch sử hiện tại thì 409 `REQUISITION_STATE_CHANGED`|
+|confirmActiveCandidates|Không bắt buộc (task 291). `true` nghĩa là người gọi đã thấy ứng viên còn trong quy trình và vẫn đóng. Không gửi hoặc `null` coi như `false`. Bỏ qua khi thay đổi không cần xác nhận (tạm dừng, mở lại) hoặc khi không còn ai trong quy trình. Không được lưu. Giá trị không phải đúng/sai như `"yes"`, `[]`, `{}` trả 400 `INVALID_JSON`; Jackson tự đổi `"true"` và `1` thành `true` (như `showSalary` của tin tuyển dụng), nhưng frontend nên gửi đúng `true` hoặc `false`|
 
-- Body chỉ có ba trường trên. Gửi thêm trường khác, ví dụ `comment`, `reasonCode`, `actorId`, `occurredAt`, `statusBefore`, trả 400 `INVALID_JSON`: người thao tác lấy từ token, thời điểm lấy từ đồng hồ server, trạng thái trước lấy từ database.
+- Body chỉ có bốn trường trên. Gửi thêm trường khác, ví dụ `comment`, `reasonCode`, `actorId`, `occurredAt`, `statusBefore`, trả 400 `INVALID_JSON`: người thao tác lấy từ token, thời điểm lấy từ đồng hồ server, trạng thái trước lấy từ database.
 - Thiếu lý do khi cần trả 400 `REQUISITION_STATUS_REASON_REQUIRED`, `fieldErrors.reason` có cùng câu thông báo. Lỗi này được kiểm **trước** mọi khóa và mọi tra cứu, nên `{id}` không tồn tại vẫn nhận 400 chứ không phải 404, và lệnh không phải chờ khi yêu cầu đang bị người khác giữ.
 - Thành công trả 200 với yêu cầu (15 trường như `GET /requisitions/{id}`), `status` mới; `updatedAt` không đổi vì đó là thời điểm sửa nội dung gần nhất.
 
@@ -90,10 +94,84 @@ Lỗi đầu tiên gặp phải được trả về:
 8. Người chỉ có `REQUISITIONS_READ_SCOPED` phụ trách phòng ban của yêu cầu (403); người tham gia duyệt và recruiter được phân công (task 285) không được tính.
 9. Thay đổi được phép từ trạng thái hiện tại (409 `REQUISITION_STATUS_CHANGE_NOT_ALLOWED`).
 10. `expectedRevision` bằng số của sự kiện mới nhất trong lịch sử (409 `REQUISITION_STATE_CHANGED`).
-11. Chỗ nối `beforeChange` (task 291 sau này): lỗi của nó được trả nguyên, không ghi gì.
-12. Ghi dòng lịch sử, đổi trạng thái, rồi chỗ nối `afterChange` (task 292): lỗi của nó làm hủy toàn bộ thay đổi.
+11. Đã tuyển đủ hoặc hủy mà không có `confirmActiveCandidates: true`: hỏi nguồn ứng viên, còn ứng viên thì 409 `REQUISITION_HAS_ACTIVE_CANDIDATES` (task 291, mục "Ứng viên còn trong quy trình (task 291)").
+12. Chỗ nối `beforeChange` cho module khác: lỗi của nó được trả nguyên, không ghi gì.
+13. Ghi dòng lịch sử, đổi trạng thái, rồi chỗ nối `afterChange` (task 292): lỗi của nó làm hủy toàn bộ thay đổi.
 
-Lỗi trạng thái (9) đứng trước lỗi phiên bản (10), như khi quyết định duyệt: bấm hai lần trên cùng trang nhận "không thể chuyển" thay vì "dữ liệu đã cũ".
+Lỗi trạng thái (9) đứng trước lỗi phiên bản (10), như khi quyết định duyệt: bấm hai lần trên cùng trang nhận "không thể chuyển" thay vì "dữ liệu đã cũ". Bước 11 đứng sau lỗi trạng thái và phiên bản: trang cũ phải tải lại trước khi được hỏi xác nhận.
+
+## Ứng viên còn trong quy trình (task 291)
+
+Tiêu chí "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng" của story S3-07: trước khi đóng yêu cầu, Trưởng phòng Nhân sự thấy ứng viên còn đang được xử lý và phải xác nhận nếu vẫn đóng. Task 291 thêm API đọc và bước xác nhận; nguồn ứng viên chờ module ứng viên (mục "Nguồn hiện tại").
+
+### Xem ứng viên đang xử lý
+
+```
+GET /api/v1/requisitions/5d0e6a1c-2f3b-4c5d-8e9f-0a1b2c3d4e5f/active-pipeline
+Authorization: Bearer <accessToken>
+```
+
+200, `Cache-Control: no-store`. Hiện mọi yêu cầu đều trả:
+
+```json
+{ "count": 0, "stages": [] }
+```
+
+Khi có module ứng viên, ví dụ:
+
+```json
+{ "count": 3,
+  "stages": [ { "stage": "SCREENING", "name": "Sàng lọc", "count": 1 },
+              { "stage": "INTERVIEW", "name": "Phỏng vấn", "count": 2 } ] }
+```
+
+- `count`: số ứng viên còn trong quy trình, giữ tên trường frontend đang đọc.
+- `stages`: số theo từng bước, theo thứ tự quy trình, khi nguồn có số chi tiết; mảng rỗng khi nguồn chỉ có tổng. Khi không rỗng, tổng các bước đúng bằng `count`, và bước không có ai không được liệt kê. `stage` và `name` là mã và tên do module ứng viên đặt; module yêu cầu tuyển dụng không có danh sách bước riêng. Frontend không được giả định `stages` có phần tử khi `count > 0`.
+- Trả lời ở mọi trạng thái, kể cả đã tuyển đủ và đã hủy (ứng viên còn lại sau một lần đóng có xác nhận).
+- Thứ tự kiểm: matcher (chưa đăng nhập 401; thiếu `REQUISITIONS_WRITE_ALL` 403); `{id}` không phải UUID 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; token, phiên và tài khoản (401); mã `REQUISITIONS_WRITE_ALL` đọc lại (403); có `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED` (403, trước khi biết yêu cầu có tồn tại hay không); yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`); người chỉ có `REQUISITIONS_READ_SCOPED` phụ trách phòng ban của yêu cầu (403; người tham gia duyệt và recruiter được phân công không được tính); rồi hỏi nguồn ứng viên. Một snapshot `REPEATABLE_READ` chỉ đọc, không khóa gì.
+
+### Nguồn hiện tại: chưa có module ứng viên
+
+Backend chưa có module ứng viên (V1–V25 không có bảng ứng viên hay hồ sơ ứng tuyển), nên nguồn mặc định `NoCandidateModulePipelineSource` trả `{count: 0, stages: []}` cho mọi yêu cầu. Số 0 này nghĩa là **backend chưa có dữ liệu ứng viên**, không phải đã kiểm và không còn ai; vì vậy hiện đóng yêu cầu không bao giờ bị chặn. Backend không trả số ứng viên giả. Response không có cờ riêng cho "chưa có dữ liệu" (hình dạng đã thống nhất); tài liệu này và ghi chú cho frontend nói rõ điều đó. Tiêu chí của story chỉ đạt đủ khi có module ứng viên.
+
+### Xác nhận khi đóng
+
+| Thay đổi | `status` | Cần xác nhận khi còn ứng viên | Vì sao |
+|---|---|---|---|
+|Tạm dừng|`PAUSED`|Không|Mở lại được mà không duyệt lại, giữ định biên và nhóm recruiter, chỉ ẩn tin; tiêu chí nói "trước khi đóng". Frontend vẫn có thể hiện cảnh báo thông tin từ API đọc (câu hỏi 20.2 của ma trận)|
+|Mở lại|`APPROVED`|Không|Mở lại yêu cầu|
+|Đã tuyển đủ|`FILLED`|**Có**, từ đã duyệt hoặc tạm dừng|Kết thúc; đóng tin tuyển dụng (task 292)|
+|Hủy|`CANCELLED`|**Có**, từ mọi trạng thái được hủy|Kết thúc. Quy tắc theo trạng thái đích, nên cũng chạy khi hủy từ nháp, chờ duyệt hay cần bổ sung: module ứng viên có thể nhận hồ sơ qua kênh khác ngoài tin tuyển dụng, nên quy tắc không phụ thuộc điều đó|
+
+Chủ của bảng: `RequisitionStatusChange.checksActivePipeline` (ghim bởi `RequisitionStatusChangeTest` và `JobPostingClosingStatusTest`: đúng những thay đổi đóng tin tuyển dụng).
+
+Đã tuyển đủ hoặc hủy mà không có `confirmActiveCandidates: true` (không gửi, `false` hoặc `null`) khi nguồn báo còn ứng viên thì nhận:
+
+```
+409  Cache-Control: no-store
+{ "code": "REQUISITION_HAS_ACTIVE_CANDIDATES",
+  "message": "Yêu cầu tuyển dụng còn 3 ứng viên đang trong quy trình tuyển dụng. Vui lòng xử lý các ứng viên này trước, hoặc xác nhận vẫn đóng yêu cầu vì đã tuyển đủ.",
+  "fieldErrors": {},
+  "activePipeline": { "count": 3, "stages": [ … ] } }
+```
+
+- Khi hủy, câu thông báo kết thúc bằng "… hoặc xác nhận vẫn hủy yêu cầu.".
+- Khi chỉ còn 1 ứng viên, câu thông báo nói "Vui lòng xử lý ứng viên này trước" (không có "các", vốn chỉ số nhiều).
+- `activePipeline` giống hệt response của API đọc, nên hộp thoại hiện được ngay mà không phải gọi lại. Đây là lỗi duy nhất có khóa thứ tư; mọi lỗi khác vẫn chỉ có `code`, `message`, `fieldErrors`.
+- Lần từ chối **không ghi gì**: không thêm dòng lịch sử, không đổi trạng thái, không tăng `revision`, không đóng tin. Người gọi gửi lại đúng body đó với `confirmActiveCandidates: true` và **cùng** `expectedRevision`.
+- Có `confirmActiveCandidates: true` thì không hỏi nguồn và đóng như bình thường (vẫn cần lý do, vẫn đóng tin tuyển dụng). Xác nhận không được lưu (không thêm cột, không migration).
+- Giới hạn đã biết: xác nhận là cờ đúng/sai, không gắn với số ứng viên người gọi đã thấy; ứng viên vào quy trình sau khi hộp thoại mở cũng bị đóng theo (câu hỏi 20.7). Nếu cần xác nhận theo đúng số đã thấy thì thêm một trường mới, không phá hợp đồng này.
+
+### Dành cho module ứng viên
+
+Module ứng viên thay `NoCandidateModulePipelineSource` bằng `RequisitionPipelineSource` của mình (xóa lớp mặc định: hai bean cùng loại làm ứng dụng không khởi động được) và tuân theo:
+
+- "Đang trong quy trình" là hồ sơ ứng tuyển vào yêu cầu chưa ở trạng thái cuối; module tự định nghĩa các bước.
+- Chạy trong transaction của người gọi: khi đổi trạng thái là dưới khóa dòng yêu cầu (`FOR NO KEY UPDATE`, READ COMMITTED), khi đọc là snapshot `REPEATABLE_READ` chỉ đọc. Nguồn chỉ đọc và không khóa gì, nên sau khóa dòng yêu cầu không có gì phải chờ.
+- Trả `ActivePipeline.NONE` cho yêu cầu không biết và không ném lỗi cho yêu cầu đó.
+- Mọi thao tác ghi đưa một hồ sơ vào quy trình phải khóa dòng yêu cầu `FOR SHARE` hoặc `FOR NO KEY UPDATE` trước (`FOR KEY SHARE` không xung đột với đổi trạng thái), theo thứ tự tài khoản, phiên, yêu cầu rồi tới dòng của mình, và từ chối yêu cầu đã tuyển đủ hoặc đã hủy, như các thao tác ghi tin tuyển dụng. Nếu không, hồ sơ thêm vào sau khi số đã được đọc có thể lọt qua bước kiểm.
+
+Bước kiểm hỏi nguồn **sau** khóa dòng yêu cầu ở READ COMMITTED, nên với một nguồn thật tuân theo hợp đồng trên, hồ sơ được commit trong lúc HR chờ khóa cũng được đếm. Test hiện tại (`RequisitionActivePipelineIntegrationTest`, với nguồn giả trong bộ nhớ) chỉ ghim rằng nguồn được hỏi sau khi có khóa, dưới khóa, sau mọi bước kiểm khác và trước khi ghi gì; việc đếm đúng ở mức database do test của module ứng viên kiểm.
 
 ## Nhóm trạng thái
 
@@ -177,6 +255,7 @@ Hủy một yêu cầu `PENDING_APPROVAL` kết thúc lượt duyệt đang ch�
 ## Khóa và đồng thời
 
 - Thứ tự khóa như mọi thao tác ghi yêu cầu: tài khoản người gọi, phiên, dòng yêu cầu (`FOR NO KEY UPDATE`), rồi chỉ những gì chỗ nối khóa sau đó (task 292: tin tuyển dụng của yêu cầu). Mọi thao tác ghi tin cũng khóa dòng yêu cầu trước tin, nên không có deadlock.
+- Nguồn ứng viên (task 291) được hỏi sau khóa dòng yêu cầu và không khóa gì.
 - Không khóa phòng ban: không quy tắc nào ở đây phụ thuộc người phụ trách phòng ban, như phân công recruiter.
 - Không khóa định biên: không thay đổi nào đưa yêu cầu từ trạng thái không tính sang trạng thái có tính (quy tắc 1 ở mục "Nhóm trạng thái").
 - Sau khi khóa dòng yêu cầu không còn gì phải chờ: dòng lịch sử chỉ lấy `FOR KEY SHARE` trên chính yêu cầu và tài khoản người gọi mà lệnh đã giữ.
@@ -194,16 +273,19 @@ Kết quả khi hai thao tác đến cùng lúc (thao tác đến trước chạ
 |HR đóng vì đã tuyển đủ|Phân công recruiter|200; 409 `REQUISITION_NOT_ASSIGNABLE`|
 |HR tạm dừng|Lưu tin tuyển dụng|200; 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`|
 |HR hủy|HR khác hủy|200; 409 `REQUISITION_STATUS_CHANGE_NOT_ALLOWED`, chỉ một dòng `CANCELLED`|
+|Đưa hồ sơ vào quy trình (module ứng viên sau này)|HR đóng vì đã tuyển đủ hoặc hủy, không xác nhận|200; 409 `REQUISITION_HAS_ACTIVE_CANDIDATES`|
 
-## Chỗ nối cho task 291 và 292
+Dòng cuối chỉ đúng khi có nguồn thật mà thao tác ghi của nó khóa dòng yêu cầu như hợp đồng ở mục "Ứng viên còn trong quy trình (task 291)"; test hiện tại chỉ ghim rằng nguồn được hỏi sau khi có khóa. Xác nhận không gắn với số ứng viên đã thấy: ứng viên mới vào sau khi hộp thoại mở mà người gọi đã gửi `confirmActiveCandidates: true` vẫn bị đóng theo (câu hỏi 20 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).
+
+## Chỗ nối cho module khác (task 291, 292)
 
 `RequisitionStatusListener` là chỗ để module khác phản ứng khi Trưởng phòng Nhân sự đổi trạng thái. Hai phương thức chạy trong cùng transaction với thay đổi, khi đang giữ khóa dòng yêu cầu, và nhận `RequisitionStatusTransition` (yêu cầu, thay đổi, trạng thái trước và sau, người thao tác, thời điểm đúng như dòng lịch sử, lý do):
 
-- `beforeChange` chạy sau mọi bước kiểm và trước khi ghi gì. Task 291 sẽ từ chối đóng yêu cầu ở đây khi còn ứng viên trong quy trình, trừ khi người gọi đã xác nhận (khi đó task 291 thêm trường riêng vào body).
+- `beforeChange` chạy sau mọi bước kiểm và trước khi ghi gì; module khác vẫn có thể từ chối ở đây. Task 291 kiểm ứng viên trong chính `RequisitionStatusService` (bước 11), trước `beforeChange`; chỗ nối giữ cho module sau này.
 - `afterChange` chạy khi dòng lịch sử và trạng thái mới đã được ghi. Task 292 đóng tin tuyển dụng của yêu cầu ở đây.
 - Lỗi của một trong hai được trả nguyên cho người gọi và làm hủy toàn bộ thay đổi, kể cả dòng lịch sử.
 
-Task 292 thêm listener đầu tiên, `JobPostingRequisitionSync` (mục sau). Chưa có cảnh báo ứng viên vì chưa có module ứng viên, và backend không trả số ứng viên giả: frontend đừng gọi `active-candidates-count` (route này chưa tồn tại, gọi sẽ nhận 403).
+Task 292 thêm listener đầu tiên, `JobPostingRequisitionSync` (mục sau). Cảnh báo ứng viên (task 291) đọc qua `GET /requisitions/{id}/active-pipeline`; `GET /job-requisitions/{id}/active-candidates-count` mà frontend đang gọi không tồn tại (403).
 
 ## Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)
 
@@ -255,13 +337,14 @@ Trong mọi trường hợp tin có đúng một bước `CLOSED` và không cò
 | HTTP | `code` | Khi nào |
 |---|---|---|
 |400|`VALIDATION_ERROR`|`{id}` không phải UUID ("Tham số đường dẫn hoặc bộ lọc không hợp lệ."); thiếu hoặc sai `status`, `reason` quá 2.000 ký tự hoặc chứa ký tự NUL, thiếu `expectedRevision` hoặc nhỏ hơn 0 (`fieldErrors`)|
-|400|`INVALID_JSON`|JSON sai, thiếu body, trường không được phép (`comment`, `reasonCode`, `actorId`, `occurredAt`, `statusBefore`...)|
+|400|`INVALID_JSON`|JSON sai, thiếu body, trường không được phép (`comment`, `reasonCode`, `actorId`, `occurredAt`, `statusBefore`...), `confirmActiveCandidates` không phải true/false|
 |400|`REQUISITION_STATUS_REASON_REQUIRED`|Tạm dừng, đã tuyển đủ hoặc hủy mà không có lý do (kể cả lý do không có ký tự nhìn thấy được, ví dụ chỉ gồm khoảng trắng, U+00A0 hoặc U+200B); `fieldErrors.reason`|
 |401|`UNAUTHORIZED` / `SESSION_INVALID`|Token sai, hết hạn hoặc phiên bị thu hồi, kể cả khi điều đó xảy ra trong lúc chờ khóa|
-|403|`FORBIDDEN`|Thiếu `REQUISITIONS_WRITE_ALL` (kể cả bị gỡ hoặc thu hẹp trong lúc chờ); không có quyền xem yêu cầu nào; người `SCOPED` ngoài phạm vi phòng ban|
+|403|`FORBIDDEN`|Thiếu `REQUISITIONS_WRITE_ALL` (kể cả bị gỡ hoặc thu hẹp trong lúc chờ); không có quyền xem yêu cầu nào; người `SCOPED` ngoài phạm vi phòng ban. Cả `GET /requisitions/{id}/active-pipeline`|
 |404|`REQUISITION_NOT_FOUND`|Không có yêu cầu với `{id}`|
 |409|`REQUISITION_STATUS_CHANGE_NOT_ALLOWED`|Thay đổi không được phép từ trạng thái hiện tại ("Không thể chuyển yêu cầu tuyển dụng từ trạng thái hiện tại sang trạng thái đã chọn. Vui lòng tải lại để xem trạng thái mới nhất.")|
 |409|`REQUISITION_STATE_CHANGED`|`expectedRevision` không còn là phiên bản mới nhất ("Yêu cầu tuyển dụng vừa có thay đổi khác (có thể người khác vừa xử lý). Vui lòng tải lại trước khi thao tác.")|
+|409|`REQUISITION_HAS_ACTIVE_CANDIDATES`|Đã tuyển đủ hoặc hủy khi còn ứng viên trong quy trình mà không gửi `confirmActiveCandidates: true` ("Yêu cầu tuyển dụng còn {n} ứng viên đang trong quy trình tuyển dụng. Vui lòng xử lý các ứng viên này trước, hoặc xác nhận vẫn đóng yêu cầu vì đã tuyển đủ." / "… hoặc xác nhận vẫn hủy yêu cầu."; khi chỉ còn 1 ứng viên, "các ứng viên này" thành "ứng viên này"); `fieldErrors` rỗng; body có thêm `activePipeline` (task 291)|
 
 Các 409 có sẵn mà nay gặp được với yêu cầu tạm dừng, đã tuyển đủ hoặc đã hủy: `REQUISITION_NOT_ASSIGNABLE`, `REQUISITION_NOT_DRAFT`, `REQUISITION_NOT_SUBMITTABLE`, `REQUISITION_NOT_PENDING_APPROVAL`, `JOB_POSTING_REQUISITION_NOT_APPROVED` (mục "Ảnh hưởng tới phần khác"). Task 292 thêm 409 `JOB_POSTING_CLOSED` ở mọi thao tác ghi tin đã đóng cùng yêu cầu (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)"). Lỗi bất ngờ khi đóng tin (lỗi database) trả 500 và hủy toàn bộ thay đổi.
 
@@ -275,7 +358,7 @@ V24 (task 293) không đổi dòng nào, không thêm quyền, không thêm rout
 
 Các CHECK `_round`, `_level`, `_snapshot` của V19 không phải sửa: chúng có dạng "loại của luồng duyệt = cột có giá trị", nên đã buộc dòng đổi trạng thái để trống lượt, cấp và bản chụp. `_comment` và hai khóa ngoại của V19 cũng giữ nguyên. Ràng buộc mới là DDL, không chạy trigger của V20. Test của migration: `RequisitionStatusChangeMigrationTest`; với hai CHECK bị xóa rồi tạo lại (`_transition`, `comment_required`), test kiểm ở V24 cả điều kiện cũ của V19 (bước gửi duyệt và quyết định sai trạng thái trước/sau, từ chối hay yêu cầu bổ sung không có nhận xét đều bị từ chối).
 
-Task 290 không thêm migration và không thêm mã quyền: route mới dùng `REQUISITIONS_WRITE_ALL` sẵn có.
+Task 290 và 291 không thêm migration và không thêm mã quyền: các route mới dùng `REQUISITIONS_WRITE_ALL` sẵn có; xác nhận của task 291 không được lưu.
 
 V25 (task 292) chỉ đổi bảng tin tuyển dụng, không thêm quyền, không thêm route:
 
@@ -294,7 +377,9 @@ Màn hình đổi trạng thái ở nhánh `UI` (`jobReqStatusService.ts`, `JobR
 |`` axiosClient.patch(`/job-requisitions/${id}/status`, data) ``|`POST /requisitions/{id}/status-changes`. CORS không cho `PATCH`; `/job-requisitions` không có trong bảng quyền nên trả 403, và giao diện chuyển mọi 403 sang `/unauthorized`|`` axiosClient.post(`/requisitions/${id}/status-changes`, data) ``|
 |Body `{status: 'PAUSED' \| 'CLOSED' \| 'CANCELLED', reason?}`|`{status: 'PAUSED' \| 'APPROVED' \| 'FILLED' \| 'CANCELLED', reason, expectedRevision}`. `reason` giữ tên. `CLOSED` là `FILLED` (chờ BA/PO chốt mã). `APPROVED` là mở lại yêu cầu tạm dừng|Đổi `CLOSED` thành `FILLED`; thêm `expectedRevision`|
 |Không gửi phiên bản|`expectedRevision` là `.revision` của `GET /requisitions/{id}/approvals`; gặp 409 `REQUISITION_STATE_CHANGED` thì tải lại|Đọc `.revision` trước khi mở hộp thoại|
-|Gọi `getActiveCandidatesCount` trước, lỗi thì không mở hộp thoại|Route này chưa có cho tới task 291 (gọi sẽ nhận 403 và bị chuyển sang `/unauthorized`). Backend không trả số ứng viên giả|**Bỏ lời gọi**; mở hộp thoại với số 0; giữ khối cảnh báo cho task 291|
+|`getActiveCandidatesCount`: `` axiosClient.get(`/job-requisitions/${id}/active-candidates-count`) `` → `{count}`, gọi trước mọi thao tác (cả tạm dừng), lỗi thì không mở hộp thoại|`GET /requisitions/{id}/active-pipeline` → `{count, stages}` (task 291; chỉ `REQUISITIONS_WRITE_ALL`, đường cũ vẫn 403 và bị chuyển sang `/unauthorized`). Trả lời ở mọi trạng thái; hiện luôn là `{count: 0, stages: []}` vì chưa có module ứng viên (0 là chưa có dữ liệu)|Đổi URL, giữ `data.count`; có thể liệt kê `stages` (`name`, `count`), mảng này có thể rỗng kể cả khi `count > 0`. Giữ khối cảnh báo: nó hiện khi có module ứng viên. Đổi cùng lúc với việc gắn `JobReqStatusActionsUI` vào trang chi tiết (chỉ khi có `REQUISITIONS_WRITE_ALL`)|
+|Gửi đổi trạng thái không kèm xác nhận|`confirmActiveCandidates: true` cho đã tuyển đủ hoặc hủy đi qua khi còn ứng viên; bị bỏ qua khi tạm dừng hay mở lại|Gửi `confirmActiveCandidates: true` khi thao tác là `FILLED` hoặc `CANCELLED` và hộp thoại đã hiện số lớn hơn 0|
+|–|409 `REQUISITION_HAS_ACTIVE_CANDIDATES` (có người vào quy trình sau khi hộp thoại mở); body có thêm `activePipeline`|Lấy số từ `err.response.data.activePipeline.count`, giữ hộp thoại mở với cảnh báo và `message`; lần bấm sau gửi lại với `true` và cùng `expectedRevision`|
 |Lý do "(Tùy chọn)", chỉ gửi khi có nội dung|Bắt buộc khi tạm dừng, đã tuyển đủ, hủy (tối đa 2.000 ký tự); thiếu thì 400 `REQUISITION_STATUS_REASON_REQUIRED`, hiện bằng `apiError` sẵn có|Nhãn "bắt buộc"|
 |Câu mô tả `CLOSED` "tuyển đủ người hoặc không còn nhu cầu… mở lại sẽ cần duyệt lại"|`FILLED` là đã tuyển đủ; "không còn nhu cầu" là `CANCELLED`; muốn tuyển lại thì sao chép (`POST /requisitions/{id}/copy`)|Sửa câu chữ|
 |Luôn hiện ba nút, không có nút mở lại|Chỉ gắn khi `permissions.includes('REQUISITIONS_WRITE_ALL')`. `APPROVED`: Tạm dừng / Đã tuyển đủ / Hủy; `PAUSED`: Mở lại / Đã tuyển đủ / Hủy; `DRAFT`, `PENDING_APPROVAL`, `RETURNED`: Hủy; trạng thái khác: không có nút|Thêm props và điều kiện hiện|
@@ -317,4 +402,4 @@ Các quy tắc trên là giả định của backend, chờ BA/PO xác nhận. G
 - đã tuyển đủ hoặc hủy: mọi tin chưa đóng của yêu cầu (kể cả nháp, chờ duyệt) chuyển "Đã đóng" vĩnh viễn, giữ người và thời điểm xuất bản; lý do của yêu cầu được chép vào lịch sử tin (task 292);
 - người đóng yêu cầu không cần quyền tin tuyển dụng (task 292);
 - hủy khi đang chờ duyệt kết thúc lượt duyệt; người duyệt của cấp đang chờ vẫn xem được yêu cầu và tiến độ, bấm quyết định trên trang cũ thì nhận 409 để tải lại; người của cấp chưa tới không xem được; cấp đang chờ hiện "Chưa đến lượt", chưa có trạng thái riêng cho cấp bị dừng;
-- cảnh báo ứng viên còn trong quy trình (task 291) chưa làm vì chưa có module ứng viên.
+- ứng viên đang xử lý (task 291): "đang trong quy trình" là hồ sơ ứng tuyển chưa ở trạng thái cuối, do module ứng viên định nghĩa; chỉ đã tuyển đủ và hủy cần xác nhận, tạm dừng không; xác nhận không được lưu, lý do đóng vẫn bắt buộc; chỉ Trưởng phòng Nhân sự và ADMIN (`REQUISITIONS_WRITE_ALL`) xem số ứng viên đang xử lý, trưởng bộ phận và recruiter được phân công thì không; ứng viên còn lại sau khi đóng có xác nhận chưa được xử lý gì; hiện nguồn luôn trả 0 (chưa có dữ liệu ứng viên) nên đóng yêu cầu không bị chặn cho tới khi có module ứng viên; xác nhận là cờ đúng/sai, không gắn với số ứng viên đã thấy (câu hỏi 20 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).

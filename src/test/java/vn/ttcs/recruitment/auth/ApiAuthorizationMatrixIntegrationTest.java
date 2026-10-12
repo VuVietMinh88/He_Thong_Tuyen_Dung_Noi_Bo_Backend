@@ -157,6 +157,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 290: only REQUISITIONS_WRITE_ALL changes a requisition's status; the empty body stops a permitted
             // call at 400 before any lookup.
             endpoint("POST", "/api/v1/requisitions/{id}/status-changes", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
+            // Task 291: the candidates still in the pipeline, for HR's close dialog; the unknown id makes a permitted call stop at 404.
+            endpoint("GET", "/api/v1/requisitions/{id}/active-pipeline", permission(REQUISITIONS_WRITE_ALL), null, 404),
             // Task 284: only ALL writers assign; the empty body stops a permitted call at 400 before any lookup.
             endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
@@ -635,7 +637,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/copy", Map.of()),
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/submit", null),
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/approvals", rejection),
-                new Attack(Identity.RECRUITER, "GET", "/api/v1/requisitions/" + requisition + "/headcount-overrides", null));
+                new Attack(Identity.RECRUITER, "GET", "/api/v1/requisitions/" + requisition + "/headcount-overrides", null),
+                // Task 291: only REQUISITIONS_WRITE_ALL reads the active pipeline; being assigned (task 285) does not open it.
+                new Attack(Identity.HIRING_MANAGER, "GET", "/api/v1/requisitions/" + approved + "/active-pipeline", null),
+                new Attack(Identity.RECRUITER, "GET", "/api/v1/requisitions/" + requisition + "/active-pipeline", null),
+                new Attack(Identity.APPROVER, "GET", "/api/v1/requisitions/" + approved + "/active-pipeline", null),
+                new Attack(Identity.INTERVIEWER, "GET", "/api/v1/requisitions/" + ready + "/active-pipeline", null),
+                new Attack(Identity.NO_ROLE, "GET", "/api/v1/requisitions/" + requisition + "/active-pipeline", null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -730,8 +738,8 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 310: the review and publication history is never edited or deleted.
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/history",
                 "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history",
-                // Task 290: the frontend's status routes do not exist (POST /requisitions/{id}/status-changes
-                // does), and the candidate count of task 291 is not built yet.
+                // Task 290/291: the frontend's status and candidate-count routes do not exist
+                // (POST /requisitions/{id}/status-changes and GET /requisitions/{id}/active-pipeline do).
                 "PATCH /api/v1/requisitions/" + UNKNOWN_ID + "/status",
                 "PATCH /api/v1/job-requisitions/" + UNKNOWN_ID + "/status",
                 "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count",

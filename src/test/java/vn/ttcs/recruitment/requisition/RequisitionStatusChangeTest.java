@@ -34,6 +34,19 @@ class RequisitionStatusChangeTest {
                 .containsExactlyInAnyOrderElementsOf(allowed);
     }
 
+    // Task 291: a new change fails to compile here until someone decides whether it asks for confirmation while
+    // candidates are still in the pipeline.
+    @ParameterizedTest
+    @EnumSource(RequisitionStatusChange.class)
+    void onlyFillingAndCancellingCheckTheActivePipeline(RequisitionStatusChange change) {
+        boolean checks = switch (change) {
+            case FILL, CANCEL -> true;
+            case PAUSE, RESUME -> false;
+        };
+
+        assertThat(change.checksActivePipeline()).isEqualTo(checks);
+    }
+
     @Test
     void onlyResumingNeedsNoReason() {
         assertThat(Arrays.stream(RequisitionStatusChange.values()).filter(change -> !change.requiresReason()))
