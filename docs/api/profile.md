@@ -33,9 +33,10 @@ Yêu cầu `SELF_PROFILE_WRITE`, được V5 cấp cho sáu vai trò nội bộ.
 }
 ```
 
-- Họ tên bắt buộc, trim và tối đa255 ký tự.
+- Họ tên bắt buộc, trim và tối đa255 ký tự. Họ tên không có ký tự nhìn thấy được bị coi là trống (HTTP 400 `VALIDATION_ERROR`).
 - Điện thoại tùy chọn; chấp nhận di động10 số bắt đầu03/05/07/08/09 hoặc cố định11 số bắt đầu02, và dạng quốc tế tương ứng `+84`. Trim khoảng trắng đầu/cuối, lưu dạng0; không chấp nhận khoảng trắng/dấu gạch ở giữa. Đây là kiểm tra định dạng, không xác minh số đang được cấp hay quyền sở hữu. Quy tắc tham khảo thông báo của Bộ TT&TT qua [ITU về số di động](https://www.ituob.org/issues/1150-en/) và [mã vùng cố định](https://www.ituob.org/issues/1114-en/).
-- Chức danh tùy chọn, trim và tối đa120 ký tự.
+- Chức danh tùy chọn, trim và tối đa120 ký tự; chức danh không có ký tự nhìn thấy được bị xóa như chuỗi trắng.
+- Trim ở đây bỏ mọi ký tự không nhìn thấy ở đầu/cuối: khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060. Ký tự ở giữa được giữ; giới hạn độ dài đếm sau khi bỏ.
 - PUT thay thế ba trường: bỏ phone/displayTitle hoặc gửinull/chuỗi trắng sẽ xóa chúng. Frontend gửi đầy đủ ba trường khi lưu form.
 
 Thành công **200** trả hồ sơ đã cập nhật, no-store. Email, phòng ban, vai trò, mật khẩu và các phiên đăng nhập được giữ nguyên. Field ngoài ba trường trên (`email`, `departmentId`, `roles`, `userId`, `enabled`...) trả **400 `INVALID_JSON`**; dữ liệu sai trả **400 `VALIDATION_ERROR`**. Không nhận ID từ body để sửa tài khoản khác.
