@@ -32,6 +32,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 
 ## Tài liệu API đang có
 
+- [account-import](docs/api/account-import.md)
 - [account-locking](docs/api/account-locking.md)
 - [account-roles](docs/api/account-roles.md)
 - [accounts](docs/api/accounts.md)
