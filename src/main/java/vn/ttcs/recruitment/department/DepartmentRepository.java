@@ -97,6 +97,16 @@ public class DepartmentRepository {
                 new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
     }
 
+    // Task 273: like findActiveForShare, but FOR NO KEY UPDATE, for creating a headcount plan of this department.
+    // This lock conflicts with the FOR SHARE that every requisition save of the department holds until it commits, so
+    // the plan is only inserted once the saves in flight have committed (and are counted by the plan), and a save that
+    // starts later waits for the plan and then finds it. FOR SHARE alone would let a save that found no plan commit
+    // after the plan, uncounted by a save that did check it. It does not block foreign key checks (FOR KEY SHARE).
+    public Optional<Boolean> findActiveForNoKeyUpdate(UUID id) {
+        return jdbc.query("SELECT active FROM departments WHERE id = :id FOR NO KEY UPDATE",
+                new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
+    }
+
     // Task 197 (DELETE), task 198 (also PUT): locks the department row until the write commits; false when the
     // department does not exist. Requisition writes and account assignments read this row FOR SHARE while they save,
     // so the write waits for them, and each later statement (READ COMMITTED) sees what they committed. A save that
