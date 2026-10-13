@@ -87,6 +87,25 @@ public class RecruitmentRequisition {
         this.updatedAt = createdAt;
     }
 
+    // Task 245: saving a draft again replaces every field the manager edits. A field left empty becomes null.
+    // id, status, createdBy and createdAt never change here.
+    public void updateDraft(UUID positionId, UUID departmentId, int headcount, RequisitionReason reason,
+                            Long proposedSalaryMin, Long proposedSalaryMax, String salaryJustification,
+                            LocalDate neededBy, String jobDescription, String candidateRequirements,
+                            Instant updatedAt) {
+        this.positionId = positionId;
+        this.departmentId = departmentId;
+        this.headcount = headcount;
+        this.reason = reason;
+        this.proposedSalaryMin = proposedSalaryMin;
+        this.proposedSalaryMax = proposedSalaryMax;
+        this.salaryJustification = salaryJustification;
+        this.neededBy = neededBy;
+        this.jobDescription = jobDescription;
+        this.candidateRequirements = candidateRequirements;
+        this.updatedAt = updatedAt;
+    }
+
     public UUID getId() { return id; }
     public UUID getPositionId() { return positionId; }
     public UUID getDepartmentId() { return departmentId; }

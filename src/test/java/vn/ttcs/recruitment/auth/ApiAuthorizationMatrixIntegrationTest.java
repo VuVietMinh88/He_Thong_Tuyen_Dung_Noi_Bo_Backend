@@ -80,6 +80,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String ORGANIZATION_WRITE_ALL = "ORGANIZATION_WRITE_ALL";
     private static final String SALARY_RANGES_READ_ALL = "SALARY_RANGES_READ_ALL";
     private static final String SALARY_RANGES_WRITE_ALL = "SALARY_RANGES_WRITE_ALL";
+    private static final String REQUISITIONS_READ_ALL = "REQUISITIONS_READ_ALL";
+    private static final String REQUISITIONS_READ_SCOPED = "REQUISITIONS_READ_SCOPED";
     private static final String REQUISITIONS_WRITE_ALL = "REQUISITIONS_WRITE_ALL";
     private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
 
@@ -131,7 +133,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/interview-questions", permission(ORGANIZATION_READ_ALL), null, 200),
             // Requisitions: ALL and SCOPED writers both pass the matcher; RequisitionService applies the scope.
-            endpoint("POST", "/api/v1/requisitions", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400));
+            endpoint("POST", "/api/v1/requisitions", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/requisitions", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
+            endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -162,6 +167,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     void createOneLoggedInAccountPerIdentity() throws Exception {
         permissionSeed = jdbc.queryForList("SELECT role_code, permission_code FROM role_permissions");
         clock.set(START);
+        // Requisitions reference departments, positions and accounts (ON DELETE RESTRICT), so they go first.
+        jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
         jdbc.update("UPDATE departments SET parent_id = NULL");
@@ -283,6 +290,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                 positionBody("TARGET", "Target")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
         UUID framework = UUID.fromString(expect(request("POST", "/api/v1/competency-frameworks", json.writeValueAsString(
                 competencyFrameworkBody("TARGET", "Target")), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        Map<String, Object> requisitionBody = Map.of("positionId", position, "departmentId", department,
+                "headcount", 1, "reason", "NEW_HEADCOUNT");
+        UUID requisition = UUID.fromString(expect(request("POST", "/api/v1/requisitions",
+                json.writeValueAsString(requisitionBody), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
+        Map<String, Object> changedRequisition = Map.of("positionId", position, "departmentId", department,
+                "headcount", 9, "reason", "REPLACEMENT");
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -317,8 +330,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/competency-frameworks/" + framework,
                         competencyFrameworkBody("TARGET", "Taken over")),
                 // INTERVIEWER holds no REQUISITIONS permission, even for the department it manages.
-                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions", Map.of("positionId", position,
-                        "departmentId", department, "headcount", 1, "reason", "NEW_HEADCOUNT")));
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.INTERVIEWER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
+                // HIRING_MANAGER passes the matcher (REQUISITIONS_WRITE_SCOPED) but does not manage TARGET,
+                // so RequisitionService refuses after locking the row.
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -65,6 +66,22 @@ public class DepartmentRepository {
             parents.put(row.getObject("id", UUID.class), row.getObject("parent_id", UUID.class));
         });
         return parents;
+    }
+
+    // The departments this user manages directly, plus every department below them in the tree (children,
+    // grandchildren...). Used for REQUISITIONS_*_SCOPED. The active flag is ignored: it says whether a department
+    // is still used, not who is responsible for it. UNION (not UNION ALL) drops rows already found, so the
+    // recursion also stops on a cycle left by manual SQL edits.
+    public Set<UUID> findManagedDepartmentIds(UUID managerUserId) {
+        return Set.copyOf(jdbc.query("""
+                WITH RECURSIVE managed(id) AS (
+                    SELECT id FROM departments WHERE manager_user_id = :managerUserId
+                    UNION
+                    SELECT child.id FROM departments child JOIN managed ON child.parent_id = managed.id
+                )
+                SELECT id FROM managed
+                """, new MapSqlParameterSource("managerUserId", managerUserId),
+                (row, number) -> row.getObject("id", UUID.class)));
     }
 
     public void acquireTreeWriteLock() {
