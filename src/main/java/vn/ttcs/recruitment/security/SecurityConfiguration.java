@@ -180,6 +180,12 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
                         // Candidates read the recruitment portal without an account.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/company-profile").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/company-profile/media")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/company-profile/media/*")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        // Pictures of the saved page; the service answers 404 for every other picture.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/company-media/*").permitAll()
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

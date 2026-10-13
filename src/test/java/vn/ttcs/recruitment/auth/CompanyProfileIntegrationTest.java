@@ -150,7 +150,7 @@ class CompanyProfileIntegrationTest {
         assertThat(page.path("companyName").asText()).isEqualTo("Công ty TTCS");
         assertThat(page.path("tagline").asText()).isEqualTo("Nơi phát triển tài năng");
         assertThat(page.path("introduction").asText()).isEqualTo(introduction);
-        assertThat(fieldNames(page.path("logo"))).containsExactlyInAnyOrder("id", "width", "height");
+        assertThat(fieldNames(page.path("logo"))).containsExactlyInAnyOrder("id", "width", "height", "url");
         assertPicture(page.path("logo"), logo, 400, 200);
         assertThat(page.path("images").size()).isEqualTo(2);
         assertPicture(page.path("images").get(0), team, 800, 600);
@@ -519,6 +519,7 @@ class CompanyProfileIntegrationTest {
         assertThat(picture.path("id").asText()).isEqualTo(id.toString());
         assertThat(picture.path("width").asInt()).isEqualTo(width);
         assertThat(picture.path("height").asInt()).isEqualTo(height);
+        assertThat(picture.path("url").asText()).isEqualTo("/api/v1/public/company-media/" + id);
     }
 
     private List<String> fieldNames(JsonNode node) {

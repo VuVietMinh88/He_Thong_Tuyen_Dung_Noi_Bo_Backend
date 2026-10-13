@@ -153,7 +153,11 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/company-profile", permission(JOB_POSTINGS_WRITE_ALL), null, 404),
             endpoint("PUT", "/api/v1/company-profile", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/company-profile/preview", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("GET", "/api/v1/public/company-profile", PUBLIC, null, 404));
+            endpoint("GET", "/api/v1/public/company-profile", PUBLIC, null, 404),
+            // The upload only accepts multipart/form-data, so the JSON sample stops at 415 and stores nothing.
+            endpoint("POST", "/api/v1/company-profile/media", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 415),
+            endpoint("GET", "/api/v1/company-profile/media/{id}", permission(JOB_POSTINGS_WRITE_ALL), null, 404),
+            endpoint("GET", "/api/v1/public/company-media/{id}", PUBLIC, null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
