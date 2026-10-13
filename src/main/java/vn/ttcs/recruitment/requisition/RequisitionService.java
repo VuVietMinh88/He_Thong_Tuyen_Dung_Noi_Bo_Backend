@@ -263,8 +263,9 @@ public class RequisitionService {
     // hiring for a position or department, so a draft cannot choose one; a draft whose position or department was
     // deactivated later is saved again only after the manager picks an active one (or HR turns it back on).
     // Both rows are read with FOR SHARE (see the repositories): a deactivation waits until this transaction commits,
-    // and one committed while this request waited is seen here. There is no API that deletes positions or
-    // departments, so the ids cannot disappear before the insert.
+    // and one committed while this request waited is seen here. There is no API that deletes positions. Deleting a
+    // department (task 197) locks its row FOR UPDATE: it waits for this transaction and then refuses because of the
+    // saved requisition; a delete that committed while this request waited makes the department "not found" here.
     private void requireActivePositionAndDepartment(RequisitionRequest request) {
         Optional<Boolean> positionActive = positions.findActiveForShare(request.positionId());
         if (positionActive.isEmpty()) {

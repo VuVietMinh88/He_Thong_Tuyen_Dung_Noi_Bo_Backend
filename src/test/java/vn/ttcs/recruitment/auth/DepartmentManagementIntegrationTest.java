@@ -234,11 +234,12 @@ class DepartmentManagementIntegrationTest {
     }
 
     @Test
-    void anonymousRevokedAndAdministrativelyLockedActorsAreRejectedAndDeleteIsUnavailable() throws Exception {
+    void anonymousRevokedAndAdministrativelyLockedActorsAreRejected() throws Exception {
         UUID target = department("AUTH", "Authentication", null, managerId, true);
         assertThat(get(BASE, null).statusCode()).isEqualTo(401);
         assertThat(create(payload("NO", "No", null, managerId, true), null).statusCode()).isEqualTo(401);
-        assertThat(request("DELETE", BASE + "/" + target, null, adminToken).statusCode()).isEqualTo(403);
+        // Task 197 added DELETE; DepartmentDeletionIntegrationTest covers it in detail.
+        assertThat(request("DELETE", BASE + "/" + target, null, null).statusCode()).isEqualTo(401);
         jdbc.update("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ?", Timestamp.from(START), adminId);
         assertThat(get(BASE, adminToken).statusCode()).isEqualTo(401);
         adminToken = login("admin@example.test").path("accessToken").asText();
@@ -246,6 +247,8 @@ class DepartmentManagementIntegrationTest {
                 Timestamp.from(START), managerId, adminId);
         assertThat(get(BASE, adminToken).statusCode()).isEqualTo(401);
         assertThat(update(target, payload("AUTH", "No", null, managerId, true), adminToken).statusCode()).isEqualTo(401);
+        assertThat(request("DELETE", BASE + "/" + target, null, adminToken).statusCode()).isEqualTo(401);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM departments WHERE id = ?", Integer.class, target)).isEqualTo(1);
     }
 
     @Test

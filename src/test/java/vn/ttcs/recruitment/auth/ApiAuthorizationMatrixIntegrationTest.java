@@ -136,7 +136,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/requisitions", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/requisitions", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
             endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
-            endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
+            endpoint("DELETE", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -296,6 +298,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 json.writeValueAsString(requisitionBody), actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
         Map<String, Object> changedRequisition = Map.of("positionId", position, "departmentId", department,
                 "headcount", 9, "reason", "REPLACEMENT");
+        // Task 197: nothing uses this department, so a permitted DELETE would remove it.
+        UUID unused = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
+                "code", "UNUSED", "name", "Unused", "managerUserId", interviewer, "active", true)),
+                actors.get(Identity.ADMIN).token()), 201).path("id").asText());
         UUID locked = accounts.saveAndFlush(new Account("locked@example.test", "Locked", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
@@ -338,7 +344,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 249: the same SCOPED writers cannot create a requisition for a department they do not manage.
                 new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions", requisitionBody),
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions", requisitionBody),
-                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions", requisitionBody));
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions", requisitionBody),
+                // Task 197: ORGANIZATION_READ_ALL alone cannot delete a department, not even the one the caller manages.
+                new Attack(Identity.INTERVIEWER, "DELETE", "/api/v1/departments/" + unused, null),
+                new Attack(Identity.RECRUITER, "DELETE", "/api/v1/departments/" + unused, null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -414,7 +423,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     @Test
     void routesWithoutADeclaredRuleAreDeniedEvenForTheAdministrator() throws Exception {
         String token = actors.get(Identity.ADMIN).token();
-        for (String route : List.of("DELETE /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
+        for (String route : List.of("PATCH /api/v1/departments/" + UNKNOWN_ID, "DELETE /api/v1/accounts/" + UNKNOWN_ID,
                 "DELETE /api/v1/positions/" + UNKNOWN_ID, "PATCH /api/v1/profile", "GET /api/v1/roles",
                 "GET /api/v1/internal/accounts")) {
             String[] parts = route.split(" ");
