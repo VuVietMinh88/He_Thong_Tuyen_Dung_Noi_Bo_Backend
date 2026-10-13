@@ -1,7 +1,8 @@
 package vn.ttcs.recruitment.requisition;
 
-// V13 CHECK valid_requisition_status only allows DRAFT. A new status needs a migration that widens the CHECK
-// at the same time as the new enum value, otherwise saving it fails in PostgreSQL.
+// V13 CHECK valid_requisition_status allowed only DRAFT; V19 (task 257) widened it to the five statuses below. A new
+// status needs a migration that widens the CHECK at the same time as the new enum value, otherwise saving it fails in
+// PostgreSQL.
 // Task 197: a new status that is still open (not closed or cancelled) must also be added to
 // DepartmentRepository.OPEN_REQUISITION_STATUSES, so that it keeps blocking the deletion of its department.
 // DepartmentDeletionIntegrationTest does not compile until the new status is given its group there.
@@ -13,6 +14,19 @@ package vn.ttcs.recruitment.requisition;
 // Task 284: decide whether a requisition in the new status may still change recruiters
 // (RequisitionRecruiterService.ASSIGNABLE_STATUSES; reading stays allowed). RequisitionRecruiterStatusTest does not
 // compile until the new status is given its group there.
+// Task 257: decide whether it may be edited (RequisitionService.EDITABLE_STATUSES) and submitted for approval
+// (RequisitionService.SUBMITTABLE_STATUSES). RequisitionWorkflowStatusTest does not compile until it is.
+// If the status is reached through the approval workflow, widen V19's valid_requisition_workflow_event_type and
+// valid_requisition_workflow_event_transition in a new migration. Decisions only happen in PENDING_APPROVAL.
 public enum RequisitionStatus {
-    DRAFT
+    // Saved by its department, not sent for approval yet (or copied).
+    DRAFT,
+    // Waiting for the current level of its approval round (task 257).
+    PENDING_APPROVAL,
+    // An approver asked for more information; the requester edits it and submits it again (task 264).
+    RETURNED,
+    // Every level of the round approved (task 263). Job postings are made from approved requisitions.
+    APPROVED,
+    // An approver rejected it (task 262). Final: copy it to try again.
+    REJECTED
 }
