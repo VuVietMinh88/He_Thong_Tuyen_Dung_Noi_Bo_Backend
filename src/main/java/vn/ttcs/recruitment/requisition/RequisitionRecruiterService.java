@@ -38,10 +38,12 @@ import java.util.stream.Collectors;
  */
 @Service
 public class RequisitionRecruiterService {
-    // Statuses in which the recruiters may still change; reading is allowed in every status. Only DRAFT exists today.
-    // RequisitionStatus asks every new status to be classified here; RequisitionRecruiterStatusTest does not compile
-    // until it is.
-    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+    // Statuses in which the recruiters may still change; reading is allowed in every status. RequisitionStatus asks
+    // every new status to be classified here; RequisitionRecruiterStatusTest does not compile until it is. Task 257:
+    // recruiters may be prepared while the requisition waits for approval or is returned, and are needed once it is
+    // approved (job postings, S3-09); a rejected requisition is finished.
+    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED, RequisitionStatus.APPROVED);
 
     private static final String WRITE_ALL = "REQUISITIONS_WRITE_ALL";
 

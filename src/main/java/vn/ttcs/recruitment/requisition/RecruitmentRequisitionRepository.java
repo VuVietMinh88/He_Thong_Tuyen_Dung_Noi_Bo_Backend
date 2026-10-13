@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,4 +27,7 @@ public interface RecruitmentRequisitionRepository extends JpaRepository<Recruitm
     // The service never passes an empty departmentIds collection.
     Page<RecruitmentRequisition> findByStatusInAndDepartmentIdIn(Collection<RequisitionStatus> statuses,
                                                                 Collection<UUID> departmentIds, Pageable pageable);
+
+    // Task 267: the requisitions waiting for approval, for the approver inbox.
+    List<RecruitmentRequisition> findByStatus(RequisitionStatus status);
 }
