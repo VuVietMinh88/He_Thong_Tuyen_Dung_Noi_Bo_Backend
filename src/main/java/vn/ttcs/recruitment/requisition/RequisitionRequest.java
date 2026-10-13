@@ -20,8 +20,9 @@ import java.util.UUID;
 // (task 246), whole non-negative salaries and a size limit on each text. Rules that need other data (position
 // and department still active, salary justification, needed-by date, department scope) are checked in
 // RequisitionService. Every other field may stay empty while the draft is being written.
-// Text sections keep the manager's formatting (line breaks, indentation). Only a blank section becomes null,
-// because V13 stores a section that has not been written yet as NULL, never as an empty text.
+// Text sections keep the manager's formatting (line breaks, indentation). Only a section without a visible character
+// becomes null (RequisitionText), because V13 stores a section that has not been written yet as NULL, never as an
+// empty text.
 public record RequisitionRequest(
         @NotNull(message = "Chức danh không được để trống.") UUID positionId,
         @NotNull(message = "Phòng ban không được để trống.") UUID departmentId,
@@ -74,9 +75,9 @@ public record RequisitionRequest(
     static final int MAX_HEADCOUNT = 999;
 
     public RequisitionRequest {
-        salaryJustification = blankToNull(salaryJustification);
-        jobDescription = blankToNull(jobDescription);
-        candidateRequirements = blankToNull(candidateRequirements);
+        salaryJustification = RequisitionText.invisibleToNull(salaryJustification);
+        jobDescription = RequisitionText.invisibleToNull(jobDescription);
+        candidateRequirements = RequisitionText.invisibleToNull(candidateRequirements);
         headcountOverrideReason = blankToNull(headcountOverrideReason);
     }
 
