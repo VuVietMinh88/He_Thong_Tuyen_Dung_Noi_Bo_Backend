@@ -13,5 +13,8 @@ public enum JobPostingEventType {
     PUBLISHED,
     // Task 292: the requisition was closed as filled or cancelled; actor, time and reason are the requisition's. Must
     // match V25 valid_job_posting_event_type.
-    CLOSED
+    CLOSED,
+    // Task 355: the recruiter or HR took the published posting down, with a reason. Must match V26
+    // valid_job_posting_event_type.
+    UNPUBLISHED
 }

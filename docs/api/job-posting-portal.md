@@ -31,7 +31,7 @@ Một tin có trong danh sách khi đủ **cả ba** điều:
 2. Hạn nộp (`applicationDeadline`) từ hôm nay trở đi, "hôm nay" là ngày ở múi giờ `app.business-zone` (`Asia/Ho_Chi_Minh`, `BusinessCalendar.today()`), không theo giờ UTC của server hay giờ của trình duyệt. Chính ngày hạn vẫn hiện tới 23:59:59 giờ Việt Nam; từ 00:00 ngày hôm sau (17:00 UTC của ngày hạn) tin rời danh sách. Ví dụ hạn 30/11/2026: còn ở `2026-11-30T16:59:59Z`, hết ở `2026-11-30T17:00:00Z`.
 3. Yêu cầu tuyển dụng nguồn vẫn `APPROVED` (`JobPostingService.SOURCE_STATUSES`). Yêu cầu tạm dừng (task 290) thì tin ẩn và hiện lại khi mở lại; yêu cầu đã tuyển đủ hoặc bị hủy thì tin chuyển hẳn sang `CLOSED` (task 292).
 
-Không có trong danh sách: nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu, tin của yêu cầu không còn đã duyệt và tin đã qua hạn nộp. Tin qua hạn vẫn ở trạng thái `PUBLISHED` trong database; nó rời danh sách vì điều kiện ngày, không vì một tác vụ nào chạy. Từ task 320, chi tiết của nó vẫn mở được bằng liên kết, kèm `applicationOpen: false` (mục "Chi tiết tin"). `totalElements` và `totalPages` chỉ đếm tin đang tuyển, tính trong cùng một transaction `REPEATABLE_READ` với trang, nên số đếm khớp với trang.
+Không có trong danh sách: nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã gỡ (`UNPUBLISHED`, task 355: rời danh sách ngay khi gỡ), đã đóng cùng yêu cầu, tin của yêu cầu không còn đã duyệt và tin đã qua hạn nộp. Tin qua hạn vẫn ở trạng thái `PUBLISHED` trong database; nó rời danh sách vì điều kiện ngày, không vì một tác vụ nào chạy. Từ task 320, chi tiết của nó vẫn mở được bằng liên kết, kèm `applicationOpen: false` (mục "Chi tiết tin"). `totalElements` và `totalPages` chỉ đếm tin đang tuyển, tính trong cùng một transaction `REPEATABLE_READ` với trang, nên số đếm khớp với trang.
 
 ### Yêu cầu và kết quả
 
@@ -112,7 +112,7 @@ Response có đúng dạng của mục "Yêu cầu và kết quả". UUID trong 
 }
 ```
 
-- Chỉ lấy từ các tin đang có trên danh sách lúc gọi (cùng ba điều kiện "đang tuyển", cùng ngày theo giờ Việt Nam), mỗi giá trị một lần. Giá trị chỉ được bản nháp, tin chờ duyệt, tin đã duyệt chưa xuất bản, tin đã đóng, tin của yêu cầu tạm dừng hoặc tin đã qua hạn nộp dùng thì không xuất hiện. Không có tin đang tuyển thì cả ba mảng rỗng.
+- Chỉ lấy từ các tin đang có trên danh sách lúc gọi (cùng ba điều kiện "đang tuyển", cùng ngày theo giờ Việt Nam), mỗi giá trị một lần. Giá trị chỉ được bản nháp, tin chờ duyệt, tin đã duyệt chưa xuất bản, tin đã gỡ (task 355), tin đã đóng, tin của yêu cầu tạm dừng hoặc tin đã qua hạn nộp dùng thì không xuất hiện. Không có tin đang tuyển thì cả ba mảng rỗng.
 - Giá trị HR đã ngừng áp dụng (`active = false`) sau khi tin được duyệt vẫn xuất hiện chừng nào còn tin đang tuyển dùng nó, vì tin đó vẫn hiện trên danh sách.
 - Thứ tự: phòng ban theo tên; địa điểm và hình thức làm việc theo thứ tự của danh mục (`sortOrder`), rồi theo tên; cùng tên thì theo id.
 - Mỗi giá trị chỉ có `id` và `name`, không có mã hay trạng thái áp dụng. Gửi lại `id` làm `departmentId`, `workLocationId` hoặc `employmentTypeId` sẽ ra ít nhất một tin (trừ khi tin đó vừa rời cổng). Đây là API công khai duy nhất trả id phòng ban, địa điểm và hình thức; danh sách và chi tiết tin chỉ có tên.
@@ -137,7 +137,7 @@ Chặn nộp hồ sơ vào tin hết hạn ở phía server là task 321 (mục 
 |---|---|---|
 |Đang nhận hồ sơ (`OPEN`)|Trạng thái `PUBLISHED`, hạn nộp từ hôm nay trở đi theo giờ Việt Nam, yêu cầu nguồn `APPROVED` (đúng ba điều kiện "đang tuyển")|200, `applicationOpen: true`; tin có trên danh sách|
 |Hết hạn (`EXPIRED`)|Trạng thái `PUBLISHED`, yêu cầu nguồn `APPROVED`, hạn nộp đã qua|200 với **cùng nội dung**, `applicationOpen: false`; tin không còn trên danh sách và trong `/filters`|
-|Không công khai (`NOT_PUBLIC`)|Nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu (`CLOSED`), tin của yêu cầu không còn `APPROVED` (ví dụ tạm dừng, kể cả khi đã qua hạn), id không tồn tại|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", body giống hệt từng byte với id không tồn tại|
+|Không công khai (`NOT_PUBLIC`)|Nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã gỡ (`UNPUBLISHED`, task 355), đã đóng cùng yêu cầu (`CLOSED`), tin của yêu cầu không còn `APPROVED` (ví dụ tạm dừng, kể cả khi đã qua hạn), id không tồn tại|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", body giống hệt từng byte với id không tồn tại|
 
 `JobPostingService.getPublic` đọc "hôm nay" một lần (`BusinessCalendar.today()`, giờ Việt Nam), đọc dòng của tin theo id như bản xem trước (`JobPostingReadRepository.findRow`), rồi quyết định bằng một quy tắc Java duy nhất `JobPostingApplicability.of`: trạng thái thuộc `JobPostingService.PORTAL_STATUSES` (hiện chỉ `PUBLISHED`), yêu cầu thuộc `SOURCE_STATUSES`, rồi so hạn nộp. Danh sách và `/filters` vẫn lọc bằng SQL (`PUBLIC_WHERE`), chọn đúng các tin `OPEN`; `JobPostingPortalRuleIntegrationTest` kiểm hai bên khớp nhau với mọi trạng thái tin, hạn nộp hôm qua, hôm nay, ngày mai và yêu cầu đã duyệt hoặc tạm dừng, lúc 00:30 giờ Việt Nam khi ngày UTC còn là hôm trước.
 
@@ -183,7 +183,7 @@ Ví dụ tin hạn 30/11/2026:
 |`2026-11-30T16:59:59Z`|23:59:59 ngày 30/11|Có tin|200, `applicationOpen: true`|
 |`2026-11-30T17:00:00Z`|00:00 ngày 1/12|Không có tin|200, cùng nội dung, `applicationOpen: false`|
 
-Trạng thái trong database vẫn là `PUBLISHED`: thông báo hết hạn đi theo ngày, không cần tác vụ nào chạy. Tin hết hạn vẫn mở được bằng liên kết, không giới hạn thời gian, cho tới khi yêu cầu nguồn được đóng (tin chuyển `CLOSED`, task 292) hoặc bị tạm dừng (404 cho tới khi mở lại); câu hỏi 22. `applicationOpen` là trạng thái lúc đọc: API nộp hồ sơ (task 326) kiểm lại khi nhận hồ sơ bằng `JobPostingApplicationGate.requireOpen` (task 321, mục "Kiểm tra khả năng ứng tuyển").
+Trạng thái trong database vẫn là `PUBLISHED`: thông báo hết hạn đi theo ngày, không cần tác vụ nào chạy. Tin hết hạn vẫn mở được bằng liên kết, không giới hạn thời gian, cho tới khi bị gỡ (task 355, 404 từ lúc gỡ), yêu cầu nguồn được đóng (tin chuyển `CLOSED`, task 292) hoặc bị tạm dừng (404 cho tới khi mở lại); câu hỏi 22. `applicationOpen` là trạng thái lúc đọc: API nộp hồ sơ (task 326) kiểm lại khi nhận hồ sơ bằng `JobPostingApplicationGate.requireOpen` (task 321, mục "Kiểm tra khả năng ứng tuyển").
 
 ## Kiểm tra khả năng ứng tuyển (task 321)
 
@@ -204,7 +204,7 @@ Task 321 (Jira: "Kiểm tra khả năng ứng tuyển theo trạng thái tin"): 
 |---|---|---|
 |Đang nhận hồ sơ (`OPEN`)|200, `applicationOpen: true`|Cho qua, trả `OpenJobPosting(postingId, requisitionId, applicationDeadline)`|
 |Hết hạn (`EXPIRED`): đã xuất bản, yêu cầu còn `APPROVED`, hạn nộp đã qua theo giờ Việt Nam|200, `applicationOpen: false`|409 `JOB_POSTING_EXPIRED` "Tin tuyển dụng đã hết hạn nộp hồ sơ."|
-|Không công khai (`NOT_PUBLIC`): nháp, chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng (`CLOSED`), yêu cầu không còn `APPROVED` (ví dụ tạm dừng), id không tồn tại|404|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng."|
+|Không công khai (`NOT_PUBLIC`): nháp, chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã gỡ (`UNPUBLISHED`, task 355), đã đóng (`CLOSED`), yêu cầu không còn `APPROVED` (ví dụ tạm dừng), id không tồn tại|404|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng."|
 
 Ví dụ tin hạn 30/11/2026: trang mở lúc 23:59:59 giờ Việt Nam (`2026-11-30T16:59:59Z`) có `applicationOpen: true`; ứng viên bấm gửi lúc 00:00:00 ngày 1/12 (`2026-11-30T17:00:00Z`) thì nhận 409, dù trong database tin vẫn `PUBLISHED`: hết hạn đi theo ngày, không cần tác vụ nào chạy trước.
 
@@ -269,7 +269,7 @@ Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): c�
 - id của yêu cầu tuyển dụng nguồn (không có `requisitionId`) và mọi dữ liệu riêng của yêu cầu: mô tả công việc, yêu cầu ứng viên và giải trình lương **của yêu cầu**, lý do tuyển, ngày cần người, trạng thái, lịch sử duyệt và nhận xét của người duyệt, nhóm recruiter, lương đề xuất khi tin không chọn hiển thị.
 - id chức danh (tên chức danh thì có, xem bảng trên), id phòng ban, địa điểm, hình thức ngoài `/filters`, mã phòng ban và mã danh mục, phòng ban cha, trưởng phòng, cờ áp dụng, thứ tự sắp xếp.
 - Trạng thái và `revision` của tin; người tạo, người sửa, người gửi duyệt, người duyệt, người xuất bản (id, tên, email); nhận xét khi gửi duyệt, yêu cầu chỉnh sửa và duyệt tin; mọi thời điểm (tạo, sửa, duyệt, xuất bản).
-- Bất cứ điều gì về tin không công khai: chi tiết trả **cùng một body 404**, giống hệt từng byte, cho bản nháp, tin chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng, tin của yêu cầu tạm dừng và id không tồn tại; danh sách và số đếm không tính chúng; `/filters` không lấy giá trị của chúng. Riêng tin đã xuất bản qua hạn nộp vẫn mở chi tiết (cùng nội dung, `applicationOpen: false`, task 320) nhưng không có trên danh sách và `/filters`.
+- Bất cứ điều gì về tin không công khai: chi tiết trả **cùng một body 404**, giống hệt từng byte, cho bản nháp, tin chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã gỡ (task 355), đã đóng, tin của yêu cầu tạm dừng và id không tồn tại; danh sách và số đếm không tính chúng; `/filters` không lấy giá trị của chúng. Riêng tin đã xuất bản qua hạn nộp vẫn mở chi tiết (cùng nội dung, `applicationOpen: false`, task 320) nhưng không có trên danh sách và `/filters`.
 - Lỗi 400 của từ khóa không lặp lại từ khóa; lỗi 404 không lặp lại id.
 
 Tìm kiếm cũng không dùng được để dò văn bản nội bộ: từ khóa `q` chỉ đọc tiêu đề và mô tả công việc của tin đang tuyển, nên một chuỗi chỉ có trong văn bản của yêu cầu, trong nhận xét duyệt, trong yêu cầu ứng viên hay quyền lợi của tin, trong tên chức danh, phòng ban, địa điểm, hình thức, hoặc trong bản nháp đều cho trang rỗng với `totalElements` 0.
@@ -315,4 +315,4 @@ Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 
 Câu hỏi 21 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md): định nghĩa "đang tuyển" ở trên (tính cả ngày hạn theo giờ Việt Nam, yêu cầu tạm dừng thì ẩn, tin xuất bản gần nhất trước); bộ lọc phòng ban không gồm phòng ban con, mỗi bộ lọc một giá trị; "hình thức làm việc" là danh mục `EMPLOYMENT_TYPE`; từ khóa là một cụm, có phân biệt dấu, chỉ tìm trong tiêu đề và mô tả công việc; giá trị bộ lọc chỉ lấy từ tin đang tuyển và lộ id, id không tồn tại trả trang rỗng, giá trị cùng tên chưa có nhãn phân biệt (task 315); và các trường cổng hiện (có số lượng tuyển và tên chức danh, không có ngày đăng, người xuất bản, id chức danh và dữ liệu nội bộ của yêu cầu; task 316, mục "Dữ liệu trả ra").
 
-Câu hỏi 22 (task 320, 321): tin đã qua hạn rời danh sách nhưng chi tiết vẫn mở kèm thông báo hết hạn, không giới hạn thời gian, cho tới khi bị đóng; tin của yêu cầu tạm dừng trả 404 chứ không hiện thông báo; có trả `applicationClosesAt` để trang tự chuyển sang thông báo; nộp hồ sơ bị chặn từ 00:00 giờ Việt Nam ngày sau hạn nộp, trang đã mở trước đó nhận 409 `JOB_POSTING_EXPIRED` khi gửi, tin đã đóng hoặc của yêu cầu tạm dừng nhận 404 (task 321).
+Câu hỏi 22 (task 320, 321): tin đã qua hạn rời danh sách nhưng chi tiết vẫn mở kèm thông báo hết hạn, không giới hạn thời gian, cho tới khi bị gỡ (task 355) hoặc bị đóng; tin của yêu cầu tạm dừng trả 404 chứ không hiện thông báo; có trả `applicationClosesAt` để trang tự chuyển sang thông báo; nộp hồ sơ bị chặn từ 00:00 giờ Việt Nam ngày sau hạn nộp, trang đã mở trước đó nhận 409 `JOB_POSTING_EXPIRED` khi gửi, tin đã đóng hoặc của yêu cầu tạm dừng nhận 404 (task 321).

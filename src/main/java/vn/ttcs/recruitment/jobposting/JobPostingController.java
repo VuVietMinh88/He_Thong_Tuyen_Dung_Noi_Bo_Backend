@@ -18,7 +18,7 @@ import java.util.UUID;
 
 // Task 303 (story S3-09): composing job postings from approved requisitions. Task 308 (story S3-10): sending them for
 // review. Task 309: the preview, and the public portal of published postings: the /api/v1/public endpoints are for
-// candidates, need no login and return only what candidates may see.
+// candidates, need no login and return only what candidates may see. Task 355 (story S4-08): taking them down.
 @RestController
 public class JobPostingController {
     private final JobPostingService service;
@@ -68,6 +68,13 @@ public class JobPostingController {
     public ResponseEntity<JobPostingView> submit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                  @Valid @RequestBody JobPostingSubmitRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.submit(jwt, id, request));
+    }
+
+    // Task 355 (story S4-08): the recruiter or HR takes a published posting down at once, with a reason.
+    @PostMapping("/api/v1/job-postings/{id}/unpublish")
+    public ResponseEntity<JobPostingView> unpublish(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                    @Valid @RequestBody JobPostingUnpublishRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.unpublish(jwt, id, request));
     }
 
     // Task 309: the posting exactly as candidates will see it, with the status and revision to approve or publish.

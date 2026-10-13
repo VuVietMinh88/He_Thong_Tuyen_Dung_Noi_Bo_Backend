@@ -11,7 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 // (JobPostingService.SUBMITTABLE_STATUSES) and published (JobPostingApprovalService.PUBLISHABLE_STATUSES). Task 309:
 // and whether candidates see it on the public portal (JobPostingService.PUBLIC_STATUSES). Task 292: a posting closed
 // with its requisition is none of these. Task 320: and whether candidates may open its detail page
-// (JobPostingService.PORTAL_STATUSES).
+// (JobPostingService.PORTAL_STATUSES). Task 355: and whether it may be taken down
+// (JobPostingService.UNPUBLISHABLE_STATUSES); a posting taken down is none of the others.
 class JobPostingStatusTest {
 
     @ParameterizedTest
@@ -19,7 +20,7 @@ class JobPostingStatusTest {
     void everyStatusIsClassifiedForEditing(JobPostingStatus status) {
         boolean editable = switch (status) {
             case DRAFT, REVISION_REQUESTED -> true;
-            case PENDING_APPROVAL, APPROVED, PUBLISHED, CLOSED -> false;
+            case PENDING_APPROVAL, APPROVED, PUBLISHED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingService.EDITABLE_STATUSES.contains(status)).isEqualTo(editable);
@@ -30,7 +31,7 @@ class JobPostingStatusTest {
     void everyStatusIsClassifiedForSubmitting(JobPostingStatus status) {
         boolean submittable = switch (status) {
             case DRAFT, REVISION_REQUESTED -> true;
-            case PENDING_APPROVAL, APPROVED, PUBLISHED, CLOSED -> false;
+            case PENDING_APPROVAL, APPROVED, PUBLISHED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingService.SUBMITTABLE_STATUSES.contains(status)).isEqualTo(submittable);
@@ -41,7 +42,7 @@ class JobPostingStatusTest {
     void everyStatusIsClassifiedForPublishing(JobPostingStatus status) {
         boolean publishable = switch (status) {
             case APPROVED -> true;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, PUBLISHED, CLOSED -> false;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, PUBLISHED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(status)).isEqualTo(publishable);
@@ -52,7 +53,7 @@ class JobPostingStatusTest {
     void everyStatusIsClassifiedForThePublicPortal(JobPostingStatus status) {
         boolean shown = switch (status) {
             case PUBLISHED -> true;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> false;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingService.PUBLIC_STATUSES.contains(status)).isEqualTo(shown);
@@ -66,10 +67,23 @@ class JobPostingStatusTest {
     void everyStatusIsClassifiedForThePortalDetail(JobPostingStatus status) {
         boolean opens = switch (status) {
             case PUBLISHED -> true;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> false;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingService.PORTAL_STATUSES.contains(status)).isEqualTo(opens);
+    }
+
+    // Task 355 (story S4-08): only a published posting is taken down; one taken down already, a closed one and one
+    // that was never published are not.
+    @ParameterizedTest
+    @EnumSource(JobPostingStatus.class)
+    void everyStatusIsClassifiedForUnpublishing(JobPostingStatus status) {
+        boolean unpublishable = switch (status) {
+            case PUBLISHED -> true;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> false;
+        };
+
+        assertThat(JobPostingService.UNPUBLISHABLE_STATUSES.contains(status)).isEqualTo(unpublishable);
     }
 
     // Task 320: a posting candidates may apply to is always one whose detail opens.

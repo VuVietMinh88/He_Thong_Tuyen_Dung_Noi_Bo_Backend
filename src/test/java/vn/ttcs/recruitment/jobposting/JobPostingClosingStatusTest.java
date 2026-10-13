@@ -10,7 +10,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 // Task 292: a new RequisitionStatus makes the first switch fail to compile until someone decides whether reaching it
 // closes the requisition's postings (JobPostingRequisitionSync.CLOSING_STATUSES), and a new JobPostingStatus the
-// second until someone decides whether a posting in it is closed then (CLOSABLE_STATUSES).
+// second until someone decides whether a posting in it is closed then (CLOSABLE_STATUSES). Task 355: a posting taken
+// down is closed too.
 class JobPostingClosingStatusTest {
 
     @ParameterizedTest
@@ -28,7 +29,7 @@ class JobPostingClosingStatusTest {
     @EnumSource(JobPostingStatus.class)
     void everyPostingThatIsNotClosedYetIsClosed(JobPostingStatus status) {
         boolean closable = switch (status) {
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED -> true;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED, UNPUBLISHED -> true;
             case CLOSED -> false;
         };
 

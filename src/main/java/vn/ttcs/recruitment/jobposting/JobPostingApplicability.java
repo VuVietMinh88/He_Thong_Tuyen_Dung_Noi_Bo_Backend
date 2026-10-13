@@ -24,8 +24,8 @@ enum JobPostingApplicability {
     OPEN,
     // The detail still shows the posting, with a notice instead of the apply form; the list no longer has it.
     EXPIRED,
-    // Drafts, postings under review or approved but not published, closed ones, and every posting whose requisition is
-    // not in JobPostingService.SOURCE_STATUSES (a paused one, for example): 404.
+    // Drafts, postings under review or approved but not published, closed ones, those taken down (task 355), and every
+    // posting whose requisition is not in JobPostingService.SOURCE_STATUSES (a paused one, for example): 404.
     NOT_PUBLIC;
 
     static JobPostingApplicability of(JobPostingStatus status, RequisitionStatus requisition, LocalDate deadline,

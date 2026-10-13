@@ -30,7 +30,8 @@ import java.util.UUID;
  * (story S3-10): the authors send them for review (submit); HR's decisions and the publication are in
  * JobPostingApprovalService. Task 309: the preview, and the public portal of published postings; both answer with
  * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW). Task 320 (story
- * S4-02): the public detail adds whether candidates may still apply (PublicJobPostingDetail).
+ * S4-02): the public detail adds whether candidates may still apply (PublicJobPostingDetail). Task 355 (story S4-08):
+ * the recruiter or HR takes a published posting down (unpublish), next to submit because it is a composer's write.
  * <p>
  * Lock order of every write: the actor's account, the actor's session (JobPostingAccess.lockWriter), the requisition
  * row (JobPostingSourceRepository.lockSource), the posting row, then the chosen catalog values FOR SHARE (work
@@ -69,6 +70,13 @@ public class JobPostingService {
     // status of PUBLIC_STATUSES. JobPostingStatus asks every new status to be classified here; JobPostingStatusTest
     // does not compile until it is.
     static final Set<JobPostingStatus> PORTAL_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+
+    // Task 355 (story S4-08): the statuses from which the recruiter or HR may take a posting down (unpublish), at any
+    // time: whatever its deadline and whatever the status of its requisition (a paused one too). JobPostingStatus asks
+    // every new status to be classified here; JobPostingStatusTest does not compile until it is.
+    static final Set<JobPostingStatus> UNPUBLISHABLE_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+
+    private static final String UNPUBLISH_REASON_REQUIRED = "Vui lòng nhập lý do gỡ tin tuyển dụng.";
 
     // Task 309: PUBLIC_STATUSES and SOURCE_STATUSES as the names the public SQL filter binds (PgJDBC cannot bind a
     // Java enum). Derived from the sets, so the filter and the sets cannot drift apart.
@@ -217,6 +225,55 @@ public class JobPostingService {
         postings.flush();
         events.append(id, posting.getRevision(), JobPostingEventType.SUBMITTED, before,
                 JobPostingStatus.PENDING_APPROVAL, caller.id(), access.now(), request.comment());
+        return view(id, caller);
+    }
+
+    /**
+     * Task 355 (story S4-08): "Xây dựng API gỡ tin tuyển dụng ngay lập tức". The recruiter of the requisition or HR
+     * takes a published posting down at any time, with a reason. It moves to UNPUBLISHED with a new revision, keeps
+     * who published it and when (and updatedAt), and an UNPUBLISHED event records who took it down, when and why. The
+     * portal shows only postings in PUBLIC_STATUSES, read at each request and never cached (no-store), so the list,
+     * the detail, the filter values and the application gate (task 321) stop showing it as soon as this commits.
+     * Checks in order: the reason (400 JOB_POSTING_UNPUBLISH_REASON_REQUIRED, before any lock or lookup, like a
+     * decision's comment), write and read access (401/403, before any lookup), the posting exists (404), it is in the
+     * caller's scope (403), it is not closed (409, task 292), it is not taken down yet (409
+     * JOB_POSTING_ALREADY_UNPUBLISHED), it is in UNPUBLISHABLE_STATUSES (409 JOB_POSTING_NOT_PUBLISHED), the caller saw
+     * its latest revision (409). Lock order and re-checks like submit. Deliberately neither the requisition's status
+     * nor the deadline is checked: a paused requisition's posting, or one past its deadline, can be taken down too.
+     */
+    @Transactional
+    public JobPostingView unpublish(Jwt jwt, UUID id, JobPostingUnpublishRequest request) {
+        if (request.reason() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "JOB_POSTING_UNPUBLISH_REASON_REQUIRED",
+                    UNPUBLISH_REASON_REQUIRED, Map.of("reason", UNPUBLISH_REASON_REQUIRED));
+        }
+        Writer writer = access.lockWriter(jwt);
+        access.requireComposer(jwt, writer);
+        UUID requisitionId = postings.findRequisitionIdById(id).orElseThrow(JobPostingService::notFound);
+        // Locked although its status is not checked here: every posting writer, the closure (task 292) and the
+        // application gate (task 321) take the requisition first, so nothing deadlocks, and the scope is checked under
+        // this lock, which every change of the requisition's team takes first.
+        sources.lockSource(requisitionId).orElseThrow(JobPostingService::notFound);
+        access.requireComposer(jwt, writer);
+        var locked = postings.findByIdForUpdate(id);
+        Caller caller = access.requireComposer(jwt, writer);
+        JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
+        access.requireInScope(caller, requisitionId);
+        requireNotClosed(posting);
+        if (posting.getStatus() == JobPostingStatus.UNPUBLISHED) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_ALREADY_UNPUBLISHED",
+                    "Tin tuyển dụng đã được gỡ khỏi trang tuyển dụng.");
+        }
+        if (!UNPUBLISHABLE_STATUSES.contains(posting.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_NOT_PUBLISHED",
+                    "Chỉ gỡ được tin tuyển dụng đã xuất bản.");
+        }
+        requireRevision(posting, request.expectedRevision());
+        JobPostingStatus before = posting.getStatus();
+        posting.unpublish(before);
+        postings.flush();
+        events.append(id, posting.getRevision(), JobPostingEventType.UNPUBLISHED, before,
+                JobPostingStatus.UNPUBLISHED, caller.id(), access.now(), request.reason());
         return view(id, caller);
     }
 
@@ -411,11 +468,13 @@ public class JobPostingService {
     }
 
     // Task 292: a posting closed with its requisition never changes again; said before the step's own status check, so
-    // a write that lost the race to the closure gets this message, not "chưa được duyệt" or "không sửa được".
+    // a write that lost the race to the closure gets this message, not "chưa được duyệt" or "không sửa được". Task
+    // 355: one text for every step, and it names taking down too, so a recruiter whose unpublish lost the race to the
+    // closure is told about the action they tried.
     static void requireNotClosed(JobPosting posting) {
         if (posting.getStatus() == JobPostingStatus.CLOSED) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_CLOSED", "Tin tuyển dụng đã đóng cùng yêu cầu "
-                    + "tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa.");
+                    + "tuyển dụng nên không thể sửa, gửi duyệt, duyệt, xuất bản hay gỡ nữa.");
         }
     }
 

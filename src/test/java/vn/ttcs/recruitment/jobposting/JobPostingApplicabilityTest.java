@@ -71,7 +71,8 @@ class JobPostingApplicabilityTest {
         }
         return switch (status) {
             case PUBLISHED -> today.isAfter(deadline) ? EXPIRED : OPEN;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> NOT_PUBLIC;
+            // Task 355: a posting taken down is never public again.
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> NOT_PUBLIC;
         };
     }
 }

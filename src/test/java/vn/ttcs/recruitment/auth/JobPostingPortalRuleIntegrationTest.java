@@ -230,15 +230,17 @@ class JobPostingPortalRuleIntegrationTest {
         }
         return switch (status) {
             case PUBLISHED -> TODAY.isAfter(deadline) ? Expected.EXPIRED : Expected.OPEN;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> Expected.NOT_PUBLIC;
+            // Task 355: a posting taken down is never public again.
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> Expected.NOT_PUBLIC;
         };
     }
 
     // Whether a posting in this status went through the publication, so it names who published it and when (V23).
-    // A posting may also be closed before its publication; here every closed one was published first.
+    // A posting may also be closed before its publication; here every closed one was published first. A posting taken
+    // down (task 355) always was (V26).
     private static boolean published(JobPostingStatus status) {
         return switch (status) {
-            case PUBLISHED, CLOSED -> true;
+            case PUBLISHED, CLOSED, UNPUBLISHED -> true;
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED -> false;
         };
     }
