@@ -204,6 +204,10 @@ public class SecurityConfiguration {
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasRole("ADMIN"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts/import")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

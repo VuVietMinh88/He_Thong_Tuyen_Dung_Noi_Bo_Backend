@@ -1,10 +1,10 @@
 # Nhập danh sách nhân sự từ Excel
 
-Phạm vi TKNHTTDNB1-170–172 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
+Phạm vi TKNHTTDNB1-170–173 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
 
 Nhập hàng loạt cũng là tạo tài khoản, nên dùng đúng quy tắc của `POST /accounts`: cần **vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`**. `SecurityConfiguration` kiểm trước, sau đó `StaffImportService` đọc lại phiên, vai trò và quyền từ database ở mỗi yêu cầu. Theo seed hiện tại chỉ ADMIN dùng được; HR_MANAGER chỉ có quyền đọc tài khoản nên nhận 403.
 
-Hiện có API tải tệp mẫu (170) và API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172). Nhập hàng loạt bỏ qua dòng lỗi (173) và báo cáo tổng kết (174) thuộc các task tiếp theo của story, chưa có trong tài liệu này.
+Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), và API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173). Báo cáo tổng kết sau khi nhập (174: số dòng thành công, số dòng bị bỏ qua và lý do) thuộc task tiếp theo của story, chưa có trong tài liệu này.
 
 ## GET /accounts/import/template
 
@@ -235,7 +235,7 @@ Mỗi lỗi trong `errors` có các trường:
 |code|Mã lỗi ổn định trong bảng trên, để frontend lọc hoặc tô màu|
 |message|Câu tiếng Việt hiển thị được ngay. Message không lặp lại số dòng; giao diện có thể ghép thành `Dòng 5, ô A5: Email đã được sử dụng...`|
 
-Email đã có tài khoản và phòng ban được kiểm tra bằng hai truy vấn chỉ đọc cho cả tệp (bảng `user_accounts` và `departments`), không phải một truy vấn mỗi dòng. Kết quả phản ánh database **tại lúc xem trước**: nếu ai đó tạo tài khoản hoặc ngừng áp dụng phòng ban ngay sau đó, xem trước lần sau sẽ báo lỗi mới. Vì vậy bước nhập thật (task 173) phải kiểm tra lại, không tin kết quả xem trước cũ.
+Email đã có tài khoản và phòng ban được kiểm tra bằng hai truy vấn chỉ đọc cho cả tệp (bảng `user_accounts` và `departments`), không phải một truy vấn mỗi dòng. Kết quả phản ánh database **tại lúc xem trước**: nếu ai đó tạo tài khoản hoặc ngừng áp dụng phòng ban ngay sau đó, xem trước lần sau sẽ báo lỗi mới. Vì vậy bước nhập thật ([`POST /accounts/import`](#post-accountsimport)) đọc và kiểm tra lại tệp, không tin kết quả xem trước cũ.
 
 Xem trước cho biết một email đã có tài khoản hay chưa. Chỉ người có vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` gọi được API này; người khác nhận 401/403 trước khi server đọc tệp, nên không dò được email.
 
@@ -260,10 +260,108 @@ Giới hạn tải lên nằm trong `application.properties`: `spring.servlet.mu
 
 Khi từ chối một request chưa nhận hết, Tomcat vẫn đọc bỏ phần body còn lại để kết nối không bị ngắt giữa chừng và client đọc được response 413. `server.tomcat.max-swallow-size=10MB` giới hạn phần đọc bỏ này (mặc định của Tomcat chỉ 2 MB, khi đó tệp 5 MB đã bị ngắt kết nối thay vì nhận JSON). Phần còn lại vượt 10 MB thì Tomcat đóng kết nối để không tốn băng thông cho tệp quá lớn, nên frontend vẫn phải tự kiểm tra dung lượng trước khi gửi. Giới hạn này áp dụng cho mọi API, không riêng API nhập nhân sự.
 
+## POST /accounts/import
+
+Nhập thật: tạo tài khoản cho các dòng hợp lệ và bỏ qua các dòng lỗi. Request giống hệt xem trước: `multipart/form-data` với một trường tệp tên **`file`**, cùng giới hạn tệp và cùng quyền (vai trò `ADMIN` **và** `USER_ADMIN_WRITE_ALL`). Frontend thường gọi xem trước rồi mới cho bấm nhập, nhưng server không cần và không nhận kết quả xem trước.
+
+```js
+const form = new FormData();
+form.append('file', input.files[0]);
+const response = await fetch(`${apiBaseUrl}/api/v1/accounts/import`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${accessToken}` },
+  body: form,
+});
+```
+
+### Server xử lý theo thứ tự
+
+1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` như xem trước. Người không có quyền nhận 401/403 trước khi server xem tới tệp.
+2. Đọc tệp đúng như bước 2–10 của [xem trước](#server-kiểm-tra-theo-thứ-tự). Gặp lỗi cấp tệp (bảng [Lỗi](#lỗi)) thì cả tệp bị từ chối và **chưa tạo tài khoản nào**, kể cả cho các dòng đúng.
+3. Kiểm tra lại mọi dòng như bước 11 của xem trước, theo database **lúc nhập**. Từ lúc xem trước, có thể đã có người tạo tài khoản trùng email hoặc ngừng áp dụng một phòng ban.
+4. Đi lần lượt từng dòng theo thứ tự trong tệp:
+   - Dòng có lỗi: bỏ qua (`SKIPPED`), không ghi gì, không gửi email.
+   - Dòng hợp lệ: tạo tài khoản bằng chính `AccountProvisioningService` của `POST /accounts`, trong **transaction riêng của dòng đó**. Transaction khóa và kiểm lại phiên, vai trò, quyền của người nhập; khóa phòng ban theo mã (`SELECT ... FOR SHARE`) và kiểm phòng ban còn áp dụng; kiểm email chưa có tài khoản; lưu tài khoản ở trạng thái chờ kích hoạt cùng vai trò, phòng ban, số điện thoại và chức danh; tạo token kích hoạt; cuối cùng gửi email mời giống `POST /accounts`. Dòng xong thì được commit ngay, trước khi sang dòng sau.
+
+Tài khoản tạo từ tệp giống hệt tài khoản tạo bằng `POST /accounts` rồi sửa hồ sơ bằng `PUT /accounts/{id}`: trạng thái `PENDING_ACTIVATION`, mật khẩu tạm và link kích hoạt (hạn theo `ACCOUNT_ACTIVATION_TTL`) chỉ có trong email gửi cho người đó.
+
+### Dòng hợp lệ nhưng thất bại lúc tạo
+
+Giữa bước 3 và lúc tạo một dòng, dữ liệu vẫn có thể đổi. Khi đó chỉ transaction của dòng ấy bị hủy; tài khoản của các dòng trước và sau không bị ảnh hưởng.
+
+| Tình huống lúc tạo dòng | Kết quả |
+|---|---|
+|Email vừa được dùng cho một tài khoản khác, kể cả khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_email_key` quyết định ai tạo trước)|Dòng `SKIPPED`; tài khoản đã có giữ nguyên tên, vai trò, mật khẩu; không gửi email. Tiếp tục dòng sau|
+|Phòng ban vừa ngừng áp dụng hoặc đổi mã|Dòng `SKIPPED`, không tạo gì. Tiếp tục dòng sau|
+|Máy chủ thư trả lời nhưng **từ chối địa chỉ** người nhận (mã SMTP 5xx cho địa chỉ đó, ví dụ hộp thư không tồn tại)|Tài khoản của dòng đó bị hủy như `POST /accounts`, dòng `SKIPPED`. Máy chủ thư vẫn hoạt động với địa chỉ khác nên tiếp tục dòng sau|
+|**Máy chủ thư không hoạt động**: không kết nối được, đăng nhập SMTP sai, hết thời gian chờ, lỗi tạm thời (mã 4xx) hoặc lỗi khác|Tài khoản của dòng đó bị hủy như `POST /accounts`, dòng `SKIPPED`. Server **dừng tạo**: `stoppedAtRow` là số dòng này; các dòng hợp lệ sau đó là `NOT_ATTEMPTED` (không thử, không ghi gì, không gửi email); các dòng lỗi sau đó vẫn `SKIPPED`|
+|Phiên hết hạn hoặc bị thu hồi, Admin bị khóa, mất vai trò `ADMIN` hoặc quyền `USER_ADMIN_WRITE_ALL`|Request dừng ngay với 401 `SESSION_INVALID` hoặc 403 `FORBIDDEN`, không có danh sách dòng. Tài khoản đã tạo trước đó vẫn giữ|
+
+Server phân biệt hai trường hợp gửi email lỗi theo lỗi mà thư viện gửi thư trả về (`AccountInvitationMailSender.refusedRecipient`). Từ chối địa chỉ là vấn đề của **riêng dòng đó**: máy chủ đã trả lời ngay nên thử dòng sau không tốn thời gian chờ. Máy chủ thư không hoạt động thì các dòng sau gần như chắc chắn cũng lỗi, và mỗi lần thử có thể chờ hết thời gian chờ SMTP (tới 5 giây mỗi bước), làm request 500 dòng kéo dài hàng chục phút, nên server dừng.
+
+Xem trước không biết máy chủ thư có nhận một địa chỉ hay không, nên dòng bị từ chối địa chỉ vẫn hiện là hợp lệ khi xem trước. Nếu một dòng `SKIPPED` (không phải dòng `stoppedAtRow`) mà xem trước lại tệp vẫn báo hợp lệ, nhiều khả năng máy chủ thư đã từ chối địa chỉ đó: hãy kiểm tra lại email của dòng.
+
+**Nhập lại cùng tệp là an toàn.** Dòng đã tạo ở lần trước nay có email đã tồn tại nên bị bỏ qua: không tạo trùng, không gửi email lần hai, không đổi mật khẩu tạm. Vì vậy sau khi request bị dừng (`stoppedAtRow` khác `null`, 401, 403, mất kết nối), Admin chỉ cần tải lại đúng tệp đó khi hệ thống đã ổn: dòng `stoppedAtRow` và các dòng `NOT_ATTEMPTED` sẽ được thử lại.
+
+### Response 200
+
+```json
+{
+  "rows": [
+    {
+      "rowNumber": 2,
+      "email": "nguyen.van.an@example.com",
+      "status": "CREATED",
+      "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40"
+    },
+    {
+      "rowNumber": 4,
+      "email": "tran.thi.binh@example.com",
+      "status": "SKIPPED",
+      "accountId": null
+    }
+  ],
+  "stoppedAtRow": null
+}
+```
+
+Khi máy chủ thư ngừng hoạt động ở dòng 3 của một tệp 4 dòng (dòng 2 đã tạo xong trước đó):
+
+```json
+{
+  "rows": [
+    { "rowNumber": 2, "email": "an@example.com", "status": "CREATED", "accountId": "8d6f3b8e-2f5c-4f8e-9a51-6f1d2c7b9e40" },
+    { "rowNumber": 3, "email": "binh@example.com", "status": "SKIPPED", "accountId": null },
+    { "rowNumber": 4, "email": "sai-email", "status": "SKIPPED", "accountId": null },
+    { "rowNumber": 5, "email": "cuong@example.com", "status": "NOT_ATTEMPTED", "accountId": null }
+  ],
+  "stoppedAtRow": 3
+}
+```
+
+Header `Cache-Control: no-store`. Response là 200 kể cả khi không dòng nào được tạo hoặc server dừng giữa chừng.
+
+| Trường | Ý nghĩa |
+|---|---|
+|rows|Mọi dòng nhân sự đọc được, cùng thứ tự và cùng `rowNumber` như response xem trước; dòng trống không có trong danh sách|
+|rowNumber|Số dòng Excel hiển thị bên trái sheet|
+|email|Email như xem trước (bỏ khoảng trắng đầu/cuối, đổi về chữ thường); `null` khi ô trống|
+|status|`CREATED`: đã tạo tài khoản chờ kích hoạt và gửi email mời. `SKIPPED`: dòng có lỗi, hoặc đã thử tạo nhưng thất bại (bảng trên); không tạo gì và không gửi email. `NOT_ATTEMPTED`: dòng hợp lệ nhưng **chưa được thử** vì server đã dừng ở `stoppedAtRow`; không tạo gì và không gửi email. Nhập lại cùng tệp sẽ thử dòng này|
+|accountId|Id của tài khoản mới, dùng được với `GET /accounts/{id}`; `null` khi không phải `CREATED`|
+|stoppedAtRow|Số dòng Excel mà server không gửi được email mời vì máy chủ thư không hoạt động, rồi dừng tạo. `null` khi mọi dòng hợp lệ đều đã được thử. Giao diện nên báo rõ, ví dụ `Máy chủ thư lỗi ở dòng 3; các dòng sau chưa được nhập. Hãy nhập lại tệp sau.`|
+
+Response không chứa mật khẩu tạm hay token kích hoạt. Response hiện chỉ cho biết dòng nào được tạo, bị bỏ qua hay chưa được thử, và server có dừng hay không; số dòng thành công, số dòng bị bỏ qua và lý do bỏ qua từng dòng thuộc báo cáo tổng kết (TKNHTTDNB1-174). Trong lúc chờ task đó, frontend có thể tự đếm theo `status`, và lỗi dữ liệu của từng dòng vẫn xem được bằng API xem trước.
+
+### Lỗi và thời gian xử lý
+
+Lỗi cấp tệp và lỗi quyền giống hệt [bảng Lỗi của xem trước](#lỗi) (400 `IMPORT_*`, `INVALID_MULTIPART`, 413 `FILE_TOO_LARGE`, 401, 403); khi gặp chúng chưa có tài khoản nào được tạo. Riêng 401 `SESSION_INVALID` và 403 `FORBIDDEN` còn có thể xảy ra giữa chừng như bảng ở trên.
+
+Mỗi dòng hợp lệ được băm mật khẩu tạm (BCrypt) và gửi một email trong lúc request còn chờ, nên tệp nhiều dòng có thể mất từ vài chục giây tới vài phút (chưa đo trên máy thật). Phiên và token được kiểm lại ở mỗi dòng, mà access token chỉ sống 15 phút, nên frontend nên lấy token mới bằng `POST /auth/refresh` ngay trước khi nhập, hiện trạng thái đang xử lý, chặn bấm nhập lần hai và đặt thời gian chờ đủ dài. Nếu client ngắt kết nối giữa chừng, server có thể vẫn chạy tiếp tới hết tệp; xem lại danh sách tài khoản hoặc nhập lại cùng tệp như hướng dẫn ở trên.
+
 ## An toàn, database và phạm vi
 
 Mọi ô trong tệp mẫu là ô chữ: không có công thức, macro hay liên kết ngoài. Tệp được tạo mới trong bộ nhớ ở mỗi yêu cầu, không ghi ra đĩa và không chứa dữ liệu tài khoản hoặc phòng ban, chỉ có tên các vai trò.
 
 Khi đọc tệp tải lên, server không tính công thức và không chạy macro. Ngoài giới hạn 2 MB và 10 MB sau giải nén, Apache POI vẫn áp dụng các kiểm tra mặc định của `ZipSecureFile`, ví dụ từ chối tỉ lệ nén bất thường. Xem trước không mở transaction nên không giữ kết nối database trong lúc đọc tệp; hai truy vấn kiểm tra email và phòng ban chỉ chạy sau khi đọc xong.
 
-Không thêm migration. Tải tệp mẫu chỉ đọc bảng `roles` của V3; xem trước chỉ đọc phiên và quyền của người gọi, cột `email` của `user_accounts` và cột `code`, `active` của `departments`. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.
+Không thêm migration. Tải tệp mẫu chỉ đọc bảng `roles` của V3; xem trước chỉ đọc phiên và quyền của người gọi, cột `email` của `user_accounts` và cột `code`, `active` của `departments`. Nhập thật ghi các bảng mà `POST /accounts` vẫn ghi (`user_accounts`, `user_roles`, `account_activation_tokens`), thêm các cột hồ sơ `department_id`, `phone`, `display_title` của V5, và chỉ khóa đọc (`FOR SHARE`) dòng `departments` được dùng. Tệp và nội dung tệp không được lưu ở đâu. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.
