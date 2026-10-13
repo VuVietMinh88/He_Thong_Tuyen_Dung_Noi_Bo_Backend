@@ -146,6 +146,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 278: copying; the empty JSON object is a valid body, so a permitted call stops at the unknown id.
             endpoint("POST", "/api/v1/requisitions/{id}/copy", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 404),
+            // Task 284: only ALL writers assign; the empty body stops a permitted call at 400 before any lookup.
+            endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/requisitions/{id}/assignment", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 275: the HR exceptions of a requisition; the unknown id makes a permitted call stop at 404.
             endpoint("GET", "/api/v1/requisitions/{id}/headcount-overrides", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
@@ -189,7 +193,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
             "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
-            "requisition_headcount_overrides");
+            "requisition_headcount_overrides", "requisition_recruiters");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -216,7 +220,9 @@ class ApiAuthorizationMatrixIntegrationTest {
     void createOneLoggedInAccountPerIdentity() throws Exception {
         permissionSeed = jdbc.queryForList("SELECT role_code, permission_code FROM role_permissions");
         clock.set(START);
-        // Requisitions reference departments, positions and accounts (ON DELETE RESTRICT), so they go first.
+        // Requisitions reference departments, positions and accounts (ON DELETE RESTRICT), so they go first, after the
+        // rows that reference them.
+        jdbc.update("DELETE FROM requisition_recruiters");
         jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
@@ -357,6 +363,16 @@ class ApiAuthorizationMatrixIntegrationTest {
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
                 Timestamp.from(START), admin, locked);
+        // Task 284: the requisition has a primary and a supporting recruiter, so a write that slipped through would
+        // change requisition_recruiters.
+        UUID backup = accounts.saveAndFlush(new Account("backup@example.test", "Backup", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START)).getId();
+        expect(request("POST", "/api/v1/requisitions/" + requisition + "/assign", json.writeValueAsString(
+                Map.of("recruiterId", recruiter)), actors.get(Identity.HR_MANAGER).token()), 200);
+        UUID spare = accounts.saveAndFlush(new Account("spare@example.test", "Spare", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START)).getId();
+        expect(request("POST", "/api/v1/requisitions/" + requisition + "/assign", json.writeValueAsString(
+                Map.of("recruiterId", spare, "role", "SUPPORTING")), actors.get(Identity.HR_MANAGER).token()), 200);
         // NO_ROLE has an avatar, so a delete that slipped through would remove a user_avatars row.
         jdbc.update("""
                 INSERT INTO user_avatars (user_id, content_type, image, thumbnail, size_bytes, updated_at)
@@ -411,7 +427,17 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // JOB_POSTINGS_WRITE_SCOPED is not enough for the company-wide page.
                 new Attack(Identity.RECRUITER, "PUT", "/api/v1/company-profile",
                         Map.of("companyName", "Shadow company", "introduction", "Taken over")),
-                new Attack(Identity.NO_ROLE, "DELETE", "/api/v1/profile/avatar", null));
+                new Attack(Identity.NO_ROLE, "DELETE", "/api/v1/profile/avatar", null),
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions/" + requisition + "/assign",
+                        Map.of("recruiterId", backup)),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/assign",
+                        Map.of("recruiterId", backup, "role", "PRIMARY")),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions/" + requisition + "/assign",
+                        Map.of("recruiterId", backup)),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + requisition + "/unassign",
+                        Map.of("recruiterId", spare)),
+                new Attack(Identity.NO_ROLE, "POST", "/api/v1/requisitions/" + requisition + "/unassign",
+                        Map.of("recruiterId", spare)));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

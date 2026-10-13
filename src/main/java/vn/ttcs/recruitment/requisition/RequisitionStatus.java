@@ -10,6 +10,9 @@ package vn.ttcs.recruitment.requisition;
 // until the new status is given its group there.
 // Task 279: RequisitionService.copy copies a requisition in any status into a new DRAFT. Decide whether a requisition
 // in the new status may be copied (for example a cancelled one), and add a copy test for it.
+// Task 284: decide whether a requisition in the new status may still change recruiters
+// (RequisitionRecruiterService.ASSIGNABLE_STATUSES; reading stays allowed). RequisitionRecruiterStatusTest does not
+// compile until the new status is given its group there.
 public enum RequisitionStatus {
     DRAFT
 }

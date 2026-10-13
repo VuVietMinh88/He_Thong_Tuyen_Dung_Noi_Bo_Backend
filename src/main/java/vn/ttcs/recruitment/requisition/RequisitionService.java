@@ -339,6 +339,13 @@ public class RequisitionService {
         return new Caller(writer.id(), readScope, writer.permissions());
     }
 
+    // Task 284: the department rule of GET /requisitions/{id} for the recruiter writes, which answer with the team and
+    // so must be allowed to read the requisition (RequisitionRecruiterService.lockRequisition). One rule for both keeps
+    // them in step when the scope rules change. readScope is the caller's READ scope of REQUISITIONS, ALL or SCOPED.
+    void requireInReadScope(UUID actorId, AccessScope readScope, UUID departmentId) {
+        requireInScope(new Caller(actorId, readScope, Set.of()), departmentId);
+    }
+
     // ALL reaches every department. SCOPED only reaches a department the caller manages, directly or through a
     // parent department (departments.manager_user_id). Used for the department of a saved requisition (get, update)
     // and for the department chosen in the body (create, update). Who created a requisition does not matter: when a

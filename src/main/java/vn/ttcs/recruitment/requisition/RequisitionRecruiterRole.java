@@ -6,5 +6,9 @@ public enum RequisitionRecruiterRole {
     // The one recruiter in charge of the requisition.
     PRIMARY,
     // A recruiter who helps the primary one.
-    SUPPORTING
+    SUPPORTING;
+
+    // Task 284: the role codes a request may send, for @Pattern (the request keeps the role as text so that a wrong
+    // code is a VALIDATION_ERROR on "role", not a bare INVALID_JSON). RequisitionRecruiterRoleTest keeps it in step.
+    static final String CODES = "PRIMARY|SUPPORTING";
 }
