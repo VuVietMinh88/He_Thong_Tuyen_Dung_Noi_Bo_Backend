@@ -80,6 +80,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String ORGANIZATION_WRITE_ALL = "ORGANIZATION_WRITE_ALL";
     private static final String SALARY_RANGES_READ_ALL = "SALARY_RANGES_READ_ALL";
     private static final String SALARY_RANGES_WRITE_ALL = "SALARY_RANGES_WRITE_ALL";
+    private static final String REQUISITIONS_WRITE_ALL = "REQUISITIONS_WRITE_ALL";
+    private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -127,11 +129,13 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/interview-questions", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/interview-questions/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("GET", "/api/v1/interview-questions", permission(ORGANIZATION_READ_ALL), null, 200));
+            endpoint("GET", "/api/v1/interview-questions", permission(ORGANIZATION_READ_ALL), null, 200),
+            // Requisitions: ALL and SCOPED writers both pass the matcher; RequisitionService applies the scope.
+            endpoint("POST", "/api/v1/requisitions", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
-            "competency_frameworks", "competency_criteria", "interview_questions");
+            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -311,7 +315,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.INTERVIEWER, "POST", "/api/v1/competency-frameworks",
                         competencyFrameworkBody("SHADOW", "Shadow")),
                 new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/competency-frameworks/" + framework,
-                        competencyFrameworkBody("TARGET", "Taken over")));
+                        competencyFrameworkBody("TARGET", "Taken over")),
+                // INTERVIEWER holds no REQUISITIONS permission, even for the department it manages.
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions", Map.of("positionId", position,
+                        "departmentId", department, "headcount", 1, "reason", "NEW_HEADCOUNT")));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

@@ -32,7 +32,8 @@ public record PositionRequest(
 
     // 1.000 tỷ đồng: far above any real salary, so it only stops typing mistakes such as extra zeros and keeps
     // later offer calculations far from the long limit. V7 has no such CHECK; only the API enforces it.
-    static final long MAX_SALARY_VND = 1_000_000_000_000L;
+    // Public because RequisitionRequest (task 244) uses the same ceiling for proposed salaries.
+    public static final long MAX_SALARY_VND = 1_000_000_000_000L;
 
     public PositionRequest {
         code = code == null ? null : code.trim();

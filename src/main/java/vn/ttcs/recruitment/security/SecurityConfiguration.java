@@ -152,6 +152,9 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/interview-questions/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Requisitions: ALL and SCOPED writers both reach RequisitionService, which uses AccessScope.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
