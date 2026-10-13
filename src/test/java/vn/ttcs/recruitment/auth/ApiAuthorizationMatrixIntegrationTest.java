@@ -334,7 +334,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.INTERVIEWER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
                 // HIRING_MANAGER passes the matcher (REQUISITIONS_WRITE_SCOPED) but does not manage TARGET,
                 // so RequisitionService refuses after locking the row.
-                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition));
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
+                // Task 249: the same SCOPED writers cannot create a requisition for a department they do not manage.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions", requisitionBody),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions", requisitionBody));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

@@ -1,8 +1,8 @@
 # API yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn) và TKNHTTDNB1-248 (ngày cần người không ở quá khứ), story TKNHTTDNB1-29 (S2-10). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED`, `NEEDED_BY_IN_PAST` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn), TKNHTTDNB1-248 (ngày cần người không ở quá khứ) và TKNHTTDNB1-249 (kiểm tra quyền và phòng ban của người tạo yêu cầu), story TKNHTTDNB1-29 (S2-10). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED`, `NEEDED_BY_IN_PAST` dùng `Cache-Control: no-store`.
 
-Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Giới hạn phòng ban được ghi vào yêu cầu (249) là task sau; story S2-10 chưa hoàn thành.
+Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Task 249 bắt phòng ban ghi vào yêu cầu (khi tạo, và khi sửa) phải thuộc phạm vi người gọi (mục "Phạm vi dữ liệu"). Sau task 249, phần backend cho các tiêu chí của story S2-10 đã có; trong story còn task 250 (kết nối giao diện, phía frontend) và 251 (test tạo và lưu nháp).
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
@@ -13,16 +13,35 @@ Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` v
 
 INTERVIEWER và tài khoản không có vai trò nhận 403 `FORBIDDEN` ở cả bốn API. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi (`POST`, `PUT`), backend khóa tài khoản người gọi rồi phiên, sau đó kiểm lại trạng thái tài khoản, phiên, hạn JWT và quyền trước khi ghi, giống API chức danh. Quyền đọc và quyền ghi được kiểm riêng: `REQUISITIONS_READ_*` không cho phép tạo/sửa, `REQUISITIONS_WRITE_*` không cho phép gọi hai API `GET`.
 
-## Phạm vi dữ liệu (task 245)
+## Phạm vi dữ liệu (task 245, 249)
 
-- Người có `ALL` (ADMIN, HR_MANAGER) xem và sửa **mọi** yêu cầu.
-- Người chỉ có `SCOPED` chỉ xem và sửa yêu cầu thuộc **phòng ban mình phụ trách** (`departments.manager_user_id` là người gọi), tính cả mọi phòng ban con, cháu bên dưới trong cây. Ví dụ cây `IT > IT_DEV > IT_QA`: trưởng IT thấy yêu cầu của cả ba phòng; trưởng IT_DEV thấy IT_DEV và IT_QA nhưng không thấy IT.
+- Người có `ALL` (ADMIN, HR_MANAGER) xem, tạo và sửa yêu cầu của **mọi** phòng ban, và chuyển nháp giữa mọi phòng ban.
+- Người chỉ có `SCOPED` chỉ xem, tạo và sửa yêu cầu thuộc **phòng ban mình phụ trách** (`departments.manager_user_id` là người gọi), tính cả mọi phòng ban con, cháu bên dưới trong cây. Ví dụ cây `IT > IT_DEV > IT_QA`: trưởng IT thấy và tạo được yêu cầu cho cả ba phòng; trưởng IT_DEV thấy và tạo được cho IT_DEV và IT_QA nhưng không cho IT.
 - Người tạo yêu cầu không quyết định quyền xem: khi HR đổi người phụ trách phòng ban, bản nháp của phòng ban đó chuyển sang người phụ trách mới, người phụ trách cũ không xem/sửa được nữa (nhưng `createdBy` vẫn giữ người tạo).
 - Trạng thái `active` của phòng ban không ảnh hưởng phạm vi: phòng ban ngừng áp dụng vẫn do người phụ trách của nó xem. Riêng việc **lưu** nháp vào phòng ban ngừng áp dụng bị chặn từ task 246 (xem mục kiểm tra bên dưới).
-- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở hay sửa một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)); khi có luồng phân công recruiter/duyệt, phạm vi của hai vai trò này sẽ được mở rộng.
+- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở, sửa hay tạo một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)); khi có luồng phân công recruiter/duyệt, phạm vi của hai vai trò này sẽ được mở rộng.
 - Yêu cầu tồn tại nhưng ngoài phạm vi trả 403 `FORBIDDEN` theo quy ước chung của [thiết kế phân quyền](../architecture/authorization.md), không trả 404. UUID không tồn tại trả 404 `REQUISITION_NOT_FOUND` cho mọi người gọi; vì vậy người `SCOPED` phân biệt được "không tồn tại" và "không được phép", nhưng UUID là ngẫu nhiên nên không đoán được mã của phòng ban khác.
 
-Task 245 chỉ giới hạn **yêu cầu đã có** mà người gọi được xem/sửa. Phòng ban **ghi vào body** chưa bị giới hạn: người có `SCOPED` vẫn tạo được nháp cho mọi phòng ban, và khi sửa vẫn chuyển được nháp của mình sang phòng ban khác (sau đó không còn thấy nháp đó nữa). Task 249 sẽ bắt `departmentId` trong body của `POST`/`PUT` cũng phải thuộc phạm vi trên.
+Task 245 giới hạn **yêu cầu đã có** mà người gọi được xem/sửa. Task 249 (kết quả Jira: "Bảo đảm Trưởng bộ phận tạo và cập nhật yêu cầu thuộc phạm vi phòng ban được phép") giới hạn thêm **phòng ban ghi vào body** (`departmentId`):
+
+- `POST`: người `SCOPED` chỉ tạo được yêu cầu cho phòng ban thuộc phạm vi trên. Phòng ban khác, kể cả phòng ban **cha** của phòng mình phụ trách, trả 403 `FORBIDDEN` và không lưu gì.
+- `PUT`: phải qua **hai** lần kiểm. Phòng ban hiện tại của nháp phải thuộc phạm vi (task 245), và phòng ban mới trong body cũng phải thuộc phạm vi. Vì vậy trưởng bộ phận chuyển được nháp giữa các phòng mình phụ trách (ví dụ IT sang IT_QA), nhưng không chuyển được ra ngoài (IT sang SALES), cũng không "kéo" nháp của phòng khác về phòng mình. Lần kiểm nào không qua cũng trả 403 `FORBIDDEN` và dòng giữ nguyên.
+- Người `ALL` không bị giới hạn phòng ban; tài khoản có nhiều vai trò được `ALL` nếu một vai trò có `REQUISITIONS_WRITE_ALL` (ví dụ HIRING_MANAGER kiêm HR_MANAGER).
+- Phạm vi chỉ phụ thuộc cây phòng ban, không phụ thuộc vai trò cụ thể: RECRUITER hay APPROVER được đặt làm người phụ trách một phòng ban cũng tạo được yêu cầu cho phòng ban đó; ai không phụ trách phòng ban nào thì nhận 403 với mọi `departmentId` (chờ BA/PO, câu hỏi 2 như trên).
+- `active` của phòng ban chọn trong body vẫn phải là `true` (task 246), nhưng không ảnh hưởng phạm vi: phòng ban con đang áp dụng nằm dưới một phòng ban đã ngừng vẫn thuộc phạm vi của người phụ trách phòng ban đã ngừng đó.
+
+Thứ tự: kiểm phạm vi của phòng ban trong body **sau** khi phòng ban đó được xác nhận tồn tại và đang áp dụng, và **trước** khi so dải lương chuẩn (bước 7 của tạo, trong bước 7 của sửa ở dưới). Hệ quả:
+
+- `departmentId` không tồn tại vẫn là 400 `INVALID_REQUISITION_DEPARTMENT` với mọi người gọi, không phải 403, giống "UUID không tồn tại là 404 trước 403" ở trên. Phòng ban đã ngừng là 400 `REQUISITION_DEPARTMENT_INACTIVE`. Cây phòng ban vốn đọc được bởi mọi vai trò nội bộ (`ORGANIZATION_READ_ALL`), nên thứ tự này không làm lộ thêm thông tin.
+- Lỗi chỉ dựa trên body (từng trường, `REQUISITION_SALARY_RANGE_INVALID`, `NEEDED_BY_IN_PAST`) và lỗi chức danh được trả trước 403 này.
+- Lương ngoài dải chuẩn mà chưa có giải trình nhưng phòng ban ngoài phạm vi trả 403, không trả `SALARY_JUSTIFICATION_REQUIRED`: dải chuẩn không được so cho yêu cầu không được phép lưu.
+
+**Đồng thời:** phạm vi được đọc **sau** khi dòng phòng ban trong body bị khóa `SELECT ... FOR SHARE` (bước 6 của tạo). Nếu HR đang đổi người phụ trách hoặc phòng ban cha của chính phòng ban đó, request chờ HR xong rồi dùng cây mới: ví dụ HR chuyển IT_DEV từ dưới IT sang dưới SALES và commit trong lúc trưởng IT đang tạo nháp cho IT_DEV thì trưởng IT nhận 403, HR hủy thì lưu bình thường. Sau khi kiểm, khóa giữ đến khi lưu xong nên HR không đổi được người phụ trách hay phòng ban cha của phòng ban đó trước khi nháp được lưu. Thay đổi ở phòng ban **cha** (ví dụ đổi người phụ trách IT khi nháp chọn IT_DEV) không bị chặn: nếu nó commit sau lúc kiểm thì được tính như xảy ra ngay sau khi nháp được lưu, và nháp đi theo người phụ trách mới như mọi nháp khác.
+
+Quyết định của backend (chờ BA/PO xác nhận):
+
+- Phòng ban ngoài phạm vi trả 403 `FORBIDDEN` theo quy ước chung, không trả lỗi form 400 riêng cho `departmentId`. Giao diện nên chỉ cho chọn các phòng ban người dùng phụ trách (tính được từ `GET /departments/tree`: node có `managerUserId` là người đang đăng nhập cùng toàn bộ `children` bên dưới), nên 403 này chỉ xảy ra khi dữ liệu trên form đã cũ hoặc request bị sửa tay.
+- Không thêm quyền hay cột "phòng ban được phép" riêng: phạm vi tính từ `departments.manager_user_id` và `parent_id` ở mỗi lần lưu.
 
 ## Tạo bản nháp
 
@@ -70,11 +89,10 @@ Thứ tự kiểm tra:
 4. So hai mức lương đề xuất: tối thiểu lớn hơn tối đa trả `REQUISITION_SALARY_RANGE_INVALID`.
 5. Ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ: `NEEDED_BY_IN_PAST` (task 248).
 6. Chức danh tồn tại (`INVALID_REQUISITION_POSITION`) và đang áp dụng (`REQUISITION_POSITION_INACTIVE`), rồi phòng ban tồn tại (`INVALID_REQUISITION_DEPARTMENT`) và đang áp dụng (`REQUISITION_DEPARTMENT_INACTIVE`).
-7. Mức lương đề xuất ngoài dải lương chuẩn của chức danh mà không có giải trình: `SALARY_JUSTIFICATION_REQUIRED` (task 247).
+7. Phòng ban trong body thuộc phạm vi người gọi (chỉ kiểm với người `SCOPED`): nếu không thì 403 `FORBIDDEN` (task 249, mục "Phạm vi dữ liệu").
+8. Mức lương đề xuất ngoài dải lương chuẩn của chức danh mà không có giải trình: `SALARY_JUSTIFICATION_REQUIRED` (task 247).
 
 Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 4 trở đi.
-
-Còn **chưa** kiểm: phòng ban thuộc phạm vi người tạo (249).
 
 ## Kiểm tra trường bắt buộc và lý do tuyển (task 246)
 
@@ -177,7 +195,7 @@ Thứ tự kiểm tra:
 4. Khóa dòng yêu cầu (`SELECT ... FOR UPDATE`): không có thì 404 `REQUISITION_NOT_FOUND`.
 5. Phạm vi: người `SCOPED` không phụ trách phòng ban hiện tại của yêu cầu thì 403 `FORBIDDEN`. Bước này chạy sau khi đã khóa dòng, nên nếu HR đổi người phụ trách phòng ban trong lúc yêu cầu đang chờ khóa, kết quả dùng người phụ trách mới.
 6. Còn là `DRAFT`, nếu không thì 409 `REQUISITION_NOT_DRAFT`.
-7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng.
+7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi phòng ban trong body thuộc phạm vi người gọi (403 `FORBIDDEN`, task 249), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng, và phòng ban vẫn được kiểm phạm vi lần nữa sau khi bị khóa `FOR SHARE`.
 
 Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ khóa dòng: người đến sau chờ người trước commit rồi ghi đè toàn bộ (người lưu sau cùng thắng). Chưa có kiểm tra phiên bản (optimistic locking), nên giao diện nên tải lại chi tiết trước khi sửa. Mọi lỗi đều không đổi dòng nào.
 
@@ -205,7 +223,7 @@ Kết quả Jira: so sánh với dải chuẩn của chức danh và yêu cầu 
 
 **Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response thành công giữ đúng 15 trường như trên, không có `salaryMin`/`salaryMax` của chức danh và không có cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
 
-Thứ tự: đây là bước 7 của tạo và phần cuối bước 7 của sửa ở trên, chạy sau mọi bước kiểm khác. Chức danh không tồn tại hoặc đã ngừng áp dụng trả `INVALID_REQUISITION_POSITION`/`REQUISITION_POSITION_INACTIVE` trước, không bao giờ trả 404 `POSITION_NOT_FOUND` hay 409 `POSITION_INACTIVE` của `SalaryBandService`. Giải trình dài hơn 2.000 ký tự là `VALIDATION_ERROR` ở bước 2, không phải `SALARY_JUSTIFICATION_REQUIRED`. Người thiếu quyền hoặc sửa nháp ngoài phạm vi nhận 403 trước khi lương được so.
+Thứ tự: đây là bước 8 của tạo và phần cuối bước 7 của sửa ở trên, chạy sau mọi bước kiểm khác. Chức danh không tồn tại hoặc đã ngừng áp dụng trả `INVALID_REQUISITION_POSITION`/`REQUISITION_POSITION_INACTIVE` trước, không bao giờ trả 404 `POSITION_NOT_FOUND` hay 409 `POSITION_INACTIVE` của `SalaryBandService`. Giải trình dài hơn 2.000 ký tự là `VALIDATION_ERROR` ở bước 2, không phải `SALARY_JUSTIFICATION_REQUIRED`. Người thiếu quyền, sửa nháp ngoài phạm vi hoặc chọn phòng ban ngoài phạm vi (task 249) nhận 403 trước khi lương được so.
 
 **Đồng thời:** dải chuẩn được đọc sau khi dòng chức danh đã bị khóa `FOR SHARE` (bước 6 của tạo), trong cùng transaction ghi. `PUT /positions/{id}` của HR đổi dải lương phải chờ tạo/sửa nháp xong; ngược lại, nếu HR đang đổi dải dở dang, yêu cầu tạo/sửa chờ HR xong rồi so với dải HR đã commit (HR hủy thì so với dải cũ).
 
@@ -236,7 +254,7 @@ Kết quả Jira: từ chối ngày cần người trước ngày hiện tại t
 }
 ```
 
-Thứ tự: bước 5 của tạo (sau so hai mức lương, trước kiểm chức danh/phòng ban và giải trình lương) và trong bước 7 của sửa (cùng vị trí). Vì vậy ngày ở quá khứ được báo trước cả chức danh không tồn tại, phòng ban đã ngừng áp dụng hay lương ngoài dải chưa có giải trình. Lỗi từng trường (bước 2) vẫn trả trước, và `fieldErrors` của `VALIDATION_ERROR` không có `neededBy`. Ngày sai định dạng hoặc không tồn tại (`31/12/2026`, `2026-02-30`) vẫn là `INVALID_JSON` như trước. Người thiếu quyền hoặc sửa nháp ngoài phạm vi nhận 403, `PUT` UUID không tồn tại nhận 404, trước khi ngày được so.
+Thứ tự: bước 5 của tạo (sau so hai mức lương, trước kiểm chức danh/phòng ban và giải trình lương) và trong bước 7 của sửa (cùng vị trí). Vì vậy ngày ở quá khứ được báo trước cả chức danh không tồn tại, phòng ban đã ngừng áp dụng hay lương ngoài dải chưa có giải trình. Lỗi từng trường (bước 2) vẫn trả trước, và `fieldErrors` của `VALIDATION_ERROR` không có `neededBy`. Ngày sai định dạng hoặc không tồn tại (`31/12/2026`, `2026-02-30`) vẫn là `INVALID_JSON` như trước. Người thiếu quyền hoặc sửa nháp ngoài phạm vi nhận 403, `PUT` UUID không tồn tại nhận 404, trước khi ngày được so. Riêng phòng ban trong body ngoài phạm vi (task 249) được kiểm sau ngày, nên ngày ở quá khứ được báo trước 403 đó.
 
 **Cấu hình.** `app.business-zone` nhận tên múi giờ IANA như `Asia/Ho_Chi_Minh` (hoặc `UTC`, `+07:00`). Tên sai làm ứng dụng dừng ngay khi khởi động thay vì tính sai ngày. Mọi máy chủ chạy backend phải dùng cùng một giá trị. Không cần sửa `.env`. Trong code, `BusinessCalendar.today()` (gói `vn.ttcs.recruitment.common`) đọc `Clock` của ứng dụng rồi đổi sang ngày theo múi giờ này; `RequisitionService` chỉ so `neededBy` với ngày đó. Giao diện nên chặn sẵn ngày trước hôm nay (theo giờ Việt Nam) trên ô chọn ngày, nhưng backend vẫn là nơi kiểm cuối cùng.
 
@@ -261,7 +279,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 |400|REQUISITION_DEPARTMENT_INACTIVE|Phòng ban `departmentId` đã ngừng áp dụng (`active = false`); `fieldErrors.departmentId`|
 |400|SALARY_JUSTIFICATION_REQUIRED|Một mức lương đề xuất đã nhập nằm ngoài dải lương chuẩn của chức danh và `salaryJustification` trống; `fieldErrors.salaryJustification`. Lời nhắn không chứa dải chuẩn|
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
-|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách|
+|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách; hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT` với UUID không có yêu cầu nào|
 |409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không còn ở trạng thái `DRAFT` (chưa xảy ra được, xem trên)|
 
@@ -279,4 +297,4 @@ Ví dụ lỗi dải lương đề xuất ngược:
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh/phòng ban, và dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai).
+Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh/phòng ban, và dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai). Task 249 cũng không thêm migration và không đổi quyền: phạm vi phòng ban dùng lại truy vấn đệ quy ở trên với cột `manager_user_id`, `parent_id` của V5 và `department_id` của V13; nó phụ thuộc người gọi và cây phòng ban lúc lưu nên chỉ API kiểm, không phải CHECK hay khóa ngoại.

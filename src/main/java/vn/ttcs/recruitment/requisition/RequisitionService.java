@@ -77,13 +77,14 @@ public class RequisitionService {
     // Task 244: saves a new DRAFT owned by the caller, so the manager can come back and finish it later.
     // Task 246 adds: the position and the department must still be active. Task 247 adds: a proposal outside the
     // position's standard salary band needs a justification. Task 248 adds: the needed-by date is not in the past.
-    // The department scope of the body comes in task 249.
+    // Task 249 adds: a SCOPED caller may only choose a department they manage.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
+        requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
                 request.headcount(), request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
@@ -124,12 +125,13 @@ public class RequisitionService {
     public RequisitionView get(Jwt jwt, UUID id) {
         Caller caller = requireReadAccess(jwt);
         var requisition = requisitions.findById(id).orElseThrow(RequisitionService::notFound);
-        requireInScope(caller, requisition);
+        requireInScope(caller, requisition.getDepartmentId());
         return RequisitionView.from(requisition);
     }
 
     // Task 245: saves the draft again with the new content. Order of checks: may I change this requisition
-    // (404, 403, still a draft), then is the new content valid (same checks as create).
+    // (404, 403, still a draft), then is the new content valid (same checks as create, including the department
+    // scope of task 249 for the department in the body).
     @Transactional
     public RequisitionView update(Jwt jwt, UUID id, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
@@ -137,11 +139,12 @@ public class RequisitionService {
         // then (shared) the chosen position and department.
         // The scope is checked after this lock, so a department manager change made while we waited is respected.
         var requisition = requisitions.findByIdForUpdate(id).orElseThrow(RequisitionService::notFound);
-        requireInScope(caller, requisition);
+        requireInScope(caller, requisition.getDepartmentId());
         requireDraft(requisition);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
+        requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
                 request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
@@ -184,23 +187,37 @@ public class RequisitionService {
         }
         // ALL (ADMIN, HR_MANAGER) and SCOPED (HIRING_MANAGER, RECRUITER, APPROVER) may both write.
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
-        // update() limits SCOPED callers to requisitions of their departments (requireInScope). The department
-        // written in the body (create, or moving a draft on update) is not limited yet: that is task 249.
+        // SCOPED callers are then limited to their departments: the saved requisition on update (requireInScope)
+        // and the department written in the body on create and update (requireChosenDepartmentInScope).
         AccessScope scope = AccessScope.write(permissions.forUser(actorId), PermissionModule.REQUISITIONS).orDeny();
         return new Caller(actorId, scope);
     }
 
-    // ALL reaches every requisition. SCOPED only reaches requisitions of a department the caller manages,
-    // directly or through a parent department (departments.manager_user_id). Who created the requisition does not
-    // matter: when a department gets a new manager, its drafts move with it. Out of scope is the standard
-    // 403 FORBIDDEN (house rule in docs/architecture/authorization.md), not a 404.
-    private void requireInScope(Caller caller, RecruitmentRequisition requisition) {
+    // ALL reaches every department. SCOPED only reaches a department the caller manages, directly or through a
+    // parent department (departments.manager_user_id). Used for the department of a saved requisition (get, update)
+    // and for the department chosen in the body (create, update). Who created a requisition does not matter: when a
+    // department gets a new manager, its drafts move with it. Out of scope is the standard 403 FORBIDDEN (house rule
+    // in docs/architecture/authorization.md), not a 404.
+    private void requireInScope(Caller caller, UUID departmentId) {
         if (caller.scope() == AccessScope.ALL) {
             return;
         }
-        if (!departments.findManagedDepartmentIds(caller.id()).contains(requisition.getDepartmentId())) {
-            throw new AccessDeniedException("Requisition belongs to a department outside the caller's scope");
+        if (!departments.findManagedDepartmentIds(caller.id()).contains(departmentId)) {
+            throw new AccessDeniedException("Department is outside the caller's requisition scope");
         }
+    }
+
+    // Task 249: a department head (SCOPED) writes requisitions only for the departments they manage, including
+    // every department below them: the head of IT may choose IT, IT_DEV or IT_QA, but not SALES or a parent of IT.
+    // On update this also stops moving a draft out of the caller's departments. ALL callers choose any department.
+    // Called after requireActivePositionAndDepartment, on purpose:
+    // - an unknown department is still the 400 INVALID_REQUISITION_DEPARTMENT form error, like 404 before 403;
+    // - the chosen department row is locked FOR SHARE, so HR cannot give it another manager or parent before this
+    //   transaction commits, and a change HR committed while this request waited for that lock is seen here.
+    //   A change to a parent department is not blocked: if it commits after this check, it counts as made after
+    //   this save, like any change made a moment later.
+    private void requireChosenDepartmentInScope(Caller caller, RequisitionRequest request) {
+        requireInScope(caller, request.departmentId());
     }
 
     // Only a draft can be edited. V13 only allows DRAFT today, so this guard matters once the approval workflow
