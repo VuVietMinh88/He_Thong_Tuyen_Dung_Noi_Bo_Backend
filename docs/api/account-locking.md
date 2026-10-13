@@ -12,7 +12,7 @@ Người gọi phải có **ADMIN và USER_ADMIN_WRITE_ALL**, gửi Bearer acces
 {"reason": "Nhân sự đã nghỉ việc, cần bàn giao công việc."}
 ```
 
-`reason` bỏ khoảng trắng đầu/cuối, không trống, tối đa 500 ký tự. Trường JSON lạ như `enabled` hoặc `lockedBy` bị từ chối với HTTP 400, không cho client chọn người/thời điểm khóa. Admin không được tự khóa tài khoản của mình: HTTP 409 `SELF_ACCOUNT_LOCK`.
+`reason` bỏ khoảng trắng đầu/cuối, không trống, tối đa 500 ký tự (đếm sau khi bỏ khoảng trắng). Khoảng trắng đầu/cuối gồm cả khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web) và U+0085, U+180E; khoảng trắng ở giữa được giữ. Lý do không có ký tự nhìn thấy được (chỉ gồm khoảng trắng hoặc ký tự vô hình như U+200B, U+FEFF) bị coi là trống: HTTP 400 `VALIDATION_ERROR`. Trường JSON lạ như `enabled` hoặc `lockedBy` bị từ chối với HTTP 400, không cho client chọn người/thời điểm khóa. Admin không được tự khóa tài khoản của mình: HTTP 409 `SELF_ACCOUNT_LOCK`.
 
 Thành công trả HTTP 200, `Cache-Control: no-store`:
 
