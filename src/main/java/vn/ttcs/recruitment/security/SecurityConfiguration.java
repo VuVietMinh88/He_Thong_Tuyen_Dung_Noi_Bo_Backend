@@ -114,6 +114,22 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/departments/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/approval-flows", "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows/preview")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",
@@ -162,6 +178,14 @@ public class SecurityConfiguration {
                         // the source (REQUISITIONS_READ_* and its department).
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/copy")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 257: sending a requisition for approval changes its status, a write of its department;
+                        // RequisitionService also checks that the caller may read it (the answer shows it).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/submit")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 262: a decision of the current approval level changes the requisition's status, a write;
+                        // RequisitionApprovalService decides who may take the level (ApproverRule), not the scope.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/approvals")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         // Task 284: assigning or handing over recruiters is for ALL writers only (HR_MANAGER, ADMIN); a
                         // department head (REQUISITIONS_WRITE_SCOPED) is refused. RequisitionRecruiterService checks the
                         // code again after its locks.
@@ -172,6 +196,11 @@ public class SecurityConfiguration {
                         // itself (same scope as GET /{id}).
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment",
                                 "/api/v1/requisitions/*/assignment-history")
+                                .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
+                        // Task 267: the approval progress and the approver inbox are read like requisitions; the
+                        // service applies the same scope as GET /requisitions/{id} (department or approval part).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/approvals",
+                                "/api/v1/requisitions/approval-inbox")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*",
                                 "/api/v1/requisitions/*/headcount-overrides")

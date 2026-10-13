@@ -23,7 +23,7 @@ ADMIN không có `HEADCOUNT_PLANS_*` (giống dải lương, câu hỏi 13 trong
 Số đã dùng **không** lưu trong bảng định biên mà được cộng từ các yêu cầu tuyển dụng mỗi lần đọc, nên luôn khớp với yêu cầu thật:
 
 - Chỉ tính yêu cầu của **đúng** phòng ban đó. Phòng ban con có chỉ tiêu riêng, không cộng vào phòng ban cha.
-- Chỉ tính yêu cầu còn giữ chỗ. Hiện chỉ có trạng thái `DRAFT`, và bản nháp giữ chỗ ngay khi được lưu, vì task 274 kiểm chỉ tiêu ở lúc tạo/sửa yêu cầu. Khi có luồng duyệt và đóng yêu cầu, trạng thái bị từ chối hay hủy sẽ trả lại chỗ.
+- Chỉ tính yêu cầu còn giữ chỗ. Bản nháp giữ chỗ ngay khi được lưu, vì task 274 kiểm chỉ tiêu ở lúc tạo/sửa yêu cầu. Từ task 257, yêu cầu chờ duyệt, cần bổ sung và đã duyệt vẫn giữ chỗ; yêu cầu bị từ chối trả lại chỗ. Khi có đóng hay hủy yêu cầu (story S3-07), trạng thái hủy cũng sẽ trả lại chỗ.
 - Năm của yêu cầu là năm của **ngày cần người** (`neededBy`). Bản nháp chưa có ngày thì tính vào năm tạo, theo múi giờ nghiệp vụ (mặc định giờ Việt Nam): nháp tạo lúc 00:30 ngày 1/1/2027 giờ Việt Nam tính vào 2027 dù giờ UTC vẫn là 2026.
 - `headcountUsed` = tổng `headcount`.
 - `salaryBudgetUsed` = tổng của số người × lương đề xuất tối đa × 12 tháng. Thiếu mức tối đa thì lấy mức tối thiểu; chưa đề xuất lương thì yêu cầu đó tính 0 đồng vào ngân sách nhưng vẫn tính số người. Ngân sách lương là số tiền **cả năm**, còn lương đề xuất là lương tháng.
