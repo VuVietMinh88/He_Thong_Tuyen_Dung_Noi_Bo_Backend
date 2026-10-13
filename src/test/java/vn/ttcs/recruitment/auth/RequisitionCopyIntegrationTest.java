@@ -2,6 +2,8 @@ package vn.ttcs.recruitment.auth;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,6 +19,8 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.headcount.HeadcountPlanRepository;
+import vn.ttcs.recruitment.requisition.RequisitionStatus;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -63,6 +67,7 @@ class RequisitionCopyIntegrationTest {
     @Autowired private AccountRepository accounts;
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
+    @Autowired private HeadcountPlanRepository plans;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private String fixturePasswordHash;
@@ -286,6 +291,27 @@ class RequisitionCopyIntegrationTest {
         jdbc.update("UPDATE headcount_plans SET headcount_limit = 4");
         assertThat(expect(copy(source, null, headToken), 409).path("code").asText())
                 .isEqualTo("HEADCOUNT_LIMIT_EXCEEDED");
+    }
+
+    // Task 293: a paused, filled or cancelled requisition is copied like any other (task 279), which is how a finished
+    // one is recruited again. The status is set with SQL until task 290 adds the API.
+    @ParameterizedTest
+    @EnumSource(value = RequisitionStatus.class, names = {"PAUSED", "FILLED", "CANCELLED"})
+    void aClosedRequisitionIsCopiedIntoAFreshDraft(RequisitionStatus status) throws Exception {
+        UUID source = id(create(full(itId), headToken));
+        jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", status.name(), source);
+        Map<String, Object> sourceBefore = row(source);
+
+        JsonNode copy = expect(copy(source, null, headToken), 201);
+        UUID id = UUID.fromString(copy.path("id").asText());
+        assertThat(copy.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(row(source)).isEqualTo(sourceBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_workflow_events WHERE requisition_id = ?",
+                Integer.class, id)).isZero();
+        // The copy (2 people needed in 2026) holds its place in the plan; a cancelled source gave its own back.
+        long sourcePeople = status == RequisitionStatus.CANCELLED ? 0 : 2;
+        assertThat(plans.usage(itId, 2026, null).headcount()).isEqualTo(sourcePeople + 2);
+        assertThat(plans.usage(itId, 2026, source).headcount()).isEqualTo(2);
     }
 
     @Test
