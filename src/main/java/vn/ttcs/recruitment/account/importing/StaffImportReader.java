@@ -138,8 +138,8 @@ public class StaffImportReader {
         if (cells.isEmpty()) {
             return null;
         }
-        // Same normalization as CreateAccountRequest and the profile phone rule. Checking the values is the
-        // next step of the import, so nothing is rejected here.
+        // Same normalization as CreateAccountRequest and the profile phone rule. StaffImportValidator checks the
+        // values afterwards and reports them per row, so nothing is rejected here.
         String email = cells.get(StaffImportColumn.EMAIL);
         return new StaffImportRow(row.getRowNum() + 1,
                 email == null ? null : email.toLowerCase(Locale.ROOT),

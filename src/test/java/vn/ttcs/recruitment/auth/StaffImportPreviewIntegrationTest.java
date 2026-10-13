@@ -29,7 +29,7 @@ import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.account.importing.StaffImportPreview;
-import vn.ttcs.recruitment.account.importing.StaffImportRow;
+import vn.ttcs.recruitment.account.importing.StaffImportCheckedRow;
 import vn.ttcs.recruitment.account.importing.StaffImportService;
 import vn.ttcs.recruitment.common.ApiException;
 
@@ -112,6 +112,8 @@ class StaffImportPreviewIntegrationTest {
         clock.set(START);
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
+        jdbc.update("UPDATE departments SET parent_id = NULL");
+        jdbc.update("DELETE FROM departments");
         jdbc.update("DELETE FROM user_accounts");
         bootstrap.run(new DefaultApplicationArguments());
         JsonNode login = login("admin@example.test");
@@ -129,13 +131,15 @@ class StaffImportPreviewIntegrationTest {
 
     @Test
     void adminPreviewsAFilledInTemplateWithExcelRowNumbersAndNormalizedValues() throws Exception {
+        jdbc.update("INSERT INTO departments (id, code, name, manager_user_id, active) VALUES (?, 'HR', 'Nhân sự', ?, TRUE)",
+                UUID.randomUUID(), adminId);
         byte[] file = filledTemplate(sheet -> {
             write(sheet.createRow(1), "  An.Nguyen@Example.COM ", " Nguyễn Văn An ", "recruiter, INTERVIEWER, recruiter,",
                     " HR ", "+84912345678", " Chuyên viên tuyển dụng ");
             write(sheet.createRow(2), "binh@example.com", "Trần Thị Bình", "HR_MANAGER");
             // Row 4 is left empty and row 5 has only spaces: both are skipped, later rows keep their numbers.
             write(sheet.createRow(4), " ", "", "   ");
-            // Preview only reads: a bad email, an unknown role and a missing name are shown as read, not judged.
+            // Wrong values are still returned exactly as read, next to the errors found in them.
             write(sheet.createRow(5), "not-an-email", null, "boss", "KHONG_CO", "12345", null);
         });
         Map<String, List<Map<String, Object>>> before = snapshot();
@@ -147,10 +151,15 @@ class StaffImportPreviewIntegrationTest {
         assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
         JsonNode body = json.readTree(response.body());
         assertThat(body.path("totalRows").asInt()).isEqualTo(3);
+        assertThat(body.path("validRows").asInt()).isEqualTo(2);
+        assertThat(body.path("invalidRows").asInt()).isEqualTo(1);
         assertThat(body.path("rows")).hasSize(3);
-        assertThat(json.readTree(json.writeValueAsString(Map.of("rowNumber", 2, "email", "an.nguyen@example.com",
+        Map<String, Object> first = new LinkedHashMap<>(Map.of("rowNumber", 2, "email", "an.nguyen@example.com",
                 "fullName", "Nguyễn Văn An", "roles", List.of("RECRUITER", "INTERVIEWER"), "departmentCode", "HR",
-                "phone", "0912345678", "displayTitle", "Chuyên viên tuyển dụng")))).isEqualTo(body.path("rows").get(0));
+                "phone", "0912345678", "displayTitle", "Chuyên viên tuyển dụng"));
+        first.put("valid", true);
+        first.put("errors", List.of());
+        assertThat(json.readTree(json.writeValueAsString(first))).isEqualTo(body.path("rows").get(0));
         JsonNode second = body.path("rows").get(1);
         assertThat(second.path("rowNumber").asInt()).isEqualTo(3);
         assertThat(second.path("email").asText()).isEqualTo("binh@example.com");
@@ -160,13 +169,18 @@ class StaffImportPreviewIntegrationTest {
         assertThat(second.path("departmentCode").isNull()).isTrue();
         assertThat(second.path("phone").isNull()).isTrue();
         assertThat(second.path("displayTitle").isNull()).isTrue();
-        JsonNode unchecked = body.path("rows").get(2);
-        assertThat(unchecked.path("rowNumber").asInt()).isEqualTo(6);
-        assertThat(unchecked.path("email").asText()).isEqualTo("not-an-email");
-        assertThat(unchecked.path("fullName").isNull()).isTrue();
-        assertThat(unchecked.path("roles")).extracting(JsonNode::asText).containsExactly("BOSS");
-        assertThat(unchecked.path("departmentCode").asText()).isEqualTo("KHONG_CO");
-        assertThat(unchecked.path("phone").asText()).isEqualTo("12345");
+        assertThat(second.path("valid").asBoolean()).isTrue();
+        JsonNode wrong = body.path("rows").get(2);
+        assertThat(wrong.path("rowNumber").asInt()).isEqualTo(6);
+        assertThat(wrong.path("email").asText()).isEqualTo("not-an-email");
+        assertThat(wrong.path("fullName").isNull()).isTrue();
+        assertThat(wrong.path("roles")).extracting(JsonNode::asText).containsExactly("BOSS");
+        assertThat(wrong.path("departmentCode").asText()).isEqualTo("KHONG_CO");
+        assertThat(wrong.path("phone").asText()).isEqualTo("12345");
+        assertThat(wrong.path("valid").asBoolean()).isFalse();
+        assertThat(wrong.path("errors")).extracting(error -> error.path("cell").asText() + " " + error.path("code").asText())
+                .containsExactly("A6 EMAIL_INVALID", "B6 REQUIRED", "C6 ROLE_UNKNOWN", "D6 DEPARTMENT_NOT_FOUND",
+                        "E6 PHONE_INVALID");
 
         // Nothing is created: no account, role, activation token (so no invitation e-mail) or department.
         assertThat(snapshot()).isEqualTo(before);
@@ -184,9 +198,11 @@ class StaffImportPreviewIntegrationTest {
         JsonNode rows = rows(expectOk(upload(adminToken, "so.xlsx", file)));
 
         // A number typed into a General cell shows as 101, never as 101.0. The leading 0 of a phone number
-        // typed as a number is already gone in Excel; the next import step reports it as an invalid phone.
+        // typed as a number is already gone in Excel, so the preview reports an invalid phone.
         assertThat(rows.get(0).path("departmentCode").asText()).isEqualTo("101");
         assertThat(rows.get(0).path("phone").asText()).isEqualTo("912345678");
+        assertThat(rows.get(0).path("errors")).extracting(error -> error.path("cell").asText() + " " + error.path("code").asText())
+                .contains("E2 PHONE_INVALID");
         assertThat(rows.get(0).path("displayTitle").asText()).isEqualTo("TRUE");
         assertThat(rows.get(1).path("departmentCode").asText()).isEqualTo("12.5");
         assertThat(rows.get(1).path("phone").asText()).isEqualTo("84912345678");
@@ -230,6 +246,8 @@ class StaffImportPreviewIntegrationTest {
         });
         JsonNode body = expectOk(upload(adminToken, "500.xlsx", fiveHundred));
         assertThat(body.path("totalRows").asInt()).isEqualTo(500);
+        // All 500 emails are checked against the existing accounts, and none of them has one yet.
+        assertThat(body.path("validRows").asInt()).isEqualTo(500);
         assertThat(rows(body).get(0).path("rowNumber").asInt()).isEqualTo(2);
         assertThat(rows(body).get(499).path("email").asText()).isEqualTo("user500@example.com");
         assertThat(rows(body).get(499).path("rowNumber").asInt()).isEqualTo(601);
@@ -458,7 +476,7 @@ class StaffImportPreviewIntegrationTest {
         StaffImportPreview preview = service.preview(admin, file);
         assertThat(preview.totalRows()).isEqualTo(1);
         assertThat(preview.rows()).containsExactly(
-                new StaffImportRow(2, "a@example.com", "A", List.of("RECRUITER"), null, null, null));
+                new StaffImportCheckedRow(2, "a@example.com", "A", List.of("RECRUITER"), null, null, null, true, List.of()));
 
         // Access is checked first, so a caller without access learns nothing about the file, not even that it is missing.
         UUID hrId = account("hr@example.test", Set.of(Role.HR_MANAGER));
