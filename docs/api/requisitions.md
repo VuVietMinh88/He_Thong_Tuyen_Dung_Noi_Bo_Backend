@@ -13,6 +13,8 @@ Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` v
 
 INTERVIEWER và tài khoản không có vai trò nhận 403 `FORBIDDEN` ở cả bốn API. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu. Khi ghi (`POST`, `PUT`), backend khóa tài khoản người gọi rồi phiên, sau đó kiểm lại trạng thái tài khoản, phiên, hạn JWT và quyền trước khi ghi, giống API chức danh. Quyền đọc và quyền ghi được kiểm riêng: `REQUISITIONS_READ_*` không cho phép tạo/sửa, `REQUISITIONS_WRITE_*` không cho phép gọi hai API `GET`.
 
+Mọi thao tác ghi còn kiểm lại hạn JWT, phiên và quyền (đọc lại từ database) sau mỗi khóa dòng mà thao tác phải chờ: dòng yêu cầu khi sửa, dòng chức danh và phòng ban, dòng định biên. Nếu trong lúc chờ token hết hạn hoặc quyền bị gỡ thì thao tác bị từ chối (401 `SESSION_INVALID` hoặc 403 `FORBIDDEN`) và không ghi gì.
+
 ## Phạm vi dữ liệu (task 245, 249)
 
 - Người có `ALL` (ADMIN, HR_MANAGER) xem, tạo và sửa yêu cầu của **mọi** phòng ban, và chuyển nháp giữa mọi phòng ban.
@@ -91,6 +93,7 @@ Thứ tự kiểm tra:
 6. Chức danh tồn tại (`INVALID_REQUISITION_POSITION`) và đang áp dụng (`REQUISITION_POSITION_INACTIVE`), rồi phòng ban tồn tại (`INVALID_REQUISITION_DEPARTMENT`) và đang áp dụng (`REQUISITION_DEPARTMENT_INACTIVE`).
 7. Phòng ban trong body thuộc phạm vi người gọi (chỉ kiểm với người `SCOPED`): nếu không thì 403 `FORBIDDEN` (task 249, mục "Phạm vi dữ liệu").
 8. Mức lương đề xuất ngoài dải lương chuẩn của chức danh mà không có giải trình: `SALARY_JUSTIFICATION_REQUIRED` (task 247).
+9. Vượt định biên của phòng ban trong năm kế hoạch: 409 `HEADCOUNT_LIMIT_EXCEEDED` hoặc `SALARY_BUDGET_EXCEEDED` (task 274, mục "Kiểm tra định biên").
 
 Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 4 trở đi.
 
@@ -195,7 +198,7 @@ Thứ tự kiểm tra:
 4. Khóa dòng yêu cầu (`SELECT ... FOR UPDATE`): không có thì 404 `REQUISITION_NOT_FOUND`.
 5. Phạm vi: người `SCOPED` không phụ trách phòng ban hiện tại của yêu cầu thì 403 `FORBIDDEN`. Bước này chạy sau khi đã khóa dòng, nên nếu HR đổi người phụ trách phòng ban trong lúc yêu cầu đang chờ khóa, kết quả dùng người phụ trách mới.
 6. Còn là `DRAFT`, nếu không thì 409 `REQUISITION_NOT_DRAFT`.
-7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi phòng ban trong body thuộc phạm vi người gọi (403 `FORBIDDEN`, task 249), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng, và phòng ban vẫn được kiểm phạm vi lần nữa sau khi bị khóa `FOR SHARE`.
+7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi phòng ban trong body thuộc phạm vi người gọi (403 `FORBIDDEN`, task 249), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), rồi định biên (409, task 274), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng, và phòng ban vẫn được kiểm phạm vi lần nữa sau khi bị khóa `FOR SHARE`.
 
 Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ khóa dòng: người đến sau chờ người trước commit rồi ghi đè toàn bộ (người lưu sau cùng thắng). Chưa có kiểm tra phiên bản (optimistic locking), nên giao diện nên tải lại chi tiết trước khi sửa. Mọi lỗi đều không đổi dòng nào.
 
@@ -265,6 +268,25 @@ Quyết định của backend (chờ BA/PO xác nhận):
 - **Không giới hạn ngày xa nhất** và không bắt nhập ngày khi lưu nháp.
 - **Một múi giờ nghiệp vụ chung** cho cả hệ thống (công ty ở Việt Nam), không theo múi giờ của từng người dùng hay trình duyệt.
 
+## Kiểm tra định biên (task 274)
+
+Story S3-04: "Vượt chỉ tiêu là cảnh báo chặn". Khi tạo hoặc sửa nháp, backend so yêu cầu với [định biên](headcount-plans.md) của **phòng ban trong body** cho **năm kế hoạch** của yêu cầu: năm của `neededBy`, chưa có ngày thì năm tạo yêu cầu theo múi giờ nghiệp vụ (khi sửa, vẫn là năm tạo ban đầu, không phải năm sửa).
+
+- Phòng ban chưa có định biên cho năm đó: không giới hạn, không kiểm.
+- Chỉ tiêu headcount: số người của các yêu cầu khác đã tính vào định biên đó (hiện là mọi bản nháp, kể cả của người khác) cộng `headcount` của yêu cầu này không được vượt `headcountLimit`. Lấp đúng chỉ tiêu là được.
+- Ngân sách (khi định biên có `salaryBudget`): chi phí năm của các yêu cầu khác cộng của yêu cầu này (`headcount` × lương đề xuất tối đa, thiếu thì tối thiểu, × 12; chưa đề xuất lương thì 0) không được vượt `salaryBudget`.
+- Vượt chỉ tiêu: 409 `HEADCOUNT_LIMIT_EXCEEDED`, lời nhắn ví dụ "Phòng ban chỉ còn 0 chỉ tiêu headcount năm 2026 nhưng yêu cầu cần 1 người. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Nếu vượt cả ngân sách, lời nhắn thêm "Yêu cầu cũng vượt ngân sách lương năm 2026."
+- Chỉ vượt ngân sách: 409 `SALARY_BUDGET_EXCEEDED`, "Yêu cầu vượt ngân sách lương năm 2026 của phòng ban. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Lời nhắn **không** nêu số tiền, vì chỉ HR được xem ngân sách.
+- Lỗi 409 này áp dụng cho mọi người gọi, kể cả HR_MANAGER. Không có `fieldErrors`. Không dòng nào được lưu.
+
+**Sửa nháp chỉ bị chặn khi xin thêm.** Lần sửa bị kiểm khi: nháp chuyển sang phòng ban khác hoặc năm kế hoạch khác (xin toàn bộ số người ở định biên mới), tăng số người (kiểm chỉ tiêu headcount) hoặc tăng chi phí năm (kiểm ngân sách). Sửa nội dung khác, giảm số người hay giảm lương không bao giờ bị chặn, kể cả khi phòng ban đang vượt định biên vì HR đã hạ chỉ tiêu sau khi nháp được lưu.
+
+**Đồng thời:** bước này chạy cuối cùng, sau khi dòng phòng ban đã bị khóa `FOR SHARE`. Backend khóa dòng định biên `SELECT ... FOR UPDATE` rồi mới đếm, và giữ khóa tới khi lưu xong. Hai người lưu yêu cầu cho cùng phòng ban, cùng năm vào cùng lúc thì chạy lần lượt: khi định biên chỉ còn 1 chỗ, một người nhận 201, người kia nhận 409. HR sửa định biên cũng khóa cùng dòng nên không chen vào giữa lúc đếm và lúc lưu: lần lưu đang chờ sẽ đếm theo chỉ tiêu mới. Phòng ban chưa có định biên thì không khóa dòng định biên nào; khi HR tạo định biên mới, lần tạo đó chờ các lần lưu đang chạy của phòng ban commit xong (xem [API định biên](headcount-plans.md#khai-báo-định-biên)), nên không có nháp nào lọt qua lúc định biên vừa được tạo. Ngay sau khi giữ được khóa định biên, backend kiểm lại hạn JWT, phiên và quyền ghi (đọc lại từ database) trước khi quyết định 409; không còn quyền thì trả 401 `SESSION_INVALID` hoặc 403 `FORBIDDEN` và không lưu gì.
+
+**Giới hạn đã biết:** lời nhắn `SALARY_BUDGET_EXCEEDED` không nêu số tiền, nhưng Trưởng bộ phận vẫn có thể đoán gần đúng ngân sách bằng cách thử lưu nháp nhiều lần với mức lương khác nhau (409 hay 200), vì họ xem được lương đề xuất của các nháp trong phòng ban mình. Đây là hệ quả của việc chặn theo ngân sách; đã ghi vào câu hỏi 13 cho BA/PO.
+
+Giao diện nên gọi `GET /headcount-plans/remaining?departmentId=...&year=...` (năm của ngày cần người đang chọn) để hiện số còn lại trước khi lưu. Task 275 sẽ cho Trưởng phòng Nhân sự lưu vượt định biên kèm lý do.
+
 ## Lỗi
 
 | HTTP | Mã | Trường hợp |
@@ -282,6 +304,8 @@ Quyết định của backend (chờ BA/PO xác nhận):
 |403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách; hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT` với UUID không có yêu cầu nào|
 |409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không còn ở trạng thái `DRAFT` (chưa xảy ra được, xem trên)|
+|409|HEADCOUNT_LIMIT_EXCEEDED|Lưu yêu cầu làm phòng ban vượt chỉ tiêu headcount của năm kế hoạch (task 274); lời nhắn nêu số chỉ tiêu còn lại|
+|409|SALARY_BUDGET_EXCEEDED|Lưu yêu cầu làm phòng ban vượt ngân sách lương của năm kế hoạch (task 274); lời nhắn không nêu số tiền|
 
 Ví dụ lỗi dải lương đề xuất ngược:
 
@@ -297,4 +321,4 @@ Ví dụ lỗi dải lương đề xuất ngược:
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh; API xóa phòng ban (task 197) không xóa phòng còn yêu cầu tuyển dụng chưa đóng. Dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai). Task 249 cũng không thêm migration và không đổi quyền: phạm vi phòng ban dùng lại truy vấn đệ quy ở trên với cột `manager_user_id`, `parent_id` của V5 và `department_id` của V13; nó phụ thuộc người gọi và cây phòng ban lúc lưu nên chỉ API kiểm, không phải CHECK hay khóa ngoại.
+Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh; API xóa phòng ban (task 197) không xóa phòng còn yêu cầu tuyển dụng chưa đóng. Dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13. Task 248 cũng không thêm migration và không đổi quyền: `needed_by` vẫn là cột `DATE` (không có giờ) của V13; quy tắc phụ thuộc ngày hiện tại nên chỉ API kiểm, không phải CHECK của database (một nháp hợp lệ hôm nay sẽ "sai" vào ngày mai). Task 249 cũng không thêm migration và không đổi quyền: phạm vi phòng ban dùng lại truy vấn đệ quy ở trên với cột `manager_user_id`, `parent_id` của V5 và `department_id` của V13; nó phụ thuộc người gọi và cây phòng ban lúc lưu nên chỉ API kiểm, không phải CHECK hay khóa ngoại. Task 274 cũng không thêm migration và không đổi quyền: dùng bảng `headcount_plans` của V14 (task 272) và tính số đã dùng từ chính bảng `recruitment_requisitions`.
