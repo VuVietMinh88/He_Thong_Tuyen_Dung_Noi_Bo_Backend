@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -24,6 +25,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -67,6 +69,7 @@ public class RecruitmentCatalogService {
 
     @Transactional
     public RecruitmentCatalogItemView create(Jwt jwt, String type, RecruitmentCatalogItemRequest request) {
+        // A new value locks no existing catalog value, so the check inside requireWriteAccess is the last one.
         requireWriteAccess(jwt);
         RecruitmentCatalogType catalogType = catalogType(type);
         if (items.existsByCatalogTypeAndCode(catalogType, request.code())) {
@@ -84,10 +87,9 @@ public class RecruitmentCatalogService {
 
     @Transactional
     public RecruitmentCatalogItemView update(Jwt jwt, String type, UUID id, RecruitmentCatalogItemRequest request) {
-        requireWriteAccess(jwt);
+        AuthSession session = requireWriteAccess(jwt);
         RecruitmentCatalogType catalogType = catalogType(type);
-        RecruitmentCatalogItem item = items.findByIdAndCatalogTypeForUpdate(id, catalogType)
-                .orElseThrow(RecruitmentCatalogService::itemNotFound);
+        RecruitmentCatalogItem item = lockItem(jwt, session, catalogType, id);
         if (items.existsByCatalogTypeAndCodeAndIdNot(catalogType, request.code(), id)) {
             throw duplicateCode();
         }
@@ -106,9 +108,8 @@ public class RecruitmentCatalogService {
     // same moment, which a "count the references first" check could miss.
     @Transactional
     public void delete(Jwt jwt, String type, UUID id) {
-        requireWriteAccess(jwt);
-        RecruitmentCatalogItem item = items.findByIdAndCatalogTypeForUpdate(id, catalogType(type))
-                .orElseThrow(RecruitmentCatalogService::itemNotFound);
+        AuthSession session = requireWriteAccess(jwt);
+        RecruitmentCatalogItem item = lockItem(jwt, session, catalogType(type), id);
         try {
             items.delete(item);
             items.flush();
@@ -122,12 +123,14 @@ public class RecruitmentCatalogService {
     // catalog run one after the other and the saved order is always one whole request, never a mix of two.
     @Transactional
     public List<RecruitmentCatalogItemView> reorder(Jwt jwt, String type, RecruitmentCatalogOrderRequest request) {
-        requireWriteAccess(jwt);
+        AuthSession session = requireWriteAccess(jwt);
         RecruitmentCatalogType catalogType = catalogType(type);
         Map<UUID, RecruitmentCatalogItem> current = new HashMap<>();
         for (RecruitmentCatalogItem item : items.findAllByCatalogTypeForUpdate(catalogType)) {
             current.put(item.getId(), item);
         }
+        // The request may have waited for another write of this catalog. Check access again before saving anything.
+        checkWriteAccess(jwt, session);
 
         // Read after the lock: a value added or deleted meanwhile makes the caller's list out of date.
         List<UUID> itemIds = request.itemIds();
@@ -154,7 +157,10 @@ public class RecruitmentCatalogService {
         }
     }
 
-    private void requireWriteAccess(Jwt jwt) {
+    // Every write starts here, before it touches any catalog value, so a caller without access never locks one.
+    // Returns the caller's locked session; update, delete and reorder pass it to checkWriteAccess again after
+    // they have waited for catalog values.
+    private AuthSession requireWriteAccess(Jwt jwt) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -167,18 +173,37 @@ public class RecruitmentCatalogService {
         // Role, lock and logout changes wait for these locks, so they cannot interleave with this write.
         accounts.findByIdForUpdate(actorId).filter(Account::isAccessAllowed)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
-        var session = sessions.findByIdForUpdate(sessionId)
+        AuthSession session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
-
-        // The request may have waited for those locks. Recheck the token, session and permission now.
-        var now = clock.instant();
-        requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!session.getUserId().equals(actorId)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
+        // The request may have waited for those locks. Recheck the token, session and permission now.
+        checkWriteAccess(jwt, session);
+        return session;
+    }
+
+    // Runs after each wait for a lock. While the request waited, the access token or the session may have expired,
+    // and the permission may have been taken away from the caller's role (role_permissions changes do not lock the
+    // caller's account). The account and session rows stay locked by this request, so nothing else can change them.
+    private void checkWriteAccess(Jwt jwt, AuthSession session) {
+        var now = clock.instant();
+        requireUnexpiredToken(jwt, now);
+        if (!session.isActive(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        if (!permissions.forUser(session.getUserId()).contains("ORGANIZATION_WRITE_ALL")) {
             throw new AccessDeniedException("Recruitment catalog management requires ORGANIZATION_WRITE_ALL");
         }
+    }
+
+    // Locks the value that update or delete will change. Another write of the same value makes this wait, so access
+    // is checked again before anything else is decided, including whether the value exists.
+    private RecruitmentCatalogItem lockItem(Jwt jwt, AuthSession session, RecruitmentCatalogType catalogType,
+                                            UUID id) {
+        Optional<RecruitmentCatalogItem> item = items.findByIdAndCatalogTypeForUpdate(id, catalogType);
+        checkWriteAccess(jwt, session);
+        return item.orElseThrow(RecruitmentCatalogService::itemNotFound);
     }
 
     private void requireUnexpiredToken(Jwt jwt, Instant now) {

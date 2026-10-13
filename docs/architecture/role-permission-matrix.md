@@ -37,7 +37,7 @@ Có 11 module × 2 thao tác × 2 phạm vi = 44 mã: V3 tạo 40 mã của mư�
 
 | Module | Dòng trong bảng nguồn | `SCOPED` nghĩa là (đề xuất) | API backend hiện có |
 |---|---|---|---|
-|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196), xóa phòng ban không còn được dùng (197), kiểm quyền ghi phòng ban (198), chức danh (203), khung năng lực (212), gán khung năng lực cho chức danh (214), tiêu chí đánh giá theo chức danh (215), câu hỏi phỏng vấn (221), tìm kiếm/lọc câu hỏi phỏng vấn (223), danh mục tuyển dụng dùng chung (228–229)|
+|`ORGANIZATION`|Danh mục tổ chức & vị trí|Chưa vai trò nào dùng; nếu cần, đề xuất là phòng ban mình phụ trách|Phòng ban, cây tổ chức (195–196), xóa phòng ban không còn được dùng (197), kiểm quyền ghi phòng ban (198), chức danh (203), khung năng lực (212), gán khung năng lực cho chức danh (214), tiêu chí đánh giá theo chức danh (215), câu hỏi phỏng vấn (221), tìm kiếm/lọc câu hỏi phỏng vấn (223), danh mục tuyển dụng dùng chung (228–231)|
 |`REQUISITIONS`|Yêu cầu tuyển dụng|Hiring Manager: yêu cầu của bộ phận mình. Recruiter: yêu cầu được phân công. Approver: yêu cầu được chuyển cho mình duyệt|Tạo nháp (244); xem danh sách, chi tiết và sửa nháp (245), `SCOPED` lọc theo phòng ban phụ trách; phòng ban ghi vào body khi tạo/sửa cũng phải thuộc phạm vi đó (249)|
 |`JOB_POSTINGS`|Tin tuyển dụng|Recruiter: tin của vị trí được phân công|Chưa có|
 |`CANDIDATES`|Hồ sơ ứng viên & pipeline|Recruiter: ứng viên của vị trí được phân công. Hiring Manager: ứng viên của vị trí mình sở hữu. Interviewer: ứng viên trong vòng mình phỏng vấn. Candidate: hồ sơ của chính mình|Chưa có|

@@ -1,8 +1,8 @@
 # API danh mục tuyển dụng dùng chung
 
-Phạm vi TKNHTTDNB1-228, TKNHTTDNB1-229 và TKNHTTDNB1-230 (story TKNHTTDNB1-27). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `RECRUITMENT_CATALOG_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-228, TKNHTTDNB1-229, TKNHTTDNB1-230 và TKNHTTDNB1-231 (story TKNHTTDNB1-27). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `RECRUITMENT_CATALOG_*` dùng `Cache-Control: no-store`.
 
-Đọc cần `ORGANIZATION_READ_ALL`; ghi cần `ORGANIZATION_WRITE_ALL`. Ma trận hiện tại cấp quyền đọc cho cả sáu vai trò nội bộ (recruiter, người phỏng vấn... cần đọc để chọn giá trị), ghi cho ADMIN và HR_MANAGER. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu và kiểm lại phiên/quyền sau khi khóa tài khoản người gọi khi ghi.
+Đọc cần `ORGANIZATION_READ_ALL`; ghi cần `ORGANIZATION_WRITE_ALL`. Ma trận hiện tại cấp quyền đọc cho cả sáu vai trò nội bộ (recruiter, người phỏng vấn... cần đọc để chọn giá trị), ghi cho ADMIN và HR_MANAGER. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu; cách kiểm lại quyền khi ghi ở mục [Quyền quản lý danh mục](#quyền-quản-lý-danh-mục).
 
 ## Loại danh mục
 
@@ -113,6 +113,25 @@ Muốn bỏ một giá trị đang được dùng thì PUT với `active=false`:
 
 Backend không đếm tham chiếu trước, mà để PostgreSQL kiểm khóa ngoại khi xóa rồi đổi lỗi khóa ngoại thành 409. Cách này đúng với mọi bảng tham chiếu tới danh mục, kể cả bảng thêm sau, và đúng cả khi một yêu cầu khác vừa lưu tham chiếu tới giá trị đó cùng lúc: yêu cầu xóa chờ yêu cầu kia kết thúc, rồi trả 409 nếu tham chiếu đã được lưu hoặc 204 nếu yêu cầu kia bị hủy. Hiện chưa có bảng nào tham chiếu tới danh mục nên mọi giá trị đều xóa được; quy tắc cho bảng tham chiếu sau này ở [tài liệu database](../database/README.md).
 
+## Quyền quản lý danh mục
+
+Tạo, sửa, xóa và sắp xếp giá trị cần mã quyền `ORGANIZATION_WRITE_ALL`; theo V3 chỉ ADMIN và HR_MANAGER có mã này. Backend kiểm theo **mã quyền** trong database, không theo tên vai trò. Quyền được kiểm ở hai lớp:
+
+1. `SecurityConfiguration`: POST `/items`, PUT `/items/{id}`, DELETE `/items/{id}` và PUT `/order` cần `PERM_ORGANIZATION_WRITE_ALL`. Thiếu quyền thì trả 403 `FORBIDDEN` trước khi vào service.
+2. `RecruitmentCatalogService` kiểm lại bên trong transaction ghi:
+   - Đầu tiên khóa tài khoản người gọi rồi khóa phiên, sau đó kiểm tài khoản còn được truy cập, access token và phiên chưa hết hạn, quyền vẫn còn trong database. Bước này chạy trước khi đụng tới bất kỳ giá trị danh mục nào, nên người đã mất quyền không khóa được giá trị nào.
+   - Sửa và xóa khóa thêm giá trị sẽ đổi; sắp xếp khóa mọi giá trị của loại. Nếu một yêu cầu ghi khác đang giữ giá trị đó thì yêu cầu này phải chờ. Lấy được khóa xong, service kiểm lại hạn token, phiên và quyền rồi mới xử lý tiếp, kể cả việc trả 404 khi giá trị không còn. Tạo mới không khóa giá trị có sẵn nên chỉ có lần kiểm ở bước trên.
+
+| Tình huống | Kết quả |
+|---|---|
+|RECRUITER, HIRING_MANAGER, INTERVIEWER hoặc APPROVER (mặc định không có `ORGANIZATION_WRITE_ALL`) gọi API ghi|403 `FORBIDDEN`, database không đổi; vẫn đọc được danh mục|
+|Quyền bị gỡ khỏi vai trò (xóa dòng `role_permissions`) trong lúc yêu cầu ghi đang chờ khóa|403 `FORBIDDEN`, không lưu gì|
+|Access token hết hạn trong lúc yêu cầu ghi đang chờ khóa|401 `SESSION_INVALID`, không lưu gì|
+|Admin gỡ vai trò của người gọi bằng `DELETE /accounts/{id}/roles/{role}` trong lúc yêu cầu ghi của người đó đang chạy|API vai trò cũng khóa tài khoản đó nên phải chờ yêu cầu ghi xong. Yêu cầu ghi đang chạy hoàn tất theo quyền đã kiểm; từ yêu cầu kế tiếp (cùng token) người đó nhận 403|
+|Cấp thêm `ORGANIZATION_WRITE_ALL` cho vai trò khác (thêm dòng `role_permissions`)|Người có vai trò đó ghi được ngay từ yêu cầu kế tiếp, không cần đăng nhập lại|
+
+Giới hạn hiện tại (giống service phòng ban và chức danh): sau khi lệnh ghi cuối cùng đã gửi xuống, PostgreSQL có thể còn phải chờ một transaction khác đang ghi cùng mã (ràng buộc mã duy nhất) hoặc đang lưu tham chiếu tới giá trị bị xóa (khóa ngoại). Sau lần chờ này service không kiểm lại quyền lần nữa.
+
 ## Lỗi
 
 | HTTP | Mã | Trường hợp |
@@ -120,8 +139,8 @@ Backend không đếm tham chiếu trước, mà để PostgreSQL kiểm khóa n
 |400|VALIDATION_ERROR|Thiếu/sai trường, UUID hoặc tham số `active` không phải true/false|
 |400|INVALID_JSON|JSON sai hoặc có trường ngoài hợp đồng (kể cả `type`, `sortOrder`); UUID trong `itemIds` sai định dạng|
 |400|RECRUITMENT_CATALOG_ORDER_MISMATCH|`itemIds` của PUT `/order` không đúng bằng các giá trị hiện có của loại danh mục (thiếu, thừa, khác loại hoặc lặp)|
-|401|Lỗi xác thực/phiên|Thiếu, sai, hết hạn token; phiên thu hồi; người gọi bị khóa|
-|403|FORBIDDEN|Thiếu quyền tổ chức tương ứng|
+|401|Lỗi xác thực/phiên|Thiếu, sai, hết hạn token (kể cả hết hạn trong lúc yêu cầu ghi chờ khóa: `SESSION_INVALID`); phiên thu hồi; người gọi bị khóa|
+|403|FORBIDDEN|Thiếu quyền tổ chức tương ứng, kể cả khi quyền bị gỡ trong lúc yêu cầu ghi chờ khóa|
 |404|RECRUITMENT_CATALOG_TYPE_NOT_FOUND|`{type}` không phải một trong bốn loại ở trên|
 |404|RECRUITMENT_CATALOG_ITEM_NOT_FOUND|Không có giá trị với UUID này trong loại danh mục của URL|
 |409|RECRUITMENT_CATALOG_CODE_EXISTS|Mã đã được giá trị khác trong cùng loại dùng, kể cả khi hai yêu cầu ghi cùng mã đồng thời|
@@ -131,4 +150,4 @@ Body được kiểm trước loại danh mục: POST/PUT (kể cả PUT `/order
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_catalog_items` của V10 và quyền ORGANIZATION của V3; task 228, 229 và 230 không thêm migration hoặc thay `.env`. Sắp xếp chỉ ghi cột `sort_order` và `updated_at`.
+Dùng bảng `recruitment_catalog_items` của V10 và quyền ORGANIZATION của V3; task 228, 229, 230 và 231 không thêm migration hoặc thay `.env`. Task 231 không đổi URL, mã quyền hay hợp đồng request/response, chỉ thêm bước kiểm lại quyền sau khi chờ khóa giá trị. Sắp xếp chỉ ghi cột `sort_order` và `updated_at`.
