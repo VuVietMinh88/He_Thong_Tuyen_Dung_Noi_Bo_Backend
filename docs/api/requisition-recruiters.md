@@ -12,14 +12,15 @@ Tiêu chí của story:
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
-|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}`|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
-|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó như `GET /assignment`|HR_MANAGER, ADMIN|
+|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}` (từ task 262 gồm cả người tham gia duyệt)|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
+|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt)|HR_MANAGER, ADMIN|
 |`POST /requisitions/{id}/unassign`|Như `POST /assign`|HR_MANAGER, ADMIN|
 |`GET /requisitions/{id}/assignment-history`|Như `GET /assignment`|Như `GET /assignment`|
 
 - Chỉ người có `REQUISITIONS_WRITE_ALL` được phân công. Trưởng bộ phận (`REQUISITIONS_WRITE_SCOPED`) bị 403, vì bảng vai trò ghi việc "phân công recruiter" thuộc về Trưởng phòng Nhân sự. Không thêm mã quyền mới.
-- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó như `GET /requisitions/{id}`, giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
+- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó theo phạm vi phòng ban của `GET /requisitions/{id}` (người tham gia duyệt không được tính, task 262), giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
 - Được phân công **chưa** làm recruiter thấy yêu cầu đó: `REQUISITIONS_*_SCOPED` vẫn hiểu là "phòng ban mình phụ trách". Việc mở rộng phạm vi theo phân công chờ BA/PO (câu hỏi 14 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)) và task 285.
+- Từ task 303, recruiter được phân công (chính hoặc hỗ trợ) soạn và xem [tin tuyển dụng](job-postings.md) của yêu cầu đó, dù vẫn chưa đọc được yêu cầu (task 285).
 
 ## Xem phân công
 
@@ -135,7 +136,7 @@ Người **giữ nguyên vai trò đang có** thì không bị kiểm lại. M�
 
 ## Trạng thái của yêu cầu
 
-Phân công được khi yêu cầu ở trạng thái `DRAFT`, trạng thái duy nhất hiện có (`RequisitionRecruiterService.ASSIGNABLE_STATUSES`); trạng thái khác trả 409 `REQUISITION_NOT_ASSIGNABLE`. Khi luồng duyệt thêm trạng thái mới, nhóm phải xếp trạng thái đó vào nhóm được phân công hay không: `RequisitionRecruiterStatusTest` không biên dịch cho tới khi làm việc này. Xem phân công được ở mọi trạng thái.
+Phân công được khi yêu cầu ở trạng thái `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED` (`RequisitionRecruiterService.ASSIGNABLE_STATUSES`, task 257); yêu cầu `REJECTED` trả 409 `REQUISITION_NOT_ASSIGNABLE`. Khi luồng duyệt thêm trạng thái mới, nhóm phải xếp trạng thái đó vào nhóm được phân công hay không: `RequisitionRecruiterStatusTest` không biên dịch cho tới khi làm việc này. Xem phân công được ở mọi trạng thái.
 
 Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức danh trong danh mục. Nó không đổi `updatedAt` của yêu cầu. Yêu cầu chuyển sang phòng ban khác thì nhóm recruiter đi theo. Bản sao (task 278, 279) bắt đầu chưa được phân công.
 
@@ -172,7 +173,7 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 |409|`REQUISITION_PRIMARY_RECRUITER_REQUIRED`|Thêm hỗ trợ khi chưa có recruiter chính; bỏ recruiter chính|
 |409|`REQUISITION_RECRUITER_ALREADY_PRIMARY`|Thêm recruiter chính làm hỗ trợ|
 |409|`REQUISITION_SUPPORTING_RECRUITER_LIMIT`|Đã đủ 10 recruiter hỗ trợ|
-|409|`REQUISITION_NOT_ASSIGNABLE`|Yêu cầu ở trạng thái không cho phân công (chưa xảy ra được)|
+|409|`REQUISITION_NOT_ASSIGNABLE`|Yêu cầu ở trạng thái không cho phân công (đã bị từ chối)|
 
 ## Ghi chú cho frontend
 
@@ -191,7 +192,7 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - ADMIN cũng được phân công;
 - tối đa 10 recruiter hỗ trợ;
 - người cũ rời khỏi yêu cầu khi chuyển giao;
-- chỉ phân công được ở `DRAFT`;
+- phân công được ở `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, không phân công ở `REJECTED`;
 - không giới hạn theo phòng ban;
 - recruiter được giao chưa xem được yêu cầu;
 - lịch sử chỉ ghi lần thay đổi thật, không ghi lần gọi không đổi gì hay bị từ chối (task 286);
