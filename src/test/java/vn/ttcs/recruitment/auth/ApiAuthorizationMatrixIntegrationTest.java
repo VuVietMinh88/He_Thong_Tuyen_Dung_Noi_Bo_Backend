@@ -150,6 +150,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/requisitions/{id}/assignment", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
+            // Task 286: the history of recruiter changes, read like the requisition.
+            endpoint("GET", "/api/v1/requisitions/{id}/assignment-history", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 275: the HR exceptions of a requisition; the unknown id makes a permitted call stop at 404.
             endpoint("GET", "/api/v1/requisitions/{id}/headcount-overrides", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
@@ -193,7 +195,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
             "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
-            "requisition_headcount_overrides", "requisition_recruiters");
+            "requisition_headcount_overrides", "requisition_recruiters",
+            "requisition_recruiter_changes");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -222,6 +225,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         clock.set(START);
         // Requisitions reference departments, positions and accounts (ON DELETE RESTRICT), so they go first, after the
         // rows that reference them.
+        jdbc.update("DELETE FROM requisition_recruiter_changes");
         jdbc.update("DELETE FROM requisition_recruiters");
         jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");

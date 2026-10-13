@@ -9,8 +9,7 @@ import java.util.UUID;
 
 // Task 284: POST /requisitions/{id}/assign. {"recruiterId": "...", "note": "..."} is what the frontend already sends:
 // role may be left out and then means PRIMARY (assign or hand over the recruiter in charge).
-// note is an optional reason for the change. It is checked and accepted already, so the request does not change
-// later, but nothing stores it yet: the change history that keeps it is task 286.
+// note is an optional reason for the change; it is stored with the change in the history (task 286).
 public record RequisitionAssignRequest(
         @NotNull(message = "Vui lòng chọn recruiter được phân công.") UUID recruiterId,
         @Pattern(regexp = RequisitionRecruiterRole.CODES,

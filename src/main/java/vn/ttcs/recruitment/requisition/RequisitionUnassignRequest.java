@@ -8,7 +8,8 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 // Task 284: POST /requisitions/{id}/unassign removes a supporting recruiter. There is no role: the primary recruiter
-// is never removed, only handed over with /assign. note has the same rules as in RequisitionAssignRequest.
+// is never removed, only handed over with /assign. note has the same rules as in RequisitionAssignRequest and is
+// stored in the history (task 286).
 public record RequisitionUnassignRequest(
         @NotNull(message = "Vui lòng chọn recruiter cần bỏ phân công.") UUID recruiterId,
         @Size(max = 1_000, message = "Ghi chú tối đa 1.000 ký tự.")

@@ -12,10 +12,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
-// Task 284: the recruiters of a requisition. The suffixes /assign (body {recruiterId, note}) match the frontend
-// (AssignRecruiterModal); a malformed {id} fails as 400 VALIDATION_ERROR in ApiExceptionHandler.
+// Task 284: the recruiters of a requisition. The suffixes /assign (body {recruiterId, note}) and, from task 286,
+// /assignment-history (a bare JSON array) match the frontend (AssignRecruiterModal); a malformed {id} fails as
+// 400 VALIDATION_ERROR in ApiExceptionHandler.
 @RestController
 @RequestMapping("/api/v1/requisitions/{id}")
 public class RequisitionRecruiterController {
@@ -28,6 +30,11 @@ public class RequisitionRecruiterController {
     @GetMapping("/assignment")
     public ResponseEntity<RequisitionAssignmentView> assignment(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.assignment(jwt, id));
+    }
+
+    @GetMapping("/assignment-history")
+    public ResponseEntity<List<RecruiterChangeView>> history(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.history(jwt, id));
     }
 
     @PostMapping("/assign")

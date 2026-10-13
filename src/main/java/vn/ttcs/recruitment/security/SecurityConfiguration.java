@@ -168,8 +168,10 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/assign",
                                 "/api/v1/requisitions/*/unassign")
                                 .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
-                        // Task 284: who is assigned is read like the requisition itself (same scope as GET /{id}).
-                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment")
+                        // Task 284, 286: who is assigned, and the history of changes, are read like the requisition
+                        // itself (same scope as GET /{id}).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment",
+                                "/api/v1/requisitions/*/assignment-history")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*",
                                 "/api/v1/requisitions/*/headcount-overrides")

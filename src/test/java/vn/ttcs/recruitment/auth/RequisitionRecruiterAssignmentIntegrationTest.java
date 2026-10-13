@@ -87,6 +87,7 @@ class RequisitionRecruiterAssignmentIntegrationTest {
     @BeforeEach
     void resetFixture() throws Exception {
         clock.set(START);
+        jdbc.update("DELETE FROM requisition_recruiter_changes");
         jdbc.update("DELETE FROM requisition_recruiters");
         jdbc.update("DELETE FROM requisition_headcount_overrides");
         jdbc.update("DELETE FROM headcount_plans");
@@ -255,6 +256,9 @@ class RequisitionRecruiterAssignmentIntegrationTest {
         assertThat(error.path("fieldErrors").has(invalid.startsWith("recruiterId") ? "recruiterId" : "note"))
                 .as(error.toString()).isTrue();
         assertThat(team()).containsExactly(r.get(0) + ":PRIMARY", r.get(1) + ":SUPPORTING");
+        // Task 286: the two assignments are the whole history; the refused removal adds nothing.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_recruiter_changes", Integer.class))
+                .isEqualTo(2);
     }
 
     @Test
