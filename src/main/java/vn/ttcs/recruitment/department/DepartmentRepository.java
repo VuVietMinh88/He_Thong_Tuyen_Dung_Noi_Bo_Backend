@@ -24,10 +24,12 @@ public class DepartmentRepository {
                    manager.full_name AS manager_full_name, d.active, d.created_at
             """ + FROM;
     private static final String ORDER = " ORDER BY d.code, d.id ";
-    // Task 197: requisition statuses that still need their department, so the department cannot be deleted.
-    // V13 only allows DRAFT, and a draft is still open. When the approval workflow adds statuses, list here every
-    // status that is not closed or cancelled (RequisitionStatus says so too).
-    private static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT");
+    // Task 197: requisition statuses that still need their department, so the department cannot be deleted. Every
+    // status that is not closed or cancelled belongs here (RequisitionStatus says so too). Task 257: a requisition
+    // waiting for approval, returned for more information or approved is still open; a rejected one is closed (its
+    // foreign key still blocks the deletion, as DEPARTMENT_IN_USE).
+    private static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT", "PENDING_APPROVAL", "RETURNED",
+            "APPROVED");
 
     private final NamedParameterJdbcTemplate jdbc;
 
