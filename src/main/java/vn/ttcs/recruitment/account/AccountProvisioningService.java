@@ -67,28 +67,8 @@ public class AccountProvisioningService {
      */
     @Transactional
     public AccountController.CreatedAccount create(Jwt jwt, CreateAccountRequest request, NewAccountProfile profile) {
-        UUID actorId;
-        UUID sessionId;
-        try {
-            actorId = UUID.fromString(jwt.getSubject());
-            sessionId = UUID.fromString(jwt.getId());
-        } catch (IllegalArgumentException | NullPointerException exception) {
-            throw AuthenticationFailureException.sessionInvalid();
-        }
-        Account actor = accounts.findByIdForUpdate(actorId)
-                .filter(Account::isAccessAllowed).orElseThrow(AuthenticationFailureException::sessionInvalid);
-        // A request may have waited through an account lock and unlock since the security filter ran.
-        var session = sessions.findByIdForUpdate(sessionId)
-                .orElseThrow(AuthenticationFailureException::sessionInvalid);
+        lockCallerAllowedToCreate(jwt);
         var now = clock.instant();
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)
-                || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
-            throw AuthenticationFailureException.sessionInvalid();
-        }
-        if (!actor.getRoles().contains(Role.ADMIN)
-                || !permissions.forUser(actorId).contains("USER_ADMIN_WRITE_ALL")) {
-            throw new AccessDeniedException("Account administration requires ADMIN");
-        }
         UUID departmentId = profile.departmentCode() == null ? null : activeDepartmentId(profile.departmentCode());
         if (accounts.existsByEmail(request.email())) {
             throw new DuplicateEmailException();
@@ -136,6 +116,46 @@ public class AccountProvisioningService {
             throw new InvalidActivationTokenException();
         }
         account.activate();
+    }
+
+    /**
+     * Checks that the caller may create accounts right now, with the same rule and locks as {@link #create}. The
+     * staff import calls this before it reads an uploaded file, so someone without the right learns nothing from
+     * the file, not even which of its emails already have accounts. Called from code without a transaction (as the
+     * import does), the check runs in its own short transaction and the locks are released when it returns.
+     */
+    @Transactional
+    public void requireCreateAccess(Jwt jwt) {
+        lockCallerAllowedToCreate(jwt);
+    }
+
+    // Creating accounts needs an active account and session, an unexpired token, the ADMIN role and
+    // USER_ADMIN_WRITE_ALL. The caller's account and then the caller's session are locked first (the same order as
+    // the other account services), so a role removal, account lock or logout that is being saved right now is
+    // waited for, and everything is read again after the wait instead of trusting the security filter alone.
+    private void lockCallerAllowedToCreate(Jwt jwt) {
+        UUID actorId;
+        UUID sessionId;
+        try {
+            actorId = UUID.fromString(jwt.getSubject());
+            sessionId = UUID.fromString(jwt.getId());
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        Account actor = accounts.findByIdForUpdate(actorId)
+                .filter(Account::isAccessAllowed).orElseThrow(AuthenticationFailureException::sessionInvalid);
+        // A request may have waited through an account lock and unlock since the security filter ran.
+        var session = sessions.findByIdForUpdate(sessionId)
+                .orElseThrow(AuthenticationFailureException::sessionInvalid);
+        var now = clock.instant();
+        if (!session.getUserId().equals(actorId) || !session.isActive(now)
+                || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
+            throw AuthenticationFailureException.sessionInvalid();
+        }
+        if (!actor.getRoles().contains(Role.ADMIN)
+                || !permissions.forUser(actorId).contains("USER_ADMIN_WRITE_ALL")) {
+            throw new AccessDeniedException("Account administration requires ADMIN");
+        }
     }
 
     // Same rule as PUT /accounts/{id}: nobody new joins a department that is no longer used. Locking the row

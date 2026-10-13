@@ -1,10 +1,32 @@
 # Nhập danh sách nhân sự từ Excel
 
-Phạm vi TKNHTTDNB1-170–174 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
+Phạm vi TKNHTTDNB1-170–175 (story TKNHTTDNB1-20). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`.
 
-Nhập hàng loạt cũng là tạo tài khoản, nên dùng đúng quy tắc của `POST /accounts`: cần **vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`**. `SecurityConfiguration` kiểm trước, sau đó `StaffImportService` đọc lại phiên, vai trò và quyền từ database ở mỗi yêu cầu. Theo seed hiện tại chỉ ADMIN dùng được; HR_MANAGER chỉ có quyền đọc tài khoản nên nhận 403.
+Nhập hàng loạt cũng là tạo tài khoản, nên cả ba API dùng đúng quy tắc của `POST /accounts`: cần **vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`**. Theo seed hiện tại chỉ ADMIN dùng được; HR_MANAGER chỉ có quyền đọc tài khoản nên nhận 403. Chi tiết ở mục [Quyền truy cập](#quyền-truy-cập).
 
-Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173), và trả báo cáo tổng kết gồm số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua (174).
+Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173), trả báo cáo tổng kết gồm số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua (174), và chỉ người quản trị tài khoản nội bộ mới được xem trước và nhập (175).
+
+## Quyền truy cập
+
+Quyền được kiểm hai lớp, giống các API ghi tài khoản khác:
+
+1. **Bộ lọc URL** trong `SecurityConfiguration`: ba URL `/accounts/import/**` cần đồng thời `ROLE_ADMIN` và `PERM_USER_ADMIN_WRITE_ALL`, như `POST /accounts`. Thiếu một trong hai là 403, controller không chạy.
+2. **Service kiểm lại**: trước khi mở tệp, `StaffImportService` gọi `AccountProvisioningService.requireCreateAccess`, tức đúng phần kiểm quyền mà `POST /accounts` dùng. Phần này khóa dòng tài khoản rồi dòng phiên của người gọi (cùng thứ tự với các service tài khoản khác), sau đó đọc lại từ database: tài khoản đã kích hoạt và không bị khóa, phiên chưa đăng xuất, token chưa hết hạn, còn vai trò `ADMIN` và còn quyền `USER_ADMIN_WRITE_ALL`. Việc kiểm này chạy trong một transaction ngắn và commit ngay, nên không giữ khóa trong lúc đọc tệp. Khi nhập thật, mỗi dòng hợp lệ còn được kiểm lại lần nữa lúc tạo tài khoản.
+
+Khóa ở lớp 2 có tác dụng khi một thay đổi đang được lưu đúng lúc request tới. Ví dụ Admin khác đang gỡ vai trò `ADMIN` hoặc khóa tài khoản của người gọi: request chờ thay đổi đó lưu xong rồi mới kiểm, nên thấy kết quả mới và trả 403 hoặc 401, không dùng quyền cũ mà bộ lọc đã thấy.
+
+| Người gọi | Kết quả với cả ba API |
+|---|---|
+|Có vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`, phiên còn hợp lệ|Được dùng|
+|HR_MANAGER (xem được `GET /accounts` nhưng không tạo được tài khoản)|403 `FORBIDDEN`|
+|RECRUITER, HIRING_MANAGER, INTERVIEWER, APPROVER, hoặc có nhiều vai trò trong số này nhưng không có `ADMIN`|403 `FORBIDDEN`|
+|Vai trò khác `ADMIN` dù được cấp thêm `USER_ADMIN_WRITE_ALL`|403 `FORBIDDEN`|
+|Có vai trò `ADMIN` nhưng `USER_ADMIN_WRITE_ALL` đã bị gỡ khỏi vai trò này|403 `FORBIDDEN`, kể cả với token cấp trước đó|
+|Mất vai trò `ADMIN` hoặc quyền `USER_ADMIN_WRITE_ALL` trong lúc request đang chờ|403 `FORBIDDEN`|
+|Bị khóa tài khoản hoặc đã đăng xuất trong lúc request đang chờ|401 `SESSION_INVALID`|
+|Không gửi token, token sai hoặc hết hạn, phiên đã thu hồi, tài khoản bị khóa từ trước|401 `UNAUTHORIZED`|
+
+Khi bị từ chối ở bước kiểm quyền này (401/403), server chưa đọc tệp: response chỉ là JSON lỗi `{code, message, fieldErrors}` (`fieldErrors` rỗng), không có dòng nào của tệp, không cho biết email nào đã có tài khoản; không tài khoản nào được tạo và không email nào được gửi. Riêng nhập thật còn có thể dừng với 401/403 giữa chừng, sau khi đã tạo một số dòng (xem [Dòng hợp lệ nhưng thất bại lúc tạo](#dòng-hợp-lệ-nhưng-thất-bại-lúc-tạo)). Frontend có thể ẩn chức năng nhập khi `GET /auth/me` không có vai trò `ADMIN` hoặc `GET /auth/permissions` không có `USER_ADMIN_WRITE_ALL`, nhưng server vẫn luôn tự kiểm như trên.
 
 ## GET /accounts/import/template
 
@@ -23,8 +45,8 @@ CORS expose header `Content-Disposition`, nên frontend chạy ở origin khác 
 | HTTP | Mã | Trường hợp |
 |---|---|---|
 |401|UNAUTHORIZED|Thiếu, sai hoặc hết hạn token; phiên đã thu hồi; tài khoản bị khóa hoặc chưa kích hoạt|
-|401|SESSION_INVALID|Service kiểm lại thấy token vừa hết hạn sau khi qua bộ lọc|
-|403|FORBIDDEN|Không có vai trò `ADMIN` hoặc thiếu `USER_ADMIN_WRITE_ALL`|
+|401|SESSION_INVALID|Service kiểm lại sau khi qua bộ lọc thấy token vừa hết hạn, phiên vừa bị thu hồi hoặc tài khoản vừa bị khóa|
+|403|FORBIDDEN|Không có vai trò `ADMIN` hoặc thiếu `USER_ADMIN_WRITE_ALL`, kể cả khi vừa mất trong lúc request chờ (xem [Quyền truy cập](#quyền-truy-cập))|
 
 Response lỗi là JSON `{code, message, fieldErrors}`, có `Cache-Control: no-store` và không có `Content-Disposition`.
 
@@ -85,7 +107,7 @@ Không tự đặt header `Content-Type`: trình duyệt tự thêm `multipart/f
 
 ### Server kiểm tra theo thứ tự
 
-1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` như tải tệp mẫu. Người không có quyền nhận 401/403 trước khi server xem tới tệp.
+1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL`, kiểm lại sau khi khóa tài khoản và phiên của người gọi (mục [Quyền truy cập](#quyền-truy-cập)). Người không có quyền nhận 401/403 trước khi server xem tới tệp.
 2. Có trường `file` và tệp không rỗng.
 3. Tệp không lớn hơn 2 MB (2 × 1024 × 1024 byte). Tệp đúng 2 MB vẫn được nhận.
 4. Tên tệp kết thúc bằng `.xlsx` (không phân biệt hoa/thường).
@@ -276,7 +298,7 @@ const response = await fetch(`${apiBaseUrl}/api/v1/accounts/import`, {
 
 ### Server xử lý theo thứ tự
 
-1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` như xem trước. Người không có quyền nhận 401/403 trước khi server xem tới tệp.
+1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` như xem trước, kể cả khi tệp không có dòng hợp lệ nào. Người không có quyền nhận 401/403 trước khi server xem tới tệp.
 2. Đọc tệp đúng như bước 2–10 của [xem trước](#server-kiểm-tra-theo-thứ-tự). Gặp lỗi cấp tệp (bảng [Lỗi](#lỗi)) thì cả tệp bị từ chối và **chưa tạo tài khoản nào**, kể cả cho các dòng đúng.
 3. Kiểm tra lại mọi dòng như bước 11 của xem trước, theo database **lúc nhập**. Từ lúc xem trước, có thể đã có người tạo tài khoản trùng email hoặc ngừng áp dụng một phòng ban.
 4. Đi lần lượt từng dòng theo thứ tự trong tệp:
@@ -421,4 +443,4 @@ Mọi ô trong tệp mẫu là ô chữ: không có công thức, macro hay liê
 
 Khi đọc tệp tải lên, server không tính công thức và không chạy macro. Ngoài giới hạn 2 MB và 10 MB sau giải nén, Apache POI vẫn áp dụng các kiểm tra mặc định của `ZipSecureFile`, ví dụ từ chối tỉ lệ nén bất thường. Xem trước không mở transaction nên không giữ kết nối database trong lúc đọc tệp; hai truy vấn kiểm tra email và phòng ban chỉ chạy sau khi đọc xong.
 
-Không thêm migration. Tải tệp mẫu chỉ đọc bảng `roles` của V3; xem trước chỉ đọc phiên và quyền của người gọi, cột `email` của `user_accounts` và cột `code`, `active` của `departments`. Nhập thật ghi các bảng mà `POST /accounts` vẫn ghi (`user_accounts`, `user_roles`, `account_activation_tokens`), thêm các cột hồ sơ `department_id`, `phone`, `display_title` của V5, và chỉ khóa đọc (`FOR SHARE`) dòng `departments` được dùng. Tệp và nội dung tệp không được lưu ở đâu. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.
+Không thêm migration. Cả ba API khóa ngắn dòng `user_accounts` và `auth_sessions` của chính người gọi để kiểm quyền rồi commit ngay; ngoài ra tải tệp mẫu chỉ đọc bảng `roles` của V3, xem trước chỉ đọc quyền của người gọi, cột `email` của `user_accounts` và cột `code`, `active` của `departments`. Nhập thật ghi các bảng mà `POST /accounts` vẫn ghi (`user_accounts`, `user_roles`, `account_activation_tokens`), thêm các cột hồ sơ `department_id`, `phone`, `display_title` của V5, và chỉ khóa đọc (`FOR SHARE`) dòng `departments` được dùng. Tệp và nội dung tệp không được lưu ở đâu. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.

@@ -17,7 +17,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -493,7 +492,7 @@ class StaffImportPreviewIntegrationTest {
         assertThatThrownBy(() -> service.preview(jwt(adminId, adminSession, START), file))
                 .isInstanceOf(AuthenticationFailureException.class);
         jdbc.update("UPDATE auth_sessions SET revoked_at = ? WHERE id = ?", Timestamp.from(START), adminSession);
-        assertThatThrownBy(() -> service.preview(admin, file)).isInstanceOf(AuthenticationException.class);
+        assertThatThrownBy(() -> service.preview(admin, file)).isInstanceOf(AuthenticationFailureException.class);
     }
 
     @Test
