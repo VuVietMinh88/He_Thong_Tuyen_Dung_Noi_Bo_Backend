@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.department.DepartmentRepository;
 import vn.ttcs.recruitment.headcount.HeadcountDemand;
 import vn.ttcs.recruitment.headcount.HeadcountExcess;
+import vn.ttcs.recruitment.headcount.HeadcountOverrideView;
 import vn.ttcs.recruitment.headcount.HeadcountQuota;
 import vn.ttcs.recruitment.position.PositionRepository;
 import vn.ttcs.recruitment.position.SalaryBandComparison;
@@ -79,13 +80,25 @@ public class RequisitionService {
     }
 
     // Who is calling and how much of the REQUISITIONS module they may see or change (ALL or SCOPED, never NONE).
-    private record Caller(UUID id, AccessScope scope) { }
+    // permissions: every code the caller holds, read together with the scope (after the locks for a write).
+    private record Caller(UUID id, AccessScope scope, Set<String> permissions) {
+        // Task 275: only the HR manager may save a requisition over the headcount plan.
+        boolean mayOverrideHeadcountPlan() {
+            return permissions.contains("HEADCOUNT_PLANS_WRITE_ALL");
+        }
+
+        // Task 275: the salary amounts of a plan are only for those who may read the plans.
+        boolean mayReadHeadcountPlans() {
+            return permissions.contains("HEADCOUNT_PLANS_READ_ALL");
+        }
+    }
 
     // Task 244: saves a new DRAFT owned by the caller, so the manager can come back and finish it later.
     // Task 246 adds: the position and the department must still be active. Task 247 adds: a proposal outside the
     // position's standard salary band needs a justification. Task 248 adds: the needed-by date is not in the past.
     // Task 249 adds: a SCOPED caller may only choose a department they manage.
-    // Task 274 adds, last: the draft must fit in the headcount plan of its department and year.
+    // Task 274 adds, last: the draft must fit in the headcount plan of its department and year. Task 275 adds: unless
+    // the HR manager confirms going over it with a reason, which is stored with the numbers it was checked against.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Writer writer = lockWriter(jwt);
@@ -99,12 +112,13 @@ public class RequisitionService {
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
         Instant createdAt = now();
-        requireWithinHeadcountPlan(jwt, writer, demand(request, createdAt), null, null);
-        var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
-                request.headcount(), request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
-                request.salaryJustification(), request.neededBy(), request.jobDescription(),
-                request.candidateRequirements(), caller.id(), createdAt);
-        return RequisitionView.from(requisitions.saveAndFlush(requisition));
+        var confirmed = requireWithinHeadcountPlan(jwt, writer, request, demand(request, createdAt), null, null);
+        var requisition = requisitions.saveAndFlush(new RecruitmentRequisition(request.positionId(),
+                request.departmentId(), request.headcount(), request.reasonCode(), request.proposedSalaryMin(),
+                request.proposedSalaryMax(), request.salaryJustification(), request.neededBy(),
+                request.jobDescription(), request.candidateRequirements(), caller.id(), createdAt));
+        recordHeadcountOverride(confirmed, requisition.getId(), request, caller, createdAt);
+        return RequisitionView.from(requisition);
     }
 
     // Task 245: one page of the requisitions the caller may see, newest first. status = null means every status.
@@ -167,22 +181,44 @@ public class RequisitionService {
         caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
         requireJustificationOutsideStandardBand(request);
-        requireWithinHeadcountPlan(jwt, writer, demand(request, requisition.getCreatedAt()), demand(requisition), id);
+        var confirmed = requireWithinHeadcountPlan(jwt, writer, request, demand(request, requisition.getCreatedAt()),
+                demand(requisition), id);
+        Instant updatedAt = now();
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
                 request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
-                request.candidateRequirements(), now());
+                request.candidateRequirements(), updatedAt);
         requisitions.flush();
+        recordHeadcountOverride(confirmed, id, request, caller, updatedAt);
         return RequisitionView.from(requisition);
+    }
+
+    // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same access as
+    // GET /requisitions/{id}; only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
+    // An exception keeps the department of the plan it went over, and the requisition may have moved since: a SCOPED
+    // caller only sees the exceptions of departments they manage, never the plan numbers of another department.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public HeadcountOverrideList headcountOverrides(Jwt jwt, UUID id) {
+        Caller caller = requireReadAccess(jwt);
+        var requisition = requisitions.findById(id).orElseThrow(RequisitionService::notFound);
+        requireInScope(caller, requisition.getDepartmentId());
+        boolean showSalary = caller.mayReadHeadcountPlans();
+        var overrides = headcountQuota.overridesOf(id).stream();
+        if (caller.scope() != AccessScope.ALL) {
+            Set<UUID> managed = departments.findManagedDepartmentIds(caller.id());
+            overrides = overrides.filter(override -> managed.contains(override.departmentId()));
+        }
+        return new HeadcountOverrideList(overrides
+                .map(override -> HeadcountOverrideView.from(override, showSalary)).toList());
     }
 
     private Caller requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
-        AccessScope scope = AccessScope.read(permissions.forUser(actor.getId()), PermissionModule.REQUISITIONS)
-                .orDeny();
-        return new Caller(actor.getId(), scope);
+        Set<String> granted = permissions.forUser(actor.getId());
+        AccessScope scope = AccessScope.read(granted, PermissionModule.REQUISITIONS).orDeny();
+        return new Caller(actor.getId(), scope, granted);
     }
 
     // The caller of a write after lockWriter: the account id and the session row this transaction has locked.
@@ -223,9 +259,9 @@ public class RequisitionService {
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
         // SCOPED callers are then limited to their departments: the saved requisition on update (requireInScope)
         // and the department written in the body on create and update (requireChosenDepartmentInScope).
-        AccessScope scope = AccessScope.write(permissions.forUser(writer.actorId()), PermissionModule.REQUISITIONS)
-                .orDeny();
-        return new Caller(writer.actorId(), scope);
+        Set<String> granted = permissions.forUser(writer.actorId());
+        AccessScope scope = AccessScope.write(granted, PermissionModule.REQUISITIONS).orDeny();
+        return new Caller(writer.actorId(), scope, granted);
     }
 
     // ALL reaches every department. SCOPED only reaches a department the caller manages, directly or through a
@@ -345,13 +381,32 @@ public class RequisitionService {
     // after the other. Without a plan for that department and year nothing is checked and nothing is locked.
     // That plan lock can wait for another save of the same department and year, and meanwhile the access token may
     // expire or the permission may be removed, so the caller is checked again before the 409 is decided.
-    private void requireWithinHeadcountPlan(Jwt jwt, Writer writer, HeadcountDemand demand, HeadcountDemand previous,
-                                            UUID requisitionId) {
+    // Task 275: the save goes through anyway when it carries headcountOverrideReason and the caller may override
+    // (HEADCOUNT_PLANS_WRITE_ALL, read again after the plan lock); anyone else giving a reason gets 403. The excess is
+    // returned so that it can be recorded once the requisition row exists. A reason on a save that fits the plan is
+    // not needed and is ignored.
+    private Optional<HeadcountExcess> requireWithinHeadcountPlan(Jwt jwt, Writer writer, RequisitionRequest request,
+                                                                 HeadcountDemand demand, HeadcountDemand previous,
+                                                                 UUID requisitionId) {
         Optional<HeadcountExcess> excess = headcountQuota.check(demand, previous, requisitionId);
-        requireStillWriter(jwt, writer);
-        excess.ifPresent(found -> {
-            throw HeadcountQuota.exceeded(found);
-        });
+        Caller current = requireStillWriter(jwt, writer);
+        if (excess.isEmpty()) {
+            return excess;
+        }
+        if (request.headcountOverrideReason() == null) {
+            throw HeadcountQuota.exceeded(excess.get());
+        }
+        if (!current.mayOverrideHeadcountPlan()) {
+            throw new AccessDeniedException("Only HEADCOUNT_PLANS_WRITE_ALL may save a requisition over the plan");
+        }
+        return excess;
+    }
+
+    // Runs after the requisition row is written (the exception references it), still under the plan lock.
+    private void recordHeadcountOverride(Optional<HeadcountExcess> confirmed, UUID requisitionId,
+                                         RequisitionRequest request, Caller caller, Instant at) {
+        confirmed.ifPresent(excess -> headcountQuota.recordOverride(excess, requisitionId,
+                request.headcountOverrideReason(), caller.id(), at));
     }
 
     // What the body asks of the plan. createdAt decides the plan year while neededBy is empty.

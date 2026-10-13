@@ -292,8 +292,8 @@ public class DepartmentService {
 
     // delete() checks the requisitions, child departments and members of the department. A foreign key violation
     // (23503) means that another row still points at the department, for example a closed requisition once the
-    // approval workflow adds closed statuses (V13 keeps that history with ON DELETE RESTRICT), or a table added later.
-    // Still a 409, not a 500. Headcount plans
+    // approval workflow adds closed statuses (V13 keeps that history with ON DELETE RESTRICT), the history of an HR
+    // exception to a headcount plan (V15, task 275), or a table added later. Still a 409, not a 500. Headcount plans
     // (V14) do not block the deletion: they are configuration of the department and are deleted with it (CASCADE).
     private static RuntimeException translateStillReferenced(DataIntegrityViolationException exception) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {

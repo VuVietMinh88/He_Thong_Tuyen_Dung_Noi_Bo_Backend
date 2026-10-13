@@ -6,7 +6,7 @@ Tiêu chí của story:
 
 - Khai báo chỉ tiêu headcount và ngân sách lương theo phòng ban, theo năm (272, 273).
 - Yêu cầu tuyển dụng mới hiển thị số headcount còn lại của phòng ban (273: `GET /headcount-plans/remaining`).
-- Vượt chỉ tiêu là cảnh báo chặn (task 274: lưu yêu cầu tuyển dụng vượt định biên trả 409, xem [API yêu cầu tuyển dụng](requisitions.md#kiểm-tra-định-biên-task-274)), cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do (task 275).
+- Vượt chỉ tiêu là cảnh báo chặn (task 274: lưu yêu cầu tuyển dụng vượt định biên trả 409, xem [API yêu cầu tuyển dụng](requisitions.md#kiểm-tra-định-biên-task-274)), cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do (task 275: HR lưu yêu cầu kèm `headcountOverrideReason`, xem [mục xác nhận vượt định biên](requisitions.md#trưởng-phòng-nhân-sự-xác-nhận-vượt-định-biên-task-275)).
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|

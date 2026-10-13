@@ -56,7 +56,13 @@ public record RequisitionRequest(
         @Size(max = 10_000, message = "Yêu cầu ứng viên tối đa 10.000 ký tự.")
         @Pattern(regexp = RequisitionRequest.NO_NUL_CHARACTER,
                 message = "Yêu cầu ứng viên chứa ký tự không hợp lệ.")
-        String candidateRequirements) {
+        String candidateRequirements,
+        // Task 275: only read when this save goes over the headcount plan; only HEADCOUNT_PLANS_WRITE_ALL (the HR
+        // manager) may then give it, and it is stored with the exception. It is not a field of the requisition.
+        @Size(max = 1_000, message = "Lý do vượt định biên tối đa 1.000 ký tự.")
+        @Pattern(regexp = RequisitionRequest.NO_NUL_CHARACTER,
+                message = "Lý do vượt định biên chứa ký tự không hợp lệ.")
+        String headcountOverrideReason) {
 
     // PostgreSQL TEXT cannot store the NUL character (code 0, sometimes pasted from other files), so the insert
     // would fail with a 500. Every other character is allowed, including tabs and line breaks.
@@ -71,6 +77,7 @@ public record RequisitionRequest(
         salaryJustification = blankToNull(salaryJustification);
         jobDescription = blankToNull(jobDescription);
         candidateRequirements = blankToNull(candidateRequirements);
+        headcountOverrideReason = blankToNull(headcountOverrideReason);
     }
 
     private static String blankToNull(String text) {

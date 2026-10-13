@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // year is still running, and meanwhile the access token may expire or a permission may be removed. The caller is
 // checked again after the lock, before the plan decides anything (the same rule as the other row locks of the
 // requisition writes and as DepartmentService, task 198): such a save must be refused and must change nothing.
+// Task 275: the right to go over the plan (HEADCOUNT_PLANS_WRITE_ALL) is part of that check, so it is read again too.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -71,6 +72,8 @@ class RequisitionHeadcountPlanLockIntegrationTest {
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     // The head of IT (HIRING_MANAGER, scope SCOPED) who manages the fixture department and writes the drafts.
     private String headToken;
+    // The HR manager (REQUISITIONS_WRITE_ALL and HEADCOUNT_PLANS_WRITE_ALL): the only one who may go over the plan.
+    private String hrToken;
     private UUID hrId;
     private UUID departmentId;
     private UUID positionId;
@@ -87,6 +90,8 @@ class RequisitionHeadcountPlanLockIntegrationTest {
     void resetFixture() throws Exception {
         clock.set(START);
         grant("HIRING_MANAGER", "REQUISITIONS_WRITE_SCOPED");
+        grant("HR_MANAGER", "HEADCOUNT_PLANS_WRITE_ALL");
+        jdbc.update("DELETE FROM requisition_headcount_overrides");
         jdbc.update("DELETE FROM headcount_plans");
         jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
@@ -102,9 +107,10 @@ class RequisitionHeadcountPlanLockIntegrationTest {
         UUID headId = accounts.saveAndFlush(new Account("head@example.test", "Head", hash,
                 Set.of(Role.HIRING_MANAGER), START)).getId();
         headToken = login("head@example.test").path("accessToken").asText();
+        hrToken = login("hr@example.test").path("accessToken").asText();
         departmentId = department("IT", headId);
         positionId = position("DEV_JUNIOR");
-        // Room for every save of these tests: 2 people before, 5 after.
+        // Room for every save of the first test: 2 people before, 5 after.
         plan(departmentId, 2026, 10);
     }
 
@@ -118,10 +124,72 @@ class RequisitionHeadcountPlanLockIntegrationTest {
     })
     void aSaveWaitingForThePlanChecksTheCallerAgain(String operation, String change) throws Exception {
         boolean create = operation.equals("create");
-        UUID requisition = create ? null
-                : UUID.fromString(expect(request("POST", BASE, draftBody(HEADCOUNT_BEFORE), headToken), 201)
-                        .path("id").asText());
+        UUID requisition = create ? null : saved(headToken, HEADCOUNT_BEFORE, null);
         List<Map<String, Object>> before = requisitionRows();
+        try {
+            var result = saveWhilePlanIsLocked(create, requisition, headToken, draftBody(HEADCOUNT_AFTER, null), () -> {
+                switch (change) {
+                    case "token-expiry" -> clock.set(START.plus(Duration.ofMinutes(15)));
+                    // A migration that removes the grant from the role locks no account.
+                    case "permission-lost" -> jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HIRING_MANAGER' AND permission_code = 'REQUISITIONS_WRITE_SCOPED'");
+                    default -> { }
+                }
+            });
+            switch (change) {
+                case "nothing" -> assertThat(expect(result, create ? 201 : 200).path("headcount").asInt())
+                        .isEqualTo(HEADCOUNT_AFTER);
+                case "token-expiry" -> assertThat(expect(result, 401).path("code").asText()).isEqualTo("SESSION_INVALID");
+                default -> assertThat(expect(result, 403).path("code").asText()).isEqualTo("FORBIDDEN");
+            }
+        } finally {
+            grant("HIRING_MANAGER", "REQUISITIONS_WRITE_SCOPED");
+        }
+        if (change.equals("nothing")) {
+            assertThat(requisitionRows()).isNotEqualTo(before);
+        } else {
+            assertThat(requisitionRows()).isEqualTo(before);
+        }
+    }
+
+    // Task 275: the HR manager saves over the plan with a reason and waits for the plan row. If HEADCOUNT_PLANS_WRITE_ALL
+    // is removed meanwhile, the save is refused with 403 and neither the requisition nor its exception is written; the
+    // right is not taken from the permissions read before the wait.
+    @ParameterizedTest(name = "{0} over the plan waiting for the plan row, then {1}")
+    @CsvSource({"create, nothing", "create, override-lost", "update, nothing", "update, override-lost"})
+    void anOverrideWaitingForThePlanChecksTheRightToOverrideAgain(String operation, String change) throws Exception {
+        boolean create = operation.equals("create");
+        // A plan of one person: the draft saved first fills it, and the save of five people is over it.
+        jdbc.update("UPDATE headcount_plans SET headcount_limit = 1");
+        UUID requisition = create ? null : saved(hrToken, 1, null);
+        List<Map<String, Object>> before = requisitionRows();
+        try {
+            var result = saveWhilePlanIsLocked(create, requisition, hrToken,
+                    draftBody(HEADCOUNT_AFTER, "Mở rộng dự án trọng điểm."), () -> {
+                        if (change.equals("override-lost")) {
+                            jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' AND permission_code = 'HEADCOUNT_PLANS_WRITE_ALL'");
+                        }
+                    });
+            if (change.equals("nothing")) {
+                assertThat(expect(result, create ? 201 : 200).path("headcount").asInt()).isEqualTo(HEADCOUNT_AFTER);
+                assertThat(overrideCount()).isOne();
+            } else {
+                assertThat(expect(result, 403).path("code").asText()).isEqualTo("FORBIDDEN");
+                assertThat(overrideCount()).isZero();
+            }
+        } finally {
+            grant("HR_MANAGER", "HEADCOUNT_PLANS_WRITE_ALL");
+        }
+        if (change.equals("nothing")) {
+            assertThat(requisitionRows()).isNotEqualTo(before);
+        } else {
+            assertThat(requisitionRows()).isEqualTo(before);
+        }
+    }
+
+    // Sends the save as the given caller while another transaction holds the plan row, runs whileWaiting once the
+    // request is waiting for it, then lets the other transaction end and returns the answer.
+    private HttpResponse<String> saveWhilePlanIsLocked(boolean create, UUID requisition, String token, String body,
+                                                       Runnable whileWaiting) throws Exception {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             int blockerPid;
@@ -133,42 +201,34 @@ class RequisitionHeadcountPlanLockIntegrationTest {
             }
             try (var executor = Executors.newSingleThreadExecutor()) {
                 var response = executor.submit(() -> create
-                        ? request("POST", BASE, draftBody(HEADCOUNT_AFTER), headToken)
-                        : request("PUT", BASE + "/" + requisition, draftBody(HEADCOUNT_AFTER), headToken));
+                        ? request("POST", BASE, body, token)
+                        : request("PUT", BASE + "/" + requisition, body, token));
                 try {
                     awaitWaiters(blockerPid, 1);
-                    switch (change) {
-                        case "token-expiry" -> clock.set(START.plus(Duration.ofMinutes(15)));
-                        // A migration that removes the grant from the role locks no account.
-                        case "permission-lost" -> jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HIRING_MANAGER' AND permission_code = 'REQUISITIONS_WRITE_SCOPED'");
-                        default -> { }
-                    }
+                    whileWaiting.run();
                     connection.commit();
-                    var result = response.get(10, TimeUnit.SECONDS);
-                    switch (change) {
-                        case "nothing" -> assertThat(expect(result, create ? 201 : 200).path("headcount").asInt())
-                                .isEqualTo(HEADCOUNT_AFTER);
-                        case "token-expiry" -> assertThat(expect(result, 401).path("code").asText()).isEqualTo("SESSION_INVALID");
-                        default -> assertThat(expect(result, 403).path("code").asText()).isEqualTo("FORBIDDEN");
-                    }
+                    return response.get(10, TimeUnit.SECONDS);
                 } finally {
                     connection.rollback();
-                    grant("HIRING_MANAGER", "REQUISITIONS_WRITE_SCOPED");
                 }
             }
         }
-        if (change.equals("nothing")) {
-            assertThat(requisitionRows()).isNotEqualTo(before);
-        } else {
-            assertThat(requisitionRows()).isEqualTo(before);
-        }
+    }
+
+    private UUID saved(String token, int headcount, String overrideReason) throws Exception {
+        return UUID.fromString(expect(request("POST", BASE, draftBody(headcount, overrideReason), token), 201)
+                .path("id").asText());
     }
 
     private List<Map<String, Object>> requisitionRows() {
         return jdbc.queryForList("SELECT * FROM recruitment_requisitions ORDER BY id");
     }
 
-    private String draftBody(int headcount) throws Exception {
+    private int overrideCount() {
+        return jdbc.queryForObject("SELECT count(*) FROM requisition_headcount_overrides", Integer.class);
+    }
+
+    private String draftBody(int headcount, String overrideReason) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("positionId", positionId);
         body.put("departmentId", departmentId);
@@ -176,6 +236,9 @@ class RequisitionHeadcountPlanLockIntegrationTest {
         body.put("reason", "NEW_HEADCOUNT");
         // The plan year is the year of the needed-by date.
         body.put("neededBy", "2026-12-01");
+        if (overrideReason != null) {
+            body.put("headcountOverrideReason", overrideReason);
+        }
         return json.writeValueAsString(body);
     }
 

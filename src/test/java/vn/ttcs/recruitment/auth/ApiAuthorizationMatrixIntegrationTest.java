@@ -144,6 +144,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/requisitions", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
             endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 275: the HR exceptions of a requisition; the unknown id makes a permitted call stop at 404.
+            endpoint("GET", "/api/v1/requisitions/{id}/headcount-overrides", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.
             endpoint("DELETE", "/api/v1/departments/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404),
             endpoint("GET", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_READ_ALL), null, 200),
@@ -184,7 +186,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
-            "company_profile", "company_profile_images", "user_avatars", "headcount_plans");
+            "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
+            "requisition_headcount_overrides");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;

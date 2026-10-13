@@ -87,7 +87,7 @@ Phòng ban còn được dùng thì **không xóa được, chỉ ngừng áp d�
 - Chỉ tính yêu cầu tuyển dụng của chính phòng ban: yêu cầu của phòng con chặn xóa phòng con, còn phòng cha bị chặn vì còn phòng con (mã 2).
 - Phòng ban đã ngừng áp dụng vẫn bị kiểm như trên; ngừng áp dụng không làm phòng "xóa được".
 - Mã 4 là lớp chặn cuối khi các bước 1–3 không biết tới dòng tham chiếu (ví dụ yêu cầu đã đóng sau này hoặc bảng mới), để không trả 500.
-- Định biên của phòng ban (bảng `headcount_plans`, task 272) **không** chặn việc xóa: định biên là cấu hình của phòng ban và bị xóa cùng phòng ban (`ON DELETE CASCADE`), kể cả khi người xóa là ADMIN, vốn không xem được định biên.
+- Định biên của phòng ban (bảng `headcount_plans`, task 272) **không** chặn việc xóa: định biên là cấu hình của phòng ban và bị xóa cùng phòng ban (`ON DELETE CASCADE`), kể cả khi người xóa là ADMIN, vốn không xem được định biên. Ngược lại, lịch sử ngoại lệ định biên (task 275) chặn việc xóa với mã 4 `DEPARTMENT_IN_USE`, kể cả khi yêu cầu tuyển dụng đã chuyển sang phòng ban khác.
 - Lỗi 409 có `fieldErrors` rỗng; frontend nên dựa vào `code`, có thể hiện `message` tiếng Việt.
 
 Thứ tự lỗi đầy đủ: 401 (token/phiên), 403 (thiếu quyền, kể cả với UUID không tồn tại), 404 `DEPARTMENT_NOT_FOUND`, rồi 409 như bảng trên. UUID sai định dạng trả 400 `VALIDATION_ERROR`. Gọi lại DELETE cho phòng đã xóa trả 404.

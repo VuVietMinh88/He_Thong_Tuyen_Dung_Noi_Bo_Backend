@@ -4,6 +4,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.common.ApiException;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,9 +16,11 @@ import java.util.UUID;
 @Component
 public class HeadcountQuota {
     private final HeadcountPlanRepository plans;
+    private final HeadcountOverrideRepository overrides;
 
-    public HeadcountQuota(HeadcountPlanRepository plans) {
+    public HeadcountQuota(HeadcountPlanRepository plans, HeadcountOverrideRepository overrides) {
         this.plans = plans;
+        this.overrides = overrides;
     }
 
     /**
@@ -72,6 +76,21 @@ public class HeadcountQuota {
         }
         return new ApiException(HttpStatus.CONFLICT, "SALARY_BUDGET_EXCEEDED",
                 "Yêu cầu vượt ngân sách lương năm " + year + " của phòng ban." + confirm);
+    }
+
+    /**
+     * Task 275: records that an HR manager confirmed this save over the plan. The caller has already checked the
+     * permission and the reason, and saved the requisition (the row references it). Runs in the same transaction,
+     * while the plan row is still locked, so the numbers stored are exactly those the save was checked against.
+     */
+    public void recordOverride(HeadcountExcess excess, UUID requisitionId, String reason, UUID overriddenBy,
+                               Instant overriddenAt) {
+        overrides.insert(HeadcountOverride.of(excess, requisitionId, reason, overriddenBy, overriddenAt));
+    }
+
+    // Task 275: the HR exceptions of one requisition, newest first.
+    public List<HeadcountOverride> overridesOf(UUID requisitionId) {
+        return overrides.findByRequisition(requisitionId);
     }
 
     // Both amounts are never negative; the sum stops at Long.MAX_VALUE like the usage itself.
