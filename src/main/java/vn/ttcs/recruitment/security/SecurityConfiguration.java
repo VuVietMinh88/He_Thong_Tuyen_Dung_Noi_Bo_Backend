@@ -186,6 +186,13 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
                         // Pictures of the saved page; the service answers 404 for every other picture.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/company-media/*").permitAll()
+                        // Avatars: every internal user may see a colleague's picture; only the owner may change it.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
+                                .hasAuthority("PERM_SELF_PROFILE_READ")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/profile/avatar")
+                                .hasAuthority("PERM_SELF_PROFILE_WRITE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/profile/avatar")
+                                .hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

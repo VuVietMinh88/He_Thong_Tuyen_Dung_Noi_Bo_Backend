@@ -39,6 +39,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -157,12 +158,18 @@ class ApiAuthorizationMatrixIntegrationTest {
             // The upload only accepts multipart/form-data, so the JSON sample stops at 415 and stores nothing.
             endpoint("POST", "/api/v1/company-profile/media", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 415),
             endpoint("GET", "/api/v1/company-profile/media/{id}", permission(JOB_POSTINGS_WRITE_ALL), null, 404),
-            endpoint("GET", "/api/v1/public/company-media/{id}", PUBLIC, null, 404));
+            endpoint("GET", "/api/v1/public/company-media/{id}", PUBLIC, null, 404),
+            // No fixture account has an avatar, so reads stop at 404 and DELETE has nothing to remove. The JSON
+            // sample carries no file part, so an allowed upload stops at AVATAR_FILE_REQUIRED.
+            endpoint("GET", "/api/v1/profile/avatar", permission(SELF_PROFILE_READ), null, 404),
+            endpoint("PUT", "/api/v1/profile/avatar", permission(SELF_PROFILE_WRITE), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/profile/avatar", permission(SELF_PROFILE_WRITE), null, 204),
+            endpoint("GET", "/api/v1/accounts/{id}/avatar", permission(SELF_PROFILE_READ), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
-            "company_profile", "company_profile_images");
+            "company_profile", "company_profile_images", "user_avatars");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -330,6 +337,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 Set.of(Role.RECRUITER), START)).getId();
         jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
                 Timestamp.from(START), admin, locked);
+        // NO_ROLE has an avatar, so a delete that slipped through would remove a user_avatars row.
+        jdbc.update("""
+                INSERT INTO user_avatars (user_id, content_type, image, thumbnail, size_bytes, updated_at)
+                VALUES (?, 'image/png', ?, ?, 3, ?)""",
+                actors.get(Identity.NO_ROLE).id(), new byte[] {1, 2, 3}, new byte[] {4}, Timestamp.from(START));
 
         List<Attack> attacks = List.of(
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/accounts",
@@ -378,7 +390,8 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.HIRING_MANAGER, "DELETE", CATALOG_ITEMS + "/" + catalogItem, null),
                 // JOB_POSTINGS_WRITE_SCOPED is not enough for the company-wide page.
                 new Attack(Identity.RECRUITER, "PUT", "/api/v1/company-profile",
-                        Map.of("companyName", "Shadow company", "introduction", "Taken over")));
+                        Map.of("companyName", "Shadow company", "introduction", "Taken over")),
+                new Attack(Identity.NO_ROLE, "DELETE", "/api/v1/profile/avatar", null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -533,8 +546,16 @@ class ApiAuthorizationMatrixIntegrationTest {
 
     private Map<String, List<Map<String, Object>>> snapshot() {
         Map<String, List<Map<String, Object>>> state = new LinkedHashMap<>();
-        STATE_TABLES.forEach(table -> state.put(table, jdbc.queryForList("SELECT * FROM " + table + " ORDER BY 1, 2")));
+        STATE_TABLES.forEach(table -> state.put(table, jdbc.queryForList("SELECT * FROM " + table + " ORDER BY 1, 2")
+                .stream().map(ApiAuthorizationMatrixIntegrationTest::comparable).toList()));
         return state;
+    }
+
+    // Arrays are equal only to themselves, so BYTEA columns such as user_avatars.image are compared as hex text.
+    private static Map<String, Object> comparable(Map<String, Object> row) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        row.forEach((column, value) -> copy.put(column, value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes) : value));
+        return copy;
     }
 
     private HttpResponse<String> request(String method, String path, String payload, String token) throws Exception {
