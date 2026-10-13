@@ -1,6 +1,6 @@
 # API cổng việc làm công khai
 
-Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm) và TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm), story TKNHTTDNB1-40 (S4-01). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
+Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm) và TKNHTTDNB1-316 (giới hạn dữ liệu trả ra trên cổng công khai), story TKNHTTDNB1-40 (S4-01). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
 
 ## Tổng quan
 
@@ -14,7 +14,7 @@ Ai cũng gọi được, kể cả ứng viên không có tài khoản; người
 
 ## Danh sách việc làm (S4-01)
 
-Story S4-01: "Là Ứng viên, tôi muốn xem danh sách việc làm đang tuyển trên trang công khai, để tìm được vị trí phù hợp mà không cần tài khoản." Task 314 (Jira: "Xây dựng API công khai danh sách việc làm") yêu cầu không cần đăng nhập và chỉ trả tin đã xuất bản, chưa hết hạn. Task 309 đã làm đủ hai điều này; task 314 không đổi code chạy thật hay hợp đồng, chỉ thêm test ghim tiêu chí trên một tập tin trộn mọi loại và tài liệu này. Task 315 (Jira: "Xử lý bộ lọc và tìm kiếm nội dung việc làm") làm tiêu chí 2 và 3: kết hợp lọc phòng ban, địa điểm, hình thức làm việc với từ khóa trong tiêu đề và mô tả; gọi không tham số vẫn cho đúng kết quả cũ.
+Story S4-01: "Là Ứng viên, tôi muốn xem danh sách việc làm đang tuyển trên trang công khai, để tìm được vị trí phù hợp mà không cần tài khoản." Task 314 (Jira: "Xây dựng API công khai danh sách việc làm") yêu cầu không cần đăng nhập và chỉ trả tin đã xuất bản, chưa hết hạn. Task 309 đã làm đủ hai điều này; task 314 không đổi code chạy thật hay hợp đồng, chỉ thêm test ghim tiêu chí trên một tập tin trộn mọi loại và tài liệu này. Task 315 (Jira: "Xử lý bộ lọc và tìm kiếm nội dung việc làm") làm tiêu chí 2 và 3: kết hợp lọc phòng ban, địa điểm, hình thức làm việc với từ khóa trong tiêu đề và mô tả; gọi không tham số vẫn cho đúng kết quả cũ. Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai") yêu cầu cổng chỉ trả trường công khai của tin, không bao giờ trả dữ liệu nội bộ của yêu cầu tuyển dụng; task 309 và 315 đã làm vậy, task 316 ghim từng trường bằng test (mục "Dữ liệu trả ra").
 
 | Tiêu chí của S4-01 | Làm ở đâu | Test |
 |---|---|---|
@@ -128,6 +128,48 @@ Trường của tin: `id`, `title`, `positionName`, `departmentName`, `headcount
 - Lương chỉ có khi tin chọn hiển thị (`showSalary: true`): `salaryMin`, `salaryMax` là lương đề xuất đã duyệt của yêu cầu (đồng VND mỗi người mỗi tháng). Khi không chọn, hai khóa này **không có** trong JSON, và server không gửi số tiền đi.
 - Tên chức danh, phòng ban, địa điểm và hình thức làm việc được đọc trực tiếp: đổi tên trong danh mục hiện ngay trên cổng (câu hỏi 16 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).
 
+## Dữ liệu trả ra (task 316)
+
+Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): cổng chỉ trả trường công khai của tin, không bao giờ trả dữ liệu nội bộ của yêu cầu tuyển dụng. Task 309 đã làm điều này bằng các record chỉ chứa trường công khai, task 315 thêm hai record của `/filters`. Task 316 không đổi code chạy thật hay hợp đồng: không test nào tìm ra trường bị lộ, nên commit chỉ thêm test ghim từng record, từng response, và mục này.
+
+### Trường của từng response
+
+| Response | Trường, đúng thứ tự trong JSON | Record |
+|---|---|---|
+|Trang danh sách (kể cả khi lọc, tìm, trang rỗng)|`items`, `page`, `size`, `totalElements`, `totalPages`|`PublicJobPostingPage`|
+|Một mục của danh sách|`id`, `title`, `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`, `applicationDeadline`; thêm `salaryMin`, `salaryMax` ở cuối chỉ khi tin chọn hiển thị lương|`PublicJobPostingSummary`|
+|Chi tiết tin|`id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax` (chỉ khi hiển thị lương), `jobDescription`, `candidateRequirements`, `benefits`|`PublicJobPostingView`|
+|Giá trị bộ lọc|`departments`, `workLocations`, `employmentTypes`; mỗi giá trị đúng `id`, `name`|`PublicJobPostingFilters`, `PublicJobPostingFilterOption`|
+|Lỗi (400, 401, 403, 404)|`code`, `message`, `fieldErrors`|`ApiError`|
+
+### Nguồn của từng trường và vì sao được công khai
+
+| Trường | Lấy từ | Vì sao công khai |
+|---|---|---|
+|`id`|`job_postings.id`|Để mở chi tiết (và sau này nộp hồ sơ); không cho biết gì về yêu cầu nguồn|
+|`title`, `jobDescription`, `candidateRequirements`, `benefits`|Bản của chính tin (`job_postings`), viết bằng ngôn ngữ tuyển dụng và đã qua duyệt (task 304, 308)|Là nội dung tin. Văn bản của yêu cầu chỉ được chép một lần lúc tạo tin (nếu người soạn không tự viết), sau đó tách hẳn; cổng không bao giờ đọc văn bản của yêu cầu|
+|`applicationDeadline`|`job_postings.application_deadline`|Hạn nộp, ứng viên cần biết (S4-02)|
+|`workLocationName`, `employmentTypeName`|Tên hiện tại của giá trị danh mục tin đã chọn|Thông tin công khai của tin; chỉ có tên, không có id hay mã|
+|`positionName`, `departmentName`, `headcount`|Từ yêu cầu tuyển dụng nguồn: tên chức danh và tên phòng ban hiện tại (đọc trực tiếp), số lượng đã duyệt|Câu hỏi 16 cho hiện ba trường này; frontend (task 312, 313, 318) dùng `positionName`. Chỉ có tên, không có id|
+|`salaryMin`, `salaryMax`|Lương đề xuất đã duyệt của yêu cầu, **chỉ** khi tin chọn `showSalary`|Người soạn chọn công khai. Khi không chọn, server bỏ cả hai khóa trước khi gửi (`PublicJobPostingView.of`); số tiền không có trong response|
+|`/filters`: `id`, `name`|Phòng ban của yêu cầu nguồn, giá trị danh mục của tin; chỉ của tin đang tuyển|Để vẽ ô chọn và gửi lại làm bộ lọc. Đây là API công khai duy nhất có id phòng ban, địa điểm, hình thức|
+
+### Không bao giờ trả
+
+- id của yêu cầu tuyển dụng nguồn (không có `requisitionId`) và mọi dữ liệu riêng của yêu cầu: mô tả công việc, yêu cầu ứng viên và giải trình lương **của yêu cầu**, lý do tuyển, ngày cần người, trạng thái, lịch sử duyệt và nhận xét của người duyệt, nhóm recruiter, lương đề xuất khi tin không chọn hiển thị.
+- id chức danh (tên chức danh thì có, xem bảng trên), id phòng ban, địa điểm, hình thức ngoài `/filters`, mã phòng ban và mã danh mục, phòng ban cha, trưởng phòng, cờ áp dụng, thứ tự sắp xếp.
+- Trạng thái và `revision` của tin; người tạo, người sửa, người gửi duyệt, người duyệt, người xuất bản (id, tên, email); nhận xét khi gửi duyệt, yêu cầu chỉnh sửa và duyệt tin; mọi thời điểm (tạo, sửa, duyệt, xuất bản).
+- Bất cứ điều gì về tin không đang tuyển: chi tiết trả **cùng một body 404**, giống hệt từng byte, cho bản nháp, tin chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng, tin của yêu cầu tạm dừng và id không tồn tại; danh sách và số đếm không tính chúng; `/filters` không lấy giá trị của chúng.
+- Lỗi 400 của từ khóa không lặp lại từ khóa; lỗi 404 không lặp lại id.
+
+Tìm kiếm cũng không dùng được để dò văn bản nội bộ: từ khóa `q` chỉ đọc tiêu đề và mô tả công việc của tin đang tuyển, nên một chuỗi chỉ có trong văn bản của yêu cầu, trong nhận xét duyệt, trong yêu cầu ứng viên hay quyền lợi của tin, trong tên chức danh, phòng ban, địa điểm, hình thức, hoặc trong bản nháp đều cho trang rỗng với `totalElements` 0.
+
+### Cách bảo đảm
+
+- Response của cổng chỉ được dựng từ các record công khai ở bảng trên. `PublicJobPostingView.of` là chỗ duy nhất chọn trường từ dòng dữ liệu và bỏ lương bị ẩn; mục danh sách được cắt từ view đó (`PublicJobPostingSummary.of`), nên lương chỉ bị ẩn ở một chỗ.
+- `JobPostingReadRepository.SELECT_ROW` đọc **nhiều hơn** những gì cổng trả (trạng thái yêu cầu, lương đề xuất, người tạo, nhận xét duyệt, người xuất bản...), vì bản xem trước, màn hình nội bộ và cổng dùng chung một câu truy vấn (task 303, 309) để luôn hiện cùng nội dung. Dòng đầy đủ (`JobPostingRow`) không bao giờ rời server: chỉ record công khai được chuyển sang JSON. Đây là lựa chọn có chủ ý; nếu sau này cần, có thể viết câu SQL riêng cho cổng mà không đổi hợp đồng.
+- Test (task 316): `PublicJobPostingViewTest.everyPortalRecordHasOnlyItsPublicComponents` ghim tên và kiểu từng thành phần của năm record (trang chỉ chứa `List<PublicJobPostingSummary>`, `/filters` chỉ chứa `List<PublicJobPostingFilterOption>`), `theSummaryJsonCarriesOnlyListFields`, `thePublicPostingNamesButNeverIdentifiesItsOrganizationValues`; `JobPostingPublicViewIntegrationTest.theSalaryIsPublicOnlyWhenChosen` ghim thêm khóa của mục có lương; `JobPostingPortalSearchIntegrationTest.filteredAndSearchedListsCarryOnlyListFields`, `theFilterValuesCarryOnlyIdAndName`, `thePortalNeverShowsRequisitionData` (yêu cầu nguồn đi qua luồng duyệt thật, văn bản nội bộ là chuỗi đánh dấu, kiểm mọi response kể cả 404 và 400), `theSearchNeverReadsInternalOrUnsearchedText`, `theNotFoundBodyIsTheSameForEveryHiddenPosting`. Thêm một trường vào cổng buộc phải sửa các danh sách khóa này, nên không thể lộ thêm trường mà không ai thấy.
+
 ## Bảo mật và cache
 
 - `permitAll` chỉ cho đúng phương thức GET và đúng ba đường dẫn trên (`/filters` được ghi tên riêng dù `/public/job-postings/*` đã gồm nó, để vẫn công khai nếu sau này `/*` bị thu hẹp lại chỉ cho id). Phương thức khác (ví dụ `POST /public/job-postings`, `POST /public/job-postings/filters`, `PUT` hay `DELETE /public/job-postings/{id}`) hoặc đường dẫn khác trả **401** `UNAUTHORIZED` khi gọi không kèm token, vì `anyRequest().denyAll()` đưa người gọi ẩn danh tới bước đăng nhập, và trả **403** `FORBIDDEN` khi kèm token hợp lệ (`JobPostingPublicViewIntegrationTest.thePortalNeedsNoTokenAndIsNotCached`; `ApiAuthorizationMatrixIntegrationTest` kiểm với token ADMIN).
@@ -159,4 +201,4 @@ Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 
 ## Giả định chờ BA/PO
 
-Câu hỏi 21 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md): định nghĩa "đang tuyển" ở trên (tính cả ngày hạn theo giờ Việt Nam, yêu cầu tạm dừng thì ẩn, tin xuất bản gần nhất trước); bộ lọc phòng ban không gồm phòng ban con, mỗi bộ lọc một giá trị; "hình thức làm việc" là danh mục `EMPLOYMENT_TYPE`; từ khóa là một cụm, có phân biệt dấu, chỉ tìm trong tiêu đề và mô tả công việc; giá trị bộ lọc chỉ lấy từ tin đang tuyển và lộ id, id không tồn tại trả trang rỗng, giá trị cùng tên chưa có nhãn phân biệt (task 315); và các trường cổng hiện (có số lượng tuyển, không có ngày đăng, người xuất bản và dữ liệu nội bộ của yêu cầu).
+Câu hỏi 21 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md): định nghĩa "đang tuyển" ở trên (tính cả ngày hạn theo giờ Việt Nam, yêu cầu tạm dừng thì ẩn, tin xuất bản gần nhất trước); bộ lọc phòng ban không gồm phòng ban con, mỗi bộ lọc một giá trị; "hình thức làm việc" là danh mục `EMPLOYMENT_TYPE`; từ khóa là một cụm, có phân biệt dấu, chỉ tìm trong tiêu đề và mô tả công việc; giá trị bộ lọc chỉ lấy từ tin đang tuyển và lộ id, id không tồn tại trả trang rỗng, giá trị cùng tên chưa có nhãn phân biệt (task 315); và các trường cổng hiện (có số lượng tuyển và tên chức danh, không có ngày đăng, người xuất bản, id chức danh và dữ liệu nội bộ của yêu cầu; task 316, mục "Dữ liệu trả ra").

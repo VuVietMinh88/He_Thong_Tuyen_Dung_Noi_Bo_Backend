@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +40,7 @@ import java.util.UUID;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static vn.ttcs.recruitment.auth.ApprovalTestSupport.step;
 import static vn.ttcs.recruitment.auth.JobPostingTestSupport.PUBLIC_POSTINGS;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.EMPLOYMENT_TYPE;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
@@ -47,6 +49,9 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // work location and employment type, and searched by a keyword in the posting's title and job description; every
 // filter given narrows the open postings (AND), in the page and in its count. The values of the filter lists come
 // from GET /public/job-postings/filters, only from the postings listed today. Everything is read without an account.
+// Task 316 (story S4-01): "Giới hạn dữ liệu trả ra trên cổng công khai". Filtered, searched or not, the portal answers
+// with the public fields of a posting only: never the requisition's id, texts or other internal data, the position id,
+// the editors, the reviews or a salary the posting hides. Department and catalog ids are only in /filters.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -62,6 +67,27 @@ class JobPostingPortalSearchIntegrationTest {
     private static final String PARAMETER_MESSAGE = "Tham số đường dẫn hoặc bộ lọc không hợp lệ.";
     private static final String TOO_LONG = "Từ khóa tìm kiếm tối đa 255 ký tự.";
     private static final String CONTROL = "Từ khóa tìm kiếm không được chứa ký tự điều khiển.";
+    // Task 316: the exact keys of a page, of a list item (a shown salary adds its two keys at the end), of the detail
+    // of a posting that hides its salary and of an error.
+    private static final List<String> PAGE_KEYS = List.of("items", "page", "size", "totalElements", "totalPages");
+    private static final List<String> LIST_ITEM_KEYS = List.of("id", "title", "positionName", "departmentName",
+            "workLocationName", "employmentTypeName", "applicationDeadline");
+    private static final List<String> LIST_ITEM_KEYS_WITH_SALARY = List.of("id", "title", "positionName",
+            "departmentName", "workLocationName", "employmentTypeName", "applicationDeadline", "salaryMin",
+            "salaryMax");
+    private static final List<String> DETAIL_KEYS = List.of("id", "title", "positionName", "departmentName",
+            "headcount", "workLocationName", "employmentTypeName", "applicationDeadline", "jobDescription",
+            "candidateRequirements", "benefits");
+    private static final List<String> ERROR_KEYS = List.of("code", "message", "fieldErrors");
+    // Task 316: texts only the editors may read, one per place: the requisition's job description, candidate
+    // requirements and salary justification, HR's comment approving the requisition, and the comments of the
+    // posting's submission, request for revision and approval.
+    private static final List<String> MARKERS = List.of("NOIBO_MOTA_YEUCAU", "NOIBO_YEUCAU_UV",
+            "NOIBO_GIAITRINH_LUONG", "NOIBO_NHANXET_DUYET_YC", "NOIBO_GHICHU_GUIDUYET", "NOIBO_YEUCAU_CHINHSUA",
+            "NOIBO_NHANXET_DUYET_TIN");
+    private static final String POSITION_NAME = "Chuyên viên dữ liệu";
+    private static final String POSTING_TITLE = "Tuyển kỹ sư phân tích";
+    private static final String DRAFT_TITLE = "Điều phối kho vận";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -85,6 +111,12 @@ class JobPostingPortalSearchIntegrationTest {
 
     // One posting of a test with the values it was published with, newest publication last.
     private record Posting(UUID id, UUID department, UUID workLocation, UUID employmentType) { }
+
+    // Task 316: the ids of internalData(): the open posting and its values, and a draft of another department with its
+    // own values.
+    private record InternalData(UUID posting, UUID requisition, UUID department, UUID workLocation,
+                                UUID employmentType, UUID draft, UUID draftRequisition, UUID draftDepartment,
+                                UUID draftWorkLocation, UUID draftEmploymentType) { }
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -468,6 +500,210 @@ class JobPostingPortalSearchIntegrationTest {
         assertThat(jdbc.queryForObject("SHOW server_encoding", String.class)).isEqualTo("UTF8");
     }
 
+    // Task 316: every answer of the list, filtered, searched or both, has exactly the keys of a page, and each item
+    // exactly the keys of a list item: the salary keys only for the posting that shows its salary, with the approved
+    // amounts. An empty page has the same keys.
+    @Test
+    void filteredAndSearchedListsCarryOnlyListFields() throws Exception {
+        UUID it = api.department("IT", headId, null, START);
+        UUID hn = postings.catalogValue(WORK_LOCATION, "HN", "Hà Nội", true, START);
+        UUID full = postings.catalogValue(EMPLOYMENT_TYPE, "FULL_TIME", "Toàn thời gian", true, START);
+        UUID hidden = published(it, hn, full, "Kỹ sư Java", "Mô tả công việc.");
+        UUID shown = publish(approve(draft(it, hn, full, Map.of("title", "Kỹ sư dữ liệu",
+                "jobDescription", "Mô tả công việc.", "showSalary", true))));
+
+        String keyword = "?q=" + encode("kỹ sư");
+        for (String query : List.of("", "?departmentId=" + it, "?workLocationId=" + hn, "?employmentTypeId=" + full,
+                keyword, keyword + "&departmentId=" + it + "&workLocationId=" + hn + "&employmentTypeId=" + full)) {
+            var response = postings.publicList(query);
+            postings.noStore(response);
+            JsonNode page = ok(response);
+            assertThat(fieldNames(page)).as(query).containsExactlyElementsOf(PAGE_KEYS);
+            assertThat(ids(page)).as(query).containsExactly(shown, hidden);
+            JsonNode hiddenItem = item(page, hidden);
+            assertThat(fieldNames(hiddenItem)).as(query).containsExactlyElementsOf(LIST_ITEM_KEYS);
+            assertThat(hiddenItem.toString()).as(query).doesNotContain("salary", "20000000", "22000000");
+            JsonNode shownItem = item(page, shown);
+            assertThat(fieldNames(shownItem)).as(query).containsExactlyElementsOf(LIST_ITEM_KEYS_WITH_SALARY);
+            assertThat(shownItem.path("salaryMin").asLong()).as(query).isEqualTo(20_000_000L);
+            assertThat(shownItem.path("salaryMax").asLong()).as(query).isEqualTo(22_000_000L);
+        }
+        for (String query : List.of("?q=" + encode("kế toán"), "?departmentId=" + UUID.randomUUID(),
+                keyword + "&page=5&size=1")) {
+            JsonNode page = ok(postings.publicList(query));
+            assertThat(fieldNames(page)).as(query).containsExactlyElementsOf(PAGE_KEYS);
+            assertThat(page.path("items").size()).as(query).isZero();
+        }
+    }
+
+    // Task 316: /filters has exactly its three lists, and each value exactly its id and name: no code, no active flag,
+    // no sort order, no parent department or manager, and nothing of the postings the values come from.
+    @Test
+    void theFilterValuesCarryOnlyIdAndName() throws Exception {
+        UUID division = api.department("KHOI_KD_316", headId, null, START);
+        UUID sales = api.department("PHONG_BH_316", headId, division, START);
+        jdbc.update("UPDATE departments SET name = ? WHERE id = ?", "Khối Kinh doanh", division);
+        jdbc.update("UPDATE departments SET name = ? WHERE id = ?", "Phòng Bán hàng", sales);
+        UUID haiPhong = catalogValue(WORK_LOCATION, "DIA_DIEM_316", "Hải Phòng", 7);
+        UUID seasonal = catalogValue(EMPLOYMENT_TYPE, "HINH_THUC_316", "Thời vụ", 9);
+        UUID posting = published(sales, haiPhong, seasonal, "Nhân viên bán hàng", "Mô tả công việc.");
+        UUID requisition = (UUID) postings.row(posting).get("requisition_id");
+
+        var response = postings.publicFilters();
+        postings.noStore(response);
+        JsonNode filters = ok(response);
+        assertThat(fieldNames(filters)).containsExactly("departments", "workLocations", "employmentTypes");
+        assertThat(options(filters.path("departments"))).containsExactly(Map.entry(sales, "Phòng Bán hàng"));
+        assertThat(options(filters.path("workLocations"))).containsExactly(Map.entry(haiPhong, "Hải Phòng"));
+        assertThat(options(filters.path("employmentTypes"))).containsExactly(Map.entry(seasonal, "Thời vụ"));
+        for (String list : List.of("departments", "workLocations", "employmentTypes")) {
+            filters.path(list).forEach(option -> assertThat(fieldNames(option)).as(list).containsExactly("id", "name"));
+        }
+        assertThat(response.body()).doesNotContain("KHOI_KD_316", "PHONG_BH_316", "DIA_DIEM_316", "HINH_THUC_316",
+                "\"code\"", "active", "sortOrder", "parent", "manager", division.toString(), "Khối Kinh doanh",
+                headId.toString(), "Trưởng phòng IT", posting.toString(), requisition.toString(), position.toString(),
+                "Lập trình viên", "Nhân viên bán hàng");
+    }
+
+    // Task 316: no answer of the portal carries the requisition's data. Lists (unfiltered, by each filter and by a
+    // keyword), the detail, /filters, the 404 of a draft and of an unknown id, and the 400 of a bad keyword contain
+    // none of: the requisition ids, the position id, the ids, names and emails of the requisition's creator and
+    // approver, the posting's author, reviewer and publisher and the department manager, the internal texts (MARKERS),
+    // the hidden salary, the requisition's reason and needed-by date, statuses, revisions, and anything of the draft.
+    // The department and catalog ids are in /filters only. The position name is public on purpose (question 16; the
+    // frontend shows it): it is the live name in every list item and in the detail, and is not in /filters or errors.
+    @Test
+    void thePortalNeverShowsRequisitionData() throws Exception {
+        InternalData data = internalData();
+        String positionName = jdbc.queryForObject("SELECT name FROM positions WHERE id = ?", String.class, position);
+        assertThat(positionName).isEqualTo(POSITION_NAME);
+        assertThat(POSTING_TITLE).doesNotContain(positionName);
+
+        Map<String, HttpResponse<String>> lists = new LinkedHashMap<>();
+        for (String query : List.of("", "?departmentId=" + data.department(), "?workLocationId=" + data.workLocation(),
+                "?employmentTypeId=" + data.employmentType(), "?q=" + encode("kỹ sư phân tích"))) {
+            lists.put(query, postings.publicList(query));
+        }
+        var detail = postings.publicDetail(data.posting());
+        var filters = postings.publicFilters();
+        var draft = postings.publicDetail(data.draft());
+        var unknown = postings.publicDetail(UUID.randomUUID());
+        var badKeyword = postings.publicList("?q=a%00b");
+
+        // The open posting is on every list and opens; the draft, the unknown id and the bad keyword are refused.
+        for (var list : lists.entrySet()) {
+            JsonNode page = ok(list.getValue());
+            assertThat(ids(page)).as(list.getKey()).containsExactly(data.posting());
+            JsonNode item = page.path("items").get(0);
+            assertThat(fieldNames(item)).as(list.getKey()).containsExactlyElementsOf(LIST_ITEM_KEYS);
+            assertThat(item.path("title").asText()).as(list.getKey()).isEqualTo(POSTING_TITLE);
+            assertThat(item.path("positionName").asText()).as(list.getKey()).isEqualTo(positionName);
+        }
+        JsonNode posting = ok(detail);
+        assertThat(fieldNames(posting)).containsExactlyElementsOf(DETAIL_KEYS);
+        assertThat(posting.path("title").asText()).isEqualTo(POSTING_TITLE);
+        assertThat(posting.path("positionName").asText()).isEqualTo(positionName);
+        assertThat(posting.path("jobDescription").asText()).isEqualTo("Phân tích số liệu bán hàng hằng tuần.");
+        assertThat(posting.path("candidateRequirements").asText()).isEqualTo("Có chứng chỉ quốc tế về phân tích.");
+        postings.error(draft, 404, "JOB_POSTING_NOT_FOUND");
+        postings.error(unknown, 404, "JOB_POSTING_NOT_FOUND");
+        assertThat(postings.error(badKeyword, 400, "VALIDATION_ERROR").path("fieldErrors").path("q").asText())
+                .isEqualTo(CONTROL);
+
+        List<String> internal = new ArrayList<>(MARKERS);
+        internal.addAll(List.of(data.requisition().toString(), data.draftRequisition().toString(),
+                position.toString(), adminId.toString(), hrId.toString(), recruiterId.toString(), headId.toString(),
+                "Quản trị viên", "Nguyễn Thị Hoa", "Trần Văn Tuyển", "Trưởng phòng IT", "admin@example.test",
+                "hr@example.test", "recruiter@example.test", "head@example.test", "20000000", "22000000",
+                "\"status\"", "\"revision\"", "requisitionId", "NEW_HEADCOUNT", "2026-12-01", "2026-10-11",
+                "PUBLISHED", "APPROVED", "REVISION_REQUESTED", data.draft().toString(), DRAFT_TITLE,
+                "Sắp xếp lịch giao hàng", data.draftDepartment().toString(), data.draftWorkLocation().toString(),
+                data.draftEmploymentType().toString(), "Phòng Hậu cần", "Cần Thơ", "Thời vụ"));
+        String[] organizationIds = {data.department().toString(), data.workLocation().toString(),
+                data.employmentType().toString()};
+        List<HttpResponse<String>> answers = new ArrayList<>(lists.values());
+        answers.addAll(List.of(detail, filters, draft, unknown, badKeyword));
+        for (var answer : answers) {
+            String where = answer.request().uri().toString();
+            postings.noStore(answer);
+            assertThat(answer.body()).as(where).doesNotContain(internal.toArray(String[]::new));
+            if (answer != filters) {
+                assertThat(answer.body()).as(where).doesNotContain(organizationIds);
+            }
+        }
+        JsonNode values = ok(filters);
+        assertThat(options(values.path("departments")))
+                .containsExactly(Map.entry(data.department(), "Phòng Khách hàng"));
+        assertThat(options(values.path("workLocations"))).containsExactly(Map.entry(data.workLocation(), "Đà Lạt"));
+        assertThat(options(values.path("employmentTypes")))
+                .containsExactly(Map.entry(data.employmentType(), "Bán thời gian"));
+        for (var answer : List.of(filters, draft, unknown, badKeyword)) {
+            assertThat(answer.body()).as(answer.request().uri().toString()).doesNotContain(positionName);
+        }
+    }
+
+    // Task 316: the keyword reads the posting's own title and job description and nothing else. Neither the page nor
+    // its count finds the requisition's texts, the review comments, the posting's candidate requirements and benefits
+    // (S4-01 AC3 says "tiêu đề và mô tả"), the names of the position, the department and the catalog values, or the
+    // texts of a draft.
+    @Test
+    void theSearchNeverReadsInternalOrUnsearchedText() throws Exception {
+        InternalData data = internalData();
+
+        assertSearch("kỹ sư phân tích", data.posting());
+        assertSearch("số liệu bán hàng", data.posting());
+        List<String> unsearched = new ArrayList<>(MARKERS);
+        unsearched.addAll(List.of("chứng chỉ quốc tế", "xe đưa đón", POSITION_NAME, "Phòng Khách hàng", "Đà Lạt",
+                "Bán thời gian", DRAFT_TITLE, "kho vận", "lịch giao hàng"));
+        for (String keyword : unsearched) {
+            assertSearch(keyword);
+        }
+    }
+
+    // Task 316: a posting the portal does not show answers exactly like an id that does not exist, byte for byte: a
+    // draft, one under review, sent back, approved but not published, closed with its requisition (task 292) or of a
+    // paused requisition (task 290). The body has only code, message and an empty fieldErrors.
+    @Test
+    void theNotFoundBodyIsTheSameForEveryHiddenPosting() throws Exception {
+        UUID it = api.department("IT", headId, null, START);
+        UUID hn = postings.catalogValue(WORK_LOCATION, "HN", "Hà Nội", true, START);
+        UUID full = postings.catalogValue(EMPLOYMENT_TYPE, "FULL_TIME", "Toàn thời gian", true, START);
+        Map<String, UUID> hidden = new LinkedHashMap<>();
+        hidden.put("DRAFT", draft(it, hn, full, "Bản nháp", "Mô tả công việc.", JobPostingTestSupport.DEADLINE));
+        UUID pending = draft(it, hn, full, "Chờ duyệt", "Mô tả công việc.", JobPostingTestSupport.DEADLINE);
+        ok(postings.submit(pending, 1, null, recruiterToken));
+        hidden.put("PENDING_APPROVAL", pending);
+        UUID sentBack = draft(it, hn, full, "Cần chỉnh sửa", "Mô tả công việc.", JobPostingTestSupport.DEADLINE);
+        ok(postings.submit(sentBack, 1, null, recruiterToken));
+        ok(postings.decide(sentBack, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
+        hidden.put("REVISION_REQUESTED", sentBack);
+        hidden.put("APPROVED", approved(it, hn, full, "Đã duyệt", "Mô tả công việc."));
+        UUID closed = published(it, hn, full, "Đã đóng", "Mô tả công việc.");
+        ok(api.request("POST", "/api/v1/requisitions/" + postings.row(closed).get("requisition_id")
+                + "/status-changes", json.writeValueAsString(Map.of("status", "FILLED", "reason", "Đã tuyển đủ",
+                "expectedRevision", 0)), hrToken));
+        hidden.put("CLOSED", closed);
+        UUID paused = published(it, hn, full, "Tạm dừng", "Mô tả công việc.");
+        jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", RequisitionStatus.PAUSED.name(),
+                postings.row(paused).get("requisition_id"));
+        hidden.put("PAUSED requisition", paused);
+        UUID open = published(it, hn, full, "Đang tuyển", "Mô tả công việc.");
+        assertThat(ok(postings.publicDetail(open)).path("id").asText()).isEqualTo(open.toString());
+
+        var unknown = postings.publicDetail(UUID.randomUUID());
+        JsonNode body = postings.error(unknown, 404, "JOB_POSTING_NOT_FOUND");
+        assertThat(fieldNames(body)).containsExactlyElementsOf(ERROR_KEYS);
+        assertThat(body.path("message").asText()).isEqualTo("Không tìm thấy tin tuyển dụng.");
+        assertThat(body.path("fieldErrors")).isEqualTo(json.createObjectNode());
+        for (var posting : hidden.entrySet()) {
+            var response = postings.publicDetail(posting.getValue());
+            postings.error(response, 404, "JOB_POSTING_NOT_FOUND");
+            assertThat(response.body()).as(posting.getKey()).isEqualTo(unknown.body());
+        }
+        assertThat(postings.row(closed).get("status")).isEqualTo("CLOSED");
+        assertThat(postings.row(paused).get("status")).isEqualTo("PUBLISHED");
+    }
+
     // The page of the query holds exactly the postings the predicate keeps, newest publication first, and its count.
     private JsonNode assertPage(String query, List<Posting> all, Predicate<Posting> kept) throws Exception {
         var response = postings.publicList(query);
@@ -516,13 +752,79 @@ class JobPostingPortalSearchIntegrationTest {
     // are: the title and the job description given, the other texts inherited. Revision 1.
     private UUID draft(UUID department, UUID workLocation, UUID employmentType, String title, String jobDescription,
                        String deadline) throws Exception {
+        return draft(department, workLocation, employmentType,
+                Map.of("title", title, "jobDescription", jobDescription, "applicationDeadline", deadline));
+    }
+
+    // Task 316: the same with any fields of the create body (showSalary, the other texts).
+    private UUID draft(UUID department, UUID workLocation, UUID employmentType, Map<String, Object> fields)
+            throws Exception {
         UUID requisition = postings.requisition(position, department, adminId, RequisitionStatus.APPROVED, START);
         postings.assign(requisition, recruiterId, RequisitionRecruiterRole.PRIMARY, hrId, START);
         Map<String, Object> body = postings.body(requisition, workLocation, employmentType);
-        body.put("title", title);
-        body.put("jobDescription", jobDescription);
-        body.put("applicationDeadline", deadline);
+        body.putAll(fields);
         return id(postings.created(body, recruiterToken));
+    }
+
+    // Task 316: one open posting whose source holds internal data, and a draft of another department. The requisition
+    // is created and submitted by ADMIN through the API and approved by HR with a comment; its texts and its salary
+    // justification (written by SQL: inside the position's band the API asks for none) are markers. The recruiter
+    // writes the posting with its own title, job description, candidate requirements and benefits, the 20-22 million
+    // salary hidden; it is sent back once, then approved and published, with a comment on each step. Every name
+    // differs from every other name and marker, and the title neither equals nor contains the position name (the
+    // default title, JobPostingService.inherit).
+    private InternalData internalData() throws Exception {
+        String adminToken = api.token("admin@example.test");
+        jdbc.update("UPDATE positions SET name = ? WHERE id = ?", POSITION_NAME, position);
+        UUID department = api.department("KH", headId, null, START);
+        jdbc.update("UPDATE departments SET name = ? WHERE id = ?", "Phòng Khách hàng", department);
+        UUID workLocation = postings.catalogValue(WORK_LOCATION, "DL", "Đà Lạt", true, START);
+        UUID employmentType = postings.catalogValue(EMPLOYMENT_TYPE, "PART_TIME", "Bán thời gian", true, START);
+        // HR_MANAGER takes the only level, so the requisition ADMIN submits is approved by HR.
+        api.flow(department, hrId, START, step(1, null, null, "HR_MANAGER"));
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("positionId", position);
+        source.put("departmentId", department);
+        source.put("headcount", 2);
+        source.put("reason", "NEW_HEADCOUNT");
+        source.put("proposedSalaryMin", 20_000_000L);
+        source.put("proposedSalaryMax", 22_000_000L);
+        source.put("neededBy", "2026-12-01");
+        source.put("jobDescription", "NOIBO_MOTA_YEUCAU: mô tả nội bộ của yêu cầu.");
+        source.put("candidateRequirements", "NOIBO_YEUCAU_UV: yêu cầu nội bộ với ứng viên.");
+        UUID requisition = id(api.expect(api.request("POST", "/api/v1/requisitions", json.writeValueAsString(source),
+                adminToken), 201));
+        api.expect(api.request("POST", "/api/v1/requisitions/" + requisition + "/submit", null, adminToken), 200);
+        api.expect(api.decide(requisition, "APPROVE", "NOIBO_NHANXET_DUYET_YC", api.lastRevision(requisition),
+                hrToken), 200);
+        assertThat(api.status(requisition)).isEqualTo("APPROVED");
+        jdbc.update("UPDATE recruitment_requisitions SET salary_justification = ? WHERE id = ?",
+                "NOIBO_GIAITRINH_LUONG", requisition);
+        postings.assign(requisition, recruiterId, RequisitionRecruiterRole.PRIMARY, hrId, START);
+
+        Map<String, Object> body = postings.body(requisition, workLocation, employmentType);
+        body.put("title", POSTING_TITLE);
+        body.put("jobDescription", "Phân tích số liệu bán hàng hằng tuần.");
+        body.put("candidateRequirements", "Có chứng chỉ quốc tế về phân tích.");
+        body.put("benefits", "Có xe đưa đón nhân viên.");
+        UUID posting = id(postings.created(body, recruiterToken));
+        ok(postings.submit(posting, 1, "NOIBO_GHICHU_GUIDUYET", recruiterToken));
+        ok(postings.decide(posting, "REQUEST_REVISION", "NOIBO_YEUCAU_CHINHSUA", 2, hrToken));
+        ok(postings.submit(posting, 3, null, recruiterToken));
+        ok(postings.decide(posting, "APPROVE", "NOIBO_NHANXET_DUYET_TIN", 4, hrToken));
+        now = now.plusSeconds(1);
+        clock.set(now);
+        ok(postings.publish(posting, 5, hrToken));
+
+        UUID draftDepartment = api.department("HC", headId, null, START);
+        jdbc.update("UPDATE departments SET name = ? WHERE id = ?", "Phòng Hậu cần", draftDepartment);
+        UUID draftWorkLocation = postings.catalogValue(WORK_LOCATION, "CT", "Cần Thơ", true, START);
+        UUID draftEmploymentType = postings.catalogValue(EMPLOYMENT_TYPE, "SEASONAL", "Thời vụ", true, START);
+        UUID draft = draft(draftDepartment, draftWorkLocation, draftEmploymentType, DRAFT_TITLE,
+                "Sắp xếp lịch giao hàng.", JobPostingTestSupport.DEADLINE);
+        return new InternalData(posting, requisition, department, workLocation, employmentType, draft,
+                (UUID) postings.row(draft).get("requisition_id"), draftDepartment, draftWorkLocation,
+                draftEmploymentType);
     }
 
     // The recruiter sends the draft for review (2) and HR approves it (3).
@@ -590,6 +892,15 @@ class JobPostingPortalSearchIntegrationTest {
         List<UUID> ids = new ArrayList<>();
         page.path("items").forEach(item -> ids.add(id(item)));
         return ids;
+    }
+
+    private static JsonNode item(JsonNode page, UUID posting) {
+        for (JsonNode item : page.path("items")) {
+            if (id(item).equals(posting)) {
+                return item;
+            }
+        }
+        throw new AssertionError("Posting " + posting + " is not in " + page);
     }
 
     private static String encode(String value) {
