@@ -21,7 +21,7 @@ import java.util.UUID;
 
 // {type} is the enum name, for example CANDIDATE_SOURCE. The service turns an unknown name into a clear 404.
 @RestController
-@RequestMapping("/api/v1/recruitment-catalogs/{type}/items")
+@RequestMapping("/api/v1/recruitment-catalogs/{type}")
 public class RecruitmentCatalogController {
     private final RecruitmentCatalogService service;
 
@@ -29,26 +29,26 @@ public class RecruitmentCatalogController {
         this.service = service;
     }
 
-    @GetMapping
+    @GetMapping("/items")
     public ResponseEntity<List<RecruitmentCatalogItemView>> list(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String type, @RequestParam(required = false) Boolean active) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.list(jwt, type, active));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/items/{id}")
     public ResponseEntity<RecruitmentCatalogItemView> get(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String type, @PathVariable UUID id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.get(jwt, type, id));
     }
 
-    @PostMapping
+    @PostMapping("/items")
     public ResponseEntity<RecruitmentCatalogItemView> create(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String type, @Valid @RequestBody RecruitmentCatalogItemRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                 .body(service.create(jwt, type, request));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping("/items/{id}")
     public ResponseEntity<RecruitmentCatalogItemView> update(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String type, @PathVariable UUID id,
             @Valid @RequestBody RecruitmentCatalogItemRequest request) {
@@ -56,10 +56,17 @@ public class RecruitmentCatalogController {
     }
 
     // 204 with no body when the value is gone; 409 RECRUITMENT_CATALOG_ITEM_IN_USE while other data uses it.
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/items/{id}")
     public ResponseEntity<Void> delete(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String type, @PathVariable UUID id) {
         service.delete(jwt, type, id);
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    // Saves a new display order for the whole catalog type and returns every value in that order.
+    @PutMapping("/order")
+    public ResponseEntity<List<RecruitmentCatalogItemView>> reorder(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable String type, @Valid @RequestBody RecruitmentCatalogOrderRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.reorder(jwt, type, request));
     }
 }

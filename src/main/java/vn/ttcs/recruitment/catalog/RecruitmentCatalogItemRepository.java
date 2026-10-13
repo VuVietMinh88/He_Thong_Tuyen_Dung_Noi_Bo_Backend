@@ -13,11 +13,12 @@ import java.util.UUID;
 
 public interface RecruitmentCatalogItemRepository extends JpaRepository<RecruitmentCatalogItem, UUID> {
 
-    // Display order: smaller sortOrder first. Equal sortOrder values are allowed, so code and id break ties.
+    // Display order: smaller sortOrder first. Equal sortOrder values are allowed, so the name users see breaks ties;
+    // code is unique inside one catalog type, so two values with the same name still keep the same order every time.
     @Query("""
             select i from RecruitmentCatalogItem i
             where i.catalogType = :type and i.active in :activeValues
-            order by i.sortOrder, i.code, i.id
+            order by i.sortOrder, i.name, i.code
             """)
     List<RecruitmentCatalogItem> findForDisplay(@Param("type") RecruitmentCatalogType type,
                                                 @Param("activeValues") Collection<Boolean> activeValues);
@@ -29,6 +30,12 @@ public interface RecruitmentCatalogItemRepository extends JpaRepository<Recruitm
     @Query("select i from RecruitmentCatalogItem i where i.id = :id and i.catalogType = :type")
     Optional<RecruitmentCatalogItem> findByIdAndCatalogTypeForUpdate(@Param("id") UUID id,
                                                                      @Param("type") RecruitmentCatalogType type);
+
+    // Locks every value of one catalog type, always in id order so two callers never lock them crosswise.
+    // A second reorder of the same type waits here until the first one commits, then reads the saved rows.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select i from RecruitmentCatalogItem i where i.catalogType = :type order by i.id")
+    List<RecruitmentCatalogItem> findAllByCatalogTypeForUpdate(@Param("type") RecruitmentCatalogType type);
 
     boolean existsByCatalogTypeAndCode(RecruitmentCatalogType catalogType, String code);
 

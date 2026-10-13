@@ -55,6 +55,7 @@ class RecruitmentCatalogManagementIntegrationTest {
     private static final String BASE = "/api/v1/recruitment-catalogs/";
     private static final String SOURCES = BASE + "CANDIDATE_SOURCE/items";
     private static final String REASONS = BASE + "REJECTION_REASON/items";
+    private static final String SOURCES_ORDER = BASE + "CANDIDATE_SOURCE/order";
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-07T00:00:00Z");
     // Test-only table that references catalog values, created by the delete tests and dropped after each test.
@@ -147,19 +148,22 @@ class RecruitmentCatalogManagementIntegrationTest {
     }
 
     @Test
-    void listsByDisplayOrderThenCodeFiltersByActiveAndAppendsAfterTheLargestOrder() throws Exception {
-        // The API cannot set sortOrder yet, so rows with chosen orders are written directly.
-        UUID second = insertItem("CANDIDATE_SOURCE", "TOPCV", "TopCV", 1, true);
-        UUID first = insertItem("CANDIDATE_SOURCE", "REFERRAL", "Giới thiệu", 1, true);
+    void listsByDisplayOrderThenNameFiltersByActiveAndAppendsAfterTheLargestOrder() throws Exception {
+        // Equal orders only come from two creates at the same moment, so these rows are written directly.
+        // The names sort the other way round from the codes, so the test sees which column breaks the tie.
+        UUID topCv = insertItem("CANDIDATE_SOURCE", "TOPCV", "TopCV", 1, true);
+        UUID zalo = insertItem("CANDIDATE_SOURCE", "ZALO", "Nhóm Zalo", 1, true);
+        UUID staffReferral = insertItem("CANDIDATE_SOURCE", "REFERRAL_STAFF", "Giới thiệu", 2, true);
+        UUID partnerReferral = insertItem("CANDIDATE_SOURCE", "REFERRAL_PARTNER", "Giới thiệu", 2, true);
         UUID top = insertItem("CANDIDATE_SOURCE", "WEBSITE", "Website công ty", 0, true);
         UUID inactive = insertItem("CANDIDATE_SOURCE", "JOB_FAIR", "Ngày hội việc làm", 5, false);
         insertItem("WORK_LOCATION", "HANOI", "Hà Nội", 0, true);
 
-        // Equal sortOrder values (REFERRAL, TOPCV) are ordered by code.
-        assertThat(ids(expect(get(SOURCES, adminToken), 200))).containsExactly(
-                top.toString(), first.toString(), second.toString(), inactive.toString());
-        assertThat(ids(expect(get(SOURCES + "?active=true", adminToken), 200))).containsExactly(
-                top.toString(), first.toString(), second.toString());
+        // Equal sortOrder: "Nhóm Zalo" before "TopCV" by name; equal name too: REFERRAL_PARTNER first by code.
+        assertThat(ids(expect(get(SOURCES, adminToken), 200))).containsExactlyElementsOf(
+                strings(top, zalo, topCv, partnerReferral, staffReferral, inactive));
+        assertThat(ids(expect(get(SOURCES + "?active=true", adminToken), 200))).containsExactlyElementsOf(
+                strings(top, zalo, topCv, partnerReferral, staffReferral));
         assertThat(ids(expect(get(SOURCES + "?active=false", adminToken), 200))).containsExactly(inactive.toString());
         assertThat(expect(get(BASE + "EMPLOYMENT_TYPE/items", adminToken), 200).isEmpty()).isTrue();
 
@@ -281,7 +285,8 @@ class RecruitmentCatalogManagementIntegrationTest {
             for (var response : List.of(get(items, adminToken), get(items + "/" + existing, adminToken),
                     create(items, payload("NEW", "New", true), adminToken),
                     update(items, existing, payload("NEW", "New", true), adminToken),
-                    delete(items, existing, adminToken))) {
+                    delete(items, existing, adminToken),
+                    reorder(BASE + type + "/order", List.of(existing), adminToken))) {
                 JsonNode body = expect(response, 404);
                 assertThat(body.path("code").asText()).as(type).isEqualTo("RECRUITMENT_CATALOG_TYPE_NOT_FOUND");
                 assertThat(body.path("message").asText()).as(type).isEqualTo(
@@ -292,6 +297,7 @@ class RecruitmentCatalogManagementIntegrationTest {
         }
         // The body is validated before the service looks at the type, as the API contract documents.
         error(create(BASE + "UNKNOWN/items", Map.of(), adminToken), 400, "VALIDATION_ERROR");
+        error(request("PUT", BASE + "UNKNOWN/order", "{}", adminToken), 400, "VALIDATION_ERROR");
         assertThat(count()).isEqualTo(1);
         assertThat(row(existing)).isEqualTo(before);
     }
@@ -544,6 +550,280 @@ class RecruitmentCatalogManagementIntegrationTest {
         assertThat(row(target)).isEqualTo(before);
     }
 
+    @Test
+    void savesTheNewOrderOfEveryValueOfOneCatalogAndListsThemInThatOrder() throws Exception {
+        UUID linkedIn = item(SOURCES, "LINKEDIN", "LinkedIn", true);
+        UUID referral = item(SOURCES, "REFERRAL", "Nhân viên giới thiệu", true);
+        UUID jobFair = item(SOURCES, "JOB_FAIR", "Ngày hội việc làm", false);
+        UUID reason = item(REASONS, "SKILL_MISMATCH", "Chưa phù hợp kỹ năng", true);
+        Map<String, Object> reasonBefore = row(reason);
+
+        clock.set(START.plusSeconds(60));
+        // Inactive values are part of the order too, so they keep their place when turned back on.
+        var response = reorder(SOURCES_ORDER, List.of(jobFair, referral, linkedIn), adminToken);
+        JsonNode saved = expect(response, 200);
+        noStore(response);
+        assertThat(ids(saved)).containsExactlyElementsOf(strings(jobFair, referral, linkedIn));
+        assertThat(sortOrders(saved)).containsExactly(0, 1, 2);
+        assertThat(saved.get(0).path("code").asText()).isEqualTo("JOB_FAIR");
+        assertThat(saved.get(0).path("active").asBoolean()).isFalse();
+        // REFERRAL keeps number 1, so only the two values that moved get a new updatedAt.
+        assertThat(Instant.parse(saved.get(0).path("updatedAt").asText())).isEqualTo(START.plusSeconds(60));
+        assertThat(Instant.parse(saved.get(1).path("updatedAt").asText())).isEqualTo(START);
+        assertThat(Instant.parse(saved.get(2).path("updatedAt").asText())).isEqualTo(START.plusSeconds(60));
+        assertThat(Instant.parse(saved.get(2).path("createdAt").asText())).isEqualTo(START);
+
+        // Later reads return exactly what the reorder returned; the active filter keeps the same order.
+        assertThat(expect(get(SOURCES, adminToken), 200)).isEqualTo(saved);
+        assertThat(ids(expect(get(SOURCES + "?active=true", adminToken), 200)))
+                .containsExactlyElementsOf(strings(referral, linkedIn));
+        assertThat(row(jobFair).get("sort_order")).isEqualTo(0);
+        assertThat(row(linkedIn).get("sort_order")).isEqualTo(2);
+        // Each catalog type has its own order, so the rejection reason is untouched.
+        assertThat(row(reason)).isEqualTo(reasonBefore);
+
+        // A value created afterwards still goes to the end.
+        JsonNode appended = expect(create(SOURCES, payload("FACEBOOK", "Facebook", true), adminToken), 201);
+        assertThat(appended.path("sortOrder").asInt()).isEqualTo(3);
+        assertThat(ids(expect(get(SOURCES, adminToken), 200))).last().isEqualTo(appended.path("id").asText());
+    }
+
+    @Test
+    void renumbersGapsAndEqualOrdersAndIgnoresAnUnchangedOrder() throws Exception {
+        // Gaps come from deletes and equal numbers from two creates at the same moment.
+        UUID a = insertItem("CANDIDATE_SOURCE", "A", "A", 4, true);
+        UUID b = insertItem("CANDIDATE_SOURCE", "B", "B", 4, true);
+        UUID c = insertItem("CANDIDATE_SOURCE", "C", "C", 9, true);
+        assertThat(ids(expect(get(SOURCES, adminToken), 200))).containsExactlyElementsOf(strings(a, b, c));
+
+        JsonNode saved = expect(reorder(SOURCES_ORDER, List.of(b, a, c), adminToken), 200);
+        assertThat(sortOrders(saved)).containsExactly(0, 1, 2);
+        assertThat(ids(expect(get(SOURCES, adminToken), 200))).containsExactlyElementsOf(strings(b, a, c));
+
+        // Sending the order that is already saved changes no row, not even updatedAt.
+        List<Map<String, Object>> before = catalogRows();
+        clock.set(START.plusSeconds(60));
+        assertThat(expect(reorder(SOURCES_ORDER, List.of(b, a, c), adminToken), 200)).isEqualTo(saved);
+        assertThat(catalogRows()).isEqualTo(before);
+
+        // A catalog type without values accepts an empty order.
+        var empty = reorder(BASE + "EMPLOYMENT_TYPE/order", List.of(), adminToken);
+        assertThat(expect(empty, 200).isArray()).isTrue();
+        assertThat(expect(empty, 200).isEmpty()).isTrue();
+    }
+
+    @Test
+    void rejectsAnOrderThatIsNotExactlyTheCurrentValuesOfTheCatalog() throws Exception {
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID second = item(SOURCES, "SECOND", "Second", false);
+        UUID reason = item(REASONS, "REASON", "Reason", true);
+        List<Map<String, Object>> before = catalogRows();
+
+        Map<String, List<UUID>> wrongOrders = new LinkedHashMap<>();
+        wrongOrders.put("a value is missing", List.of(second));
+        wrongOrders.put("nothing is sent", List.of());
+        wrongOrders.put("an unknown id is added", List.of(second, first, UUID.randomUUID()));
+        wrongOrders.put("a value of another catalog type is added", List.of(second, first, reason));
+        wrongOrders.put("a value is repeated instead of another", List.of(second, second));
+        wrongOrders.put("a value is repeated", List.of(second, first, first));
+        for (var wrong : wrongOrders.entrySet()) {
+            var response = reorder(SOURCES_ORDER, wrong.getValue(), adminToken);
+            JsonNode body = expect(response, 400);
+            assertThat(body.path("code").asText()).as(wrong.getKey()).isEqualTo("RECRUITMENT_CATALOG_ORDER_MISMATCH");
+            assertThat(body.path("message").asText()).as(wrong.getKey()).isEqualTo("Danh sách thứ tự phải gồm đúng "
+                    + "mọi giá trị hiện có của loại danh mục, mỗi giá trị một lần. Hãy tải lại danh sách rồi sắp xếp lại.");
+            noStore(response);
+        }
+        // A source sent with the rejection reasons is not part of that catalog either.
+        error(reorder(BASE + "REJECTION_REASON/order", List.of(reason, first), adminToken),
+                400, "RECRUITMENT_CATALOG_ORDER_MISMATCH");
+        assertThat(catalogRows()).isEqualTo(before);
+    }
+
+    @Test
+    void rejectsAnOrderBodyThatIsNotAListOfIds() throws Exception {
+        UUID only = item(SOURCES, "ONLY", "Only", true);
+        Map<String, Object> before = row(only);
+
+        JsonNode missing = expect(request("PUT", SOURCES_ORDER, "{}", adminToken), 400);
+        assertThat(missing.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(missing.path("fieldErrors").path("itemIds").asText())
+                .isEqualTo("Cần gửi danh sách giá trị theo thứ tự mới.");
+        JsonNode nullId = expect(request("PUT", SOURCES_ORDER, "{\"itemIds\":[null]}", adminToken), 400);
+        assertThat(nullId.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(nullId.path("fieldErrors").path("itemIds[0]").asText())
+                .isEqualTo("Mã định danh giá trị không được để trống.");
+        // Ids are UUID strings inside an array, and the body has no other field.
+        for (String body : List.of("{\"itemIds\":[\"not-a-uuid\"]}", "{\"itemIds\":\"" + only + "\"}",
+                "{\"itemIds\":[\"" + only + "\"],\"sortOrder\":0}", "{\"itemIds\":[")) {
+            assertThat(expect(request("PUT", SOURCES_ORDER, body, adminToken), 400).path("code").asText())
+                    .as(body).isEqualTo("INVALID_JSON");
+        }
+        assertThat(row(only)).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Role.class)
+    void onlyAdminAndHrManagerCanReorderByDefault(Role role) throws Exception {
+        account("role@example.test", Set.of(role));
+        String token = login("role@example.test").path("accessToken").asText();
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID second = item(SOURCES, "SECOND", "Second", true);
+        List<Map<String, Object>> before = catalogRows();
+
+        var response = reorder(SOURCES_ORDER, List.of(second, first), token);
+        if (role == Role.ADMIN || role == Role.HR_MANAGER) {
+            assertThat(ids(expect(response, 200))).containsExactlyElementsOf(strings(second, first));
+            assertThat(ids(expect(get(SOURCES, token), 200))).containsExactlyElementsOf(strings(second, first));
+        } else {
+            error(response, 403, "FORBIDDEN");
+            assertThat(catalogRows()).isEqualTo(before);
+            // The role can still read the catalog, in the old order.
+            assertThat(ids(expect(get(SOURCES, token), 200))).containsExactlyElementsOf(strings(first, second));
+        }
+    }
+
+    @Test
+    void reorderRechecksThePermissionAfterWaitingForTheActorAccountLock() throws Exception {
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID second = item(SOURCES, "SECOND", "Second", true);
+        List<Map<String, Object>> before = catalogRows();
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blockerPid = lockAccount(connection, adminId);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                // The request passed the URL rule already; the permission disappears while it waits.
+                var response = executor.submit(() -> reorder(SOURCES_ORDER, List.of(second, first), adminToken));
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    jdbc.update("DELETE FROM role_permissions "
+                            + "WHERE role_code = 'ADMIN' AND permission_code = 'ORGANIZATION_WRITE_ALL'");
+                    connection.commit();
+                    error(response.get(10, TimeUnit.SECONDS), 403, "FORBIDDEN");
+                } finally {
+                    connection.rollback();
+                }
+            }
+        } finally {
+            jdbc.update("""
+                    INSERT INTO role_permissions (role_code, permission_code)
+                    VALUES ('ADMIN', 'ORGANIZATION_WRITE_ALL')
+                    ON CONFLICT DO NOTHING
+                    """);
+        }
+        assertThat(catalogRows()).isEqualTo(before);
+    }
+
+    @Test
+    void secondOfTwoReordersAtTheSameTimeWaitsAndThenSavesItsWholeOrder() throws Exception {
+        // Two different writers, so the requests do not already wait for each other on the actor's account row.
+        account("hr@example.test", Set.of(Role.HR_MANAGER));
+        String hrToken = login("hr@example.test").path("accessToken").asText();
+        UUID a = item(SOURCES, "A", "A", true);
+        UUID b = item(SOURCES, "B", "B", true);
+        UUID c = item(SOURCES, "C", "C", true);
+        UUID d = item(SOURCES, "D", "D", true);
+        List<UUID> firstOrder = List.of(d, c, b, a);
+        // A and D keep their first numbers here. Had the second request used numbers read before the first one
+        // committed, it would skip A and D and leave the first request's numbers on them: a mix of both orders.
+        List<UUID> secondOrder = List.of(a, c, b, d);
+        UUID firstLocked = jdbc.queryForObject(
+                "SELECT id FROM recruitment_catalog_items WHERE catalog_type = 'CANDIDATE_SOURCE' ORDER BY id LIMIT 1",
+                UUID.class);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // The values are locked in id order, so holding the first one stops both requests before they lock any.
+            int blockerPid = lockItem(connection, firstLocked);
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                var first = executor.submit(() -> reorder(SOURCES_ORDER, firstOrder, adminToken));
+                awaitWaiters(blockerPid, 1);
+                var second = executor.submit(() -> reorder(SOURCES_ORDER, secondOrder, hrToken));
+                try {
+                    awaitWaiters(blockerPid, 2);
+                    connection.commit();
+                    // Both succeed (no deadlock) and each returns the whole order it saved.
+                    assertThat(ids(expect(first.get(10, TimeUnit.SECONDS), 200)))
+                            .containsExactlyElementsOf(strings(firstOrder));
+                    assertThat(ids(expect(second.get(10, TimeUnit.SECONDS), 200)))
+                            .containsExactlyElementsOf(strings(secondOrder));
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        // The second request ran after the first one committed, so its whole order is the one saved.
+        JsonNode listed = expect(get(SOURCES, adminToken), 200);
+        assertThat(ids(listed)).containsExactlyElementsOf(strings(secondOrder));
+        assertThat(sortOrders(listed)).containsExactly(0, 1, 2, 3);
+    }
+
+    @Test
+    void updateThatWaitsForAReorderKeepsTheNewlySavedOrder() throws Exception {
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID second = item(SOURCES, "SECOND", "Second", true);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // Stands in for a reorder that has written new numbers but not committed yet.
+            execute(connection, "UPDATE recruitment_catalog_items SET sort_order = 1 WHERE id = ?", first);
+            execute(connection, "UPDATE recruitment_catalog_items SET sort_order = 0 WHERE id = ?", second);
+            int blockerPid = backendPid(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> update(SOURCES, first, payload("FIRST", "Renamed", true),
+                        adminToken));
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    connection.commit();
+                    // The PUT reads the row only after the reorder commits, so it cannot write back the old number.
+                    JsonNode updated = expect(response.get(10, TimeUnit.SECONDS), 200);
+                    assertThat(updated.path("name").asText()).isEqualTo("Renamed");
+                    assertThat(updated.path("sortOrder").asInt()).isEqualTo(1);
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        assertThat(ids(expect(get(SOURCES, adminToken), 200))).containsExactlyElementsOf(strings(second, first));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void valueDeletedWhileTheReorderWaitsMakesTheOrderOutOfDate(boolean deleteCommitted) throws Exception {
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID second = item(SOURCES, "SECOND", "Second", true);
+        UUID third = item(SOURCES, "THIRD", "Third", true);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // The uncommitted DELETE keeps its row locked, so the reorder has to wait for it.
+            execute(connection, "DELETE FROM recruitment_catalog_items WHERE id = ?", second);
+            int blockerPid = backendPid(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> reorder(SOURCES_ORDER, List.of(third, second, first), adminToken));
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    if (deleteCommitted) {
+                        connection.commit();
+                        error(response.get(10, TimeUnit.SECONDS), 400, "RECRUITMENT_CATALOG_ORDER_MISMATCH");
+                    } else {
+                        connection.rollback();
+                        assertThat(ids(expect(response.get(10, TimeUnit.SECONDS), 200)))
+                                .containsExactlyElementsOf(strings(third, second, first));
+                    }
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        JsonNode listed = expect(get(SOURCES, adminToken), 200);
+        if (deleteCommitted) {
+            // Nothing was reordered: the two remaining values keep their old numbers.
+            assertThat(ids(listed)).containsExactlyElementsOf(strings(first, third));
+            assertThat(sortOrders(listed)).containsExactly(0, 2);
+        } else {
+            assertThat(ids(listed)).containsExactlyElementsOf(strings(third, second, first));
+            assertThat(sortOrders(listed)).containsExactly(0, 1, 2);
+        }
+    }
+
     // No real table stores catalog values yet, so these tests create a small referencing table of their own.
     private void createReferenceTable(String onDelete) {
         jdbc.execute("CREATE TABLE " + REFERENCES + " (id UUID PRIMARY KEY, catalog_item_id UUID NOT NULL "
@@ -588,6 +868,11 @@ class RecruitmentCatalogManagementIntegrationTest {
         return jdbc.queryForObject("SELECT count(*) FROM recruitment_catalog_items", Integer.class);
     }
 
+    // Every catalog row of every type, so a check also notices changes outside the catalog type being tested.
+    private List<Map<String, Object>> catalogRows() {
+        return jdbc.queryForList("SELECT * FROM recruitment_catalog_items ORDER BY id");
+    }
+
     private JsonNode login(String email) throws Exception {
         return expect(request("POST", "/api/v1/auth/login",
                 json.writeValueAsString(Map.of("email", email, "password", PASSWORD)), null), 200);
@@ -604,6 +889,10 @@ class RecruitmentCatalogManagementIntegrationTest {
 
     private HttpResponse<String> delete(String items, UUID id, String token) throws Exception {
         return request("DELETE", items + "/" + id, null, token);
+    }
+
+    private HttpResponse<String> reorder(String order, List<UUID> itemIds, String token) throws Exception {
+        return request("PUT", order, json.writeValueAsString(Map.of("itemIds", itemIds)), token);
     }
 
     private HttpResponse<String> get(String path, String token) throws Exception { return request("GET", path, null, token); }
@@ -635,6 +924,20 @@ class RecruitmentCatalogManagementIntegrationTest {
         return ids;
     }
 
+    private List<Integer> sortOrders(JsonNode array) {
+        List<Integer> sortOrders = new ArrayList<>();
+        array.forEach(item -> sortOrders.add(item.path("sortOrder").asInt()));
+        return sortOrders;
+    }
+
+    private static List<String> strings(UUID... ids) {
+        return strings(List.of(ids));
+    }
+
+    private static List<String> strings(List<UUID> ids) {
+        return ids.stream().map(UUID::toString).toList();
+    }
+
     private int insertUncommittedItem(Connection connection, String code) throws Exception {
         execute(connection, """
                 INSERT INTO recruitment_catalog_items (id,catalog_type,code,name,sort_order,active,created_at,updated_at)
@@ -645,6 +948,15 @@ class RecruitmentCatalogManagementIntegrationTest {
 
     private int lockAccount(Connection connection, UUID id) throws Exception {
         try (var statement = connection.prepareStatement("SELECT id FROM user_accounts WHERE id = ? FOR UPDATE")) {
+            statement.setObject(1, id);
+            try (var row = statement.executeQuery()) { assertThat(row.next()).isTrue(); }
+        }
+        return backendPid(connection);
+    }
+
+    private int lockItem(Connection connection, UUID id) throws Exception {
+        try (var statement = connection.prepareStatement(
+                "SELECT id FROM recruitment_catalog_items WHERE id = ? FOR UPDATE")) {
             statement.setObject(1, id);
             try (var row = statement.executeQuery()) { assertThat(row.next()).isTrue(); }
         }

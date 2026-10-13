@@ -18,8 +18,13 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -112,6 +117,35 @@ public class RecruitmentCatalogService {
         }
     }
 
+    // The body lists every value of the catalog type once, inactive values included; a value's position in the list
+    // becomes its new sortOrder (0, 1, 2...). All values of the type are locked first, so two reorders of the same
+    // catalog run one after the other and the saved order is always one whole request, never a mix of two.
+    @Transactional
+    public List<RecruitmentCatalogItemView> reorder(Jwt jwt, String type, RecruitmentCatalogOrderRequest request) {
+        requireWriteAccess(jwt);
+        RecruitmentCatalogType catalogType = catalogType(type);
+        Map<UUID, RecruitmentCatalogItem> current = new HashMap<>();
+        for (RecruitmentCatalogItem item : items.findAllByCatalogTypeForUpdate(catalogType)) {
+            current.put(item.getId(), item);
+        }
+
+        // Read after the lock: a value added or deleted meanwhile makes the caller's list out of date.
+        List<UUID> itemIds = request.itemIds();
+        Set<UUID> requested = new HashSet<>(itemIds);
+        if (requested.size() != itemIds.size() || !requested.equals(current.keySet())) {
+            throw orderMismatch();
+        }
+
+        Instant now = now();
+        List<RecruitmentCatalogItemView> ordered = new ArrayList<>();
+        for (int position = 0; position < itemIds.size(); position++) {
+            RecruitmentCatalogItem item = current.get(itemIds.get(position));
+            item.moveTo(position, now);
+            ordered.add(RecruitmentCatalogItemView.from(item));
+        }
+        return ordered;
+    }
+
     private void requireReadAccess(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
@@ -167,7 +201,7 @@ public class RecruitmentCatalogService {
     }
 
     // A new value goes to the end of its catalog. Two creates at the same moment may get the same number;
-    // V10 allows that and the list then orders those values by code.
+    // V10 allows that and the list then orders those values by name, then code.
     private int nextSortOrder(RecruitmentCatalogType catalogType) {
         Integer max = items.findMaxSortOrder(catalogType);
         return max == null ? 0 : max + 1;
@@ -208,6 +242,12 @@ public class RecruitmentCatalogService {
     private static ApiException duplicateCode() {
         return new ApiException(HttpStatus.CONFLICT, "RECRUITMENT_CATALOG_CODE_EXISTS",
                 "Mã giá trị đã được sử dụng trong danh mục này.");
+    }
+
+    private static ApiException orderMismatch() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "RECRUITMENT_CATALOG_ORDER_MISMATCH",
+                "Danh sách thứ tự phải gồm đúng mọi giá trị hiện có của loại danh mục, mỗi giá trị một lần. "
+                        + "Hãy tải lại danh sách rồi sắp xếp lại.");
     }
 
     private static ApiException itemInUse() {
