@@ -111,7 +111,7 @@ Mọi thay đổi của một lần sắp xếp nằm trong một transaction: l
 
 Muốn bỏ một giá trị đang được dùng thì PUT với `active=false`: dữ liệu cũ giữ nguyên tên gọi, màn hình chọn giá trị mới (`active=true`) không còn hiện giá trị đó. Xóa chỉ dành cho giá trị nhập nhầm hoặc chưa từng được dùng.
 
-Backend không đếm tham chiếu trước, mà để PostgreSQL kiểm khóa ngoại khi xóa rồi đổi lỗi khóa ngoại thành 409. Cách này đúng với mọi bảng tham chiếu tới danh mục, kể cả bảng thêm sau, và đúng cả khi một yêu cầu khác vừa lưu tham chiếu tới giá trị đó cùng lúc: yêu cầu xóa chờ yêu cầu kia kết thúc, rồi trả 409 nếu tham chiếu đã được lưu hoặc 204 nếu yêu cầu kia bị hủy. Hiện chưa có bảng nào tham chiếu tới danh mục nên mọi giá trị đều xóa được; quy tắc cho bảng tham chiếu sau này ở [tài liệu database](../database/README.md).
+Backend không đếm tham chiếu trước, mà để PostgreSQL kiểm khóa ngoại khi xóa rồi đổi lỗi khóa ngoại thành 409. Cách này đúng với mọi bảng tham chiếu tới danh mục, kể cả bảng thêm sau, và đúng cả khi một yêu cầu khác vừa lưu tham chiếu tới giá trị đó cùng lúc: yêu cầu xóa chờ yêu cầu kia kết thúc, rồi trả 409 nếu tham chiếu đã được lưu hoặc 204 nếu yêu cầu kia bị hủy. Từ V21, tin tuyển dụng tham chiếu giá trị `WORK_LOCATION` và `EMPLOYMENT_TYPE`; xóa giá trị đang được tin dùng trả 409 `RECRUITMENT_CATALOG_ITEM_IN_USE`; quy tắc cho bảng tham chiếu sau này ở [tài liệu database](../database/README.md).
 
 ## Quyền quản lý danh mục
 
