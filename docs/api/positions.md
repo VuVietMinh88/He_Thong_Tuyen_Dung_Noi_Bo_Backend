@@ -193,7 +193,7 @@ Mọi lỗi đều không thay đổi chức danh.
 
 ## Dải lương chuẩn cho kiểm tra hạn mức offer (task 206)
 
-Task 206 không thêm endpoint, không đổi request/response ở trên và không thêm migration. Backend có thêm dịch vụ nội bộ `SalaryBandService` (gói `vn.ttcs.recruitment.position`) để các chức năng làm sau, như duyệt offer và kiểm tra yêu cầu tuyển dụng, lấy dải lương chuẩn của một chức danh và so với mức lương đề xuất. HR_MANAGER vẫn xem dải lương qua `GET /positions/{id}` như trước.
+Task 206 không thêm endpoint, không đổi request/response ở trên và không thêm migration. Backend có thêm dịch vụ nội bộ `SalaryBandService` (gói `vn.ttcs.recruitment.position`) để các chức năng làm sau, như duyệt offer và kiểm tra yêu cầu tuyển dụng, lấy dải lương chuẩn của một chức danh và so với mức lương đề xuất. HR_MANAGER vẫn xem dải lương qua `GET /positions/{id}` như trước. Người dùng đầu tiên là [API yêu cầu tuyển dụng](requisitions.md) (task 247): `RequisitionService` gọi `compare` để bắt nhập giải trình khi lương đề xuất ngoài dải chuẩn và chỉ trả lỗi chung `SALARY_JUSTIFICATION_REQUIRED`, không có con số của dải.
 
 | Phương thức Java | Kết quả |
 |---|---|
@@ -212,4 +212,4 @@ Quy tắc:
 
 ## Database và phạm vi
 
-Dùng bảng `positions` của V7, quyền ORGANIZATION của V3 và quyền SALARY_RANGES của V7_1. Task 203 và 204 không thêm migration; task 205 chỉ thêm V7_1 (4 mã quyền, 2 dòng cấp quyền cho HR_MANAGER), không đổi bảng `positions` và không cần sửa `.env`. Task 206 chỉ đọc bảng `positions`, không thêm migration hay quyền. Task 214 không thêm migration hay mã quyền: dùng cột `competency_framework_id` có sẵn từ V8 và quyền ORGANIZATION của V3. Không có DELETE chức danh: muốn ngừng dùng thì PUT `active=false` (`DELETE /positions/{id}/competency-framework` chỉ bỏ liên kết khung năng lực). Chưa có liên kết chức danh với phòng ban, yêu cầu tuyển dụng hay offer; task 206 mới chuẩn bị dải lương chuẩn và phép so sánh, còn quy tắc duyệt offer (ví dụ `ABOVE` thì cần Approver duyệt) sẽ làm ở các task offer sau.
+Dùng bảng `positions` của V7, quyền ORGANIZATION của V3 và quyền SALARY_RANGES của V7_1. Task 203 và 204 không thêm migration; task 205 chỉ thêm V7_1 (4 mã quyền, 2 dòng cấp quyền cho HR_MANAGER), không đổi bảng `positions` và không cần sửa `.env`. Task 206 chỉ đọc bảng `positions`, không thêm migration hay quyền. Task 214 không thêm migration hay mã quyền: dùng cột `competency_framework_id` có sẵn từ V8 và quyền ORGANIZATION của V3. Không có DELETE chức danh: muốn ngừng dùng thì PUT `active=false` (`DELETE /positions/{id}/competency-framework` chỉ bỏ liên kết khung năng lực). Yêu cầu tuyển dụng (V13) tham chiếu chức danh, và từ task 247 dùng dải lương chuẩn để bắt nhập giải trình khi lương đề xuất ngoài dải. Chưa có liên kết chức danh với phòng ban hay offer; task 206 mới chuẩn bị dải lương chuẩn và phép so sánh, còn quy tắc duyệt offer (ví dụ `ABOVE` thì cần Approver duyệt) sẽ làm ở các task offer sau.

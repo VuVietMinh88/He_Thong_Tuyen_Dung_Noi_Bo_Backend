@@ -1,8 +1,8 @@
 # API yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp) và TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), story TKNHTTDNB1-29 (S2-10). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển) và TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn), story TKNHTTDNB1-29 (S2-10). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED` dùng `Cache-Control: no-store`.
 
-Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Giải trình khi dải lương đề xuất ngoài chuẩn (247), ngày cần người không ở quá khứ (248) và giới hạn phòng ban được ghi vào yêu cầu (249) là các task sau; story S2-10 chưa hoàn thành.
+Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Ngày cần người không ở quá khứ (248) và giới hạn phòng ban được ghi vào yêu cầu (249) là các task sau; story S2-10 chưa hoàn thành.
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
@@ -51,7 +51,7 @@ Task 245 chỉ giới hạn **yêu cầu đã có** mà người gọi được 
 |reason|Bắt buộc, chuỗi đúng một trong hai mã `REPLACEMENT` (tuyển thay thế) hoặc `NEW_HEADCOUNT` (tăng mới): đúng chữ hoa, không có khoảng trắng đầu/cuối|
 |proposedSalaryMin|Không bắt buộc. Lương đề xuất tối thiểu, số nguyên đồng VND từ 0 đến 1.000.000.000.000|
 |proposedSalaryMax|Không bắt buộc. Lương đề xuất tối đa, cùng quy tắc; khi có cả hai mức thì không nhỏ hơn `proposedSalaryMin` (được phép bằng)|
-|salaryJustification|Không bắt buộc, tối đa 2.000 ký tự, không chứa ký tự NUL|
+|salaryJustification|Tối đa 2.000 ký tự, không chứa ký tự NUL. **Bắt buộc** khi một mức lương đề xuất đã nhập nằm ngoài dải lương chuẩn của chức danh (task 247); ngoài trường hợp đó thì không bắt buộc|
 |neededBy|Không bắt buộc. Ngày cần người dạng `yyyy-MM-dd`, không có giờ|
 |jobDescription|Không bắt buộc, tối đa 10.000 ký tự, không chứa ký tự NUL|
 |candidateRequirements|Không bắt buộc, tối đa 10.000 ký tự, không chứa ký tự NUL|
@@ -68,9 +68,12 @@ Thứ tự kiểm tra:
 2. Từng trường riêng lẻ: thiếu trường bắt buộc, số lượng ngoài 1–999, lý do tuyển không phải một trong hai mã, lương âm hoặc vượt trần, văn bản quá dài hoặc chứa ký tự NUL. Mọi trường sai được trả cùng lúc trong `fieldErrors` với mã `VALIDATION_ERROR`.
 3. Khóa tài khoản và phiên, kiểm lại quyền (403 nếu vừa mất quyền, 401 `SESSION_INVALID` nếu phiên/tài khoản/token không còn hợp lệ).
 4. So hai mức lương đề xuất: tối thiểu lớn hơn tối đa trả `REQUISITION_SALARY_RANGE_INVALID`.
-5. Chức danh tồn tại (`INVALID_REQUISITION_POSITION`) và đang áp dụng (`REQUISITION_POSITION_INACTIVE`), rồi phòng ban tồn tại (`INVALID_REQUISITION_DEPARTMENT`) và đang áp dụng (`REQUISITION_DEPARTMENT_INACTIVE`). Mỗi lần chỉ trả lỗi đầu tiên gặp.
+5. Chức danh tồn tại (`INVALID_REQUISITION_POSITION`) và đang áp dụng (`REQUISITION_POSITION_INACTIVE`), rồi phòng ban tồn tại (`INVALID_REQUISITION_DEPARTMENT`) và đang áp dụng (`REQUISITION_DEPARTMENT_INACTIVE`).
+6. Mức lương đề xuất ngoài dải lương chuẩn của chức danh mà không có giải trình: `SALARY_JUSTIFICATION_REQUIRED` (task 247).
 
-Còn **chưa** kiểm: dải lương đề xuất so với dải chuẩn của chức danh và giải trình (247), ngày cần người ở quá khứ (248), phòng ban thuộc phạm vi người tạo (249).
+Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 4 trở đi.
+
+Còn **chưa** kiểm: ngày cần người ở quá khứ (248), phòng ban thuộc phạm vi người tạo (249).
 
 ## Kiểm tra trường bắt buộc và lý do tuyển (task 246)
 
@@ -139,7 +142,7 @@ Response của tạo (cũng là cấu trúc của chi tiết, mỗi item trong d
 }
 ```
 
-UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `null` (khóa vẫn có trong JSON). `createdAt`/`updatedAt` là UTC, độ chính xác micro giây như PostgreSQL lưu; lúc tạo hai giá trị bằng nhau. `proposedSalaryMin`/`proposedSalaryMax` là mức người tạo đề xuất, không phải dải lương chuẩn của chức danh; response không chứa dải chuẩn, nên người không có `SALARY_RANGES_READ_ALL` không thấy được dải chuẩn qua API này.
+UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `null` (khóa vẫn có trong JSON). `createdAt`/`updatedAt` là UTC, độ chính xác micro giây như PostgreSQL lưu; lúc tạo hai giá trị bằng nhau. `proposedSalaryMin`/`proposedSalaryMax` là mức người tạo đề xuất, không phải dải lương chuẩn của chức danh; response không chứa dải chuẩn, nên người không có `SALARY_RANGES_READ_ALL` không thấy được con số của dải chuẩn qua API này (lỗi giải trình của task 247 cũng không chứa con số, xem mục "Giải trình khi dải lương đề xuất ngoài chuẩn").
 
 ## Danh sách
 
@@ -173,9 +176,43 @@ Thứ tự kiểm tra:
 4. Khóa dòng yêu cầu (`SELECT ... FOR UPDATE`): không có thì 404 `REQUISITION_NOT_FOUND`.
 5. Phạm vi: người `SCOPED` không phụ trách phòng ban hiện tại của yêu cầu thì 403 `FORBIDDEN`. Bước này chạy sau khi đã khóa dòng, nên nếu HR đổi người phụ trách phòng ban trong lúc yêu cầu đang chờ khóa, kết quả dùng người phụ trách mới.
 6. Còn là `DRAFT`, nếu không thì 409 `REQUISITION_NOT_DRAFT`.
-7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng.
+7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng.
 
 Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ khóa dòng: người đến sau chờ người trước commit rồi ghi đè toàn bộ (người lưu sau cùng thắng). Chưa có kiểm tra phiên bản (optimistic locking), nên giao diện nên tải lại chi tiết trước khi sửa. Mọi lỗi đều không đổi dòng nào.
+
+## Giải trình khi dải lương đề xuất ngoài chuẩn (task 247)
+
+Kết quả Jira: so sánh với dải chuẩn của chức danh và yêu cầu nhập giải trình nếu đề xuất nằm ngoài chuẩn. Quy tắc áp dụng **giống nhau** cho `POST` (tạo) và `PUT` (lưu lại nháp), cho mọi vai trò được ghi (ADMIN, HR_MANAGER và người `SCOPED`).
+
+- **Dải chuẩn** là `salary_min`–`salary_max` hiện tại của chức danh `positionId` trong body (bảng `positions` của V7), lấy qua `SalaryBandService` của task 206. **Hai đầu dải tính là trong chuẩn.** Ví dụ dải chuẩn 15.000.000–25.000.000: đề xuất 15.000.000–25.000.000 không cần giải trình; 14.999.999 hoặc 25.000.001 là ngoài chuẩn. Dải cố định (`salary_min = salary_max`) chỉ nhận đúng một mức đó.
+- **Mỗi mức đã nhập được so riêng.** `proposedSalaryMin` hoặc `proposedSalaryMax` thấp hơn `salary_min` hoặc cao hơn `salary_max` là ngoài chuẩn, tính cả phía **thấp hơn** lẫn phía **cao hơn**. Dải đề xuất rộng hơn dải chuẩn (ví dụ 10.000.000–30.000.000) cũng là ngoài chuẩn.
+- **Nháp vẫn được nhập một đầu** như task 244: chỉ đầu đã nhập được so. Chưa nhập mức lương nào thì không cần giải trình.
+- Ngoài chuẩn mà `salaryJustification` không gửi, `null`, rỗng hoặc chỉ có khoảng trắng: 400 `SALARY_JUSTIFICATION_REQUIRED`, không lưu gì.
+- Có giải trình (tối đa 2.000 ký tự, không chứa NUL như trước) thì lưu bình thường, văn bản giữ nguyên như người dùng nhập. Đề xuất trong chuẩn vẫn được nhập giải trình; giải trình đó được lưu, không bị xóa.
+- **So ở mỗi lần lưu với dải hiện tại.** Nếu HR thu hẹp dải sau khi nháp đã lưu, `GET` vẫn trả nháp như cũ, nhưng lần `PUT` sau (kể cả gửi nội dung y hệt) phải có giải trình. `PUT` đổi sang chức danh khác thì so với dải của chức danh mới.
+- Vì `PUT` thay toàn bộ nội dung, gửi giải trình rỗng trong khi lương vẫn ngoài chuẩn bị từ chối và giải trình đã lưu được giữ nguyên. Đưa lương về trong chuẩn thì xóa được giải trình.
+
+```json
+{
+  "code": "SALARY_JUSTIFICATION_REQUIRED",
+  "message": "Dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh, vui lòng nhập giải trình.",
+  "fieldErrors": {
+    "salaryJustification": "Dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh, vui lòng nhập giải trình."
+  }
+}
+```
+
+**Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response thành công giữ đúng 15 trường như trên, không có `salaryMin`/`salaryMax` của chức danh và không có cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
+
+Thứ tự: đây là bước 6 của tạo và phần cuối bước 7 của sửa ở trên, chạy sau mọi bước kiểm khác. Chức danh không tồn tại hoặc đã ngừng áp dụng trả `INVALID_REQUISITION_POSITION`/`REQUISITION_POSITION_INACTIVE` trước, không bao giờ trả 404 `POSITION_NOT_FOUND` hay 409 `POSITION_INACTIVE` của `SalaryBandService`. Giải trình dài hơn 2.000 ký tự là `VALIDATION_ERROR` ở bước 2, không phải `SALARY_JUSTIFICATION_REQUIRED`. Người thiếu quyền hoặc sửa nháp ngoài phạm vi nhận 403 trước khi lương được so.
+
+**Đồng thời:** dải chuẩn được đọc sau khi dòng chức danh đã bị khóa `FOR SHARE` (bước 5), trong cùng transaction ghi. `PUT /positions/{id}` của HR đổi dải lương phải chờ tạo/sửa nháp xong; ngược lại, nếu HR đang đổi dải dở dang, yêu cầu tạo/sửa chờ HR xong rồi so với dải HR đã commit (HR hủy thì so với dải cũ).
+
+Quyết định của backend (chờ BA/PO xác nhận):
+
+- Ngoài chuẩn tính cả **thấp hơn** dải, không chỉ cao hơn: tiêu chí story ghi "nằm ngoài dải chuẩn".
+- Không bắt nhập đủ hai mức lương khi một mức đã có: nháp được lưu dở (task 244). Việc bắt đủ thông tin trước khi gửi duyệt thuộc luồng duyệt sau này.
+- Không thêm cờ kiểu `salaryOutsideStandardBand` vào response: giao diện biết qua lỗi 400; cờ phải tính lại ở mỗi `GET`/danh sách vì HR có thể đổi dải sau khi lưu. Nháp đã lưu không được kiểm lại khi HR đổi dải; nó chỉ được kiểm ở lần lưu sau (luồng gửi duyệt sau này nên kiểm lại).
 
 ## Lỗi
 
@@ -188,6 +225,7 @@ Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ
 |400|REQUISITION_POSITION_INACTIVE|Chức danh `positionId` đã ngừng áp dụng (`active = false`); `fieldErrors.positionId`|
 |400|INVALID_REQUISITION_DEPARTMENT|Không có phòng ban với `departmentId`; `fieldErrors.departmentId`|
 |400|REQUISITION_DEPARTMENT_INACTIVE|Phòng ban `departmentId` đã ngừng áp dụng (`active = false`); `fieldErrors.departmentId`|
+|400|SALARY_JUSTIFICATION_REQUIRED|Một mức lương đề xuất đã nhập nằm ngoài dải lương chuẩn của chức danh và `salaryJustification` trống; `fieldErrors.salaryJustification`. Lời nhắn không chứa dải chuẩn|
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
 |403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT` với UUID không có yêu cầu nào|
@@ -207,4 +245,4 @@ Ví dụ lỗi dải lương đề xuất ngược:
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh/phòng ban, và dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa).
+Dùng bảng `recruitment_requisitions` của V13 (task 243) và quyền `REQUISITIONS_*` có sẵn từ V3; không thêm migration, không đổi quyền, không cần sửa `.env`. Danh sách lọc theo chỉ mục `recruitment_requisitions_department_id_idx` và `..._status_idx` của V13. Các phòng ban người gọi phụ trách được tìm bằng một truy vấn đệ quy (`WITH RECURSIVE`) trên `departments.parent_id`; truy vấn dùng `UNION` nên vẫn dừng nếu dữ liệu sửa tay tạo vòng lặp cha–con. Các CHECK và khóa ngoại của V13 vẫn là lớp chặn cuối; API kiểm trước để trả lỗi tiếng Việt thay vì 500. Task 246 cũng không thêm migration: giới hạn 999 người và điều kiện chức danh/phòng ban đang áp dụng chỉ nằm ở API (`RequisitionRequest`, `RequisitionService`). Không có API xóa chức danh/phòng ban, và dòng đã kiểm được giữ khóa `FOR SHARE` đến khi lưu xong, nên chức danh/phòng ban đã kiểm không bị xóa hay bị ngừng áp dụng trước khi lưu, kể cả bằng SQL tay (lệnh đó phải chờ khóa). Task 247 cũng không thêm migration và không đổi quyền: dải chuẩn đọc từ cột `salary_min`/`salary_max` của V7 qua `SalaryBandService`, giải trình lưu vào cột `salary_justification` có sẵn của V13.

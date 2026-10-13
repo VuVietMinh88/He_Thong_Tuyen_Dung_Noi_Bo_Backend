@@ -17,6 +17,8 @@ import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.department.DepartmentRepository;
 import vn.ttcs.recruitment.position.PositionRepository;
+import vn.ttcs.recruitment.position.SalaryBandComparison;
+import vn.ttcs.recruitment.position.SalaryBandService;
 import vn.ttcs.recruitment.security.AccessScope;
 import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
@@ -35,6 +37,11 @@ public class RequisitionService {
     // Newest first; the id only keeps the order stable when two requisitions share the same creation time.
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
+    // Task 247: the same text is the message and the form error of salaryJustification. It says only that the
+    // proposal is outside the standard band, never the band itself: most callers lack SALARY_RANGES_READ_ALL.
+    private static final String JUSTIFICATION_REQUIRED_MESSAGE =
+            "Dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh, vui lòng nhập giải trình.";
+
     private final RecruitmentRequisitionRepository requisitions;
     private final PositionRepository positions;
     private final DepartmentRepository departments;
@@ -42,12 +49,13 @@ public class RequisitionService {
     private final AuthSessionRepository sessions;
     private final AuthService auth;
     private final PermissionService permissions;
+    private final SalaryBandService salaryBands;
     private final Clock clock;
 
     public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
                               DepartmentRepository departments, AccountRepository accounts,
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              Clock clock) {
+                              SalaryBandService salaryBands, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
         this.departments = departments;
@@ -55,6 +63,7 @@ public class RequisitionService {
         this.sessions = sessions;
         this.auth = auth;
         this.permissions = permissions;
+        this.salaryBands = salaryBands;
         this.clock = clock;
     }
 
@@ -62,13 +71,15 @@ public class RequisitionService {
     private record Caller(UUID id, AccessScope scope) { }
 
     // Task 244: saves a new DRAFT owned by the caller, so the manager can come back and finish it later.
-    // Task 246 adds: the position and the department must still be active. Other business rules on the content
-    // (salary justification, needed-by date, department scope) come in the later tasks of story S2-10.
+    // Task 246 adds: the position and the department must still be active. Task 247 adds: a proposal outside the
+    // position's standard salary band needs a justification. Other business rules on the content (needed-by date,
+    // department scope) come in the later tasks of story S2-10.
     @Transactional
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Caller caller = requireWriteAccess(jwt);
         requireValidSalaryRange(request);
         requireActivePositionAndDepartment(request);
+        requireJustificationOutsideStandardBand(request);
         var requisition = new RecruitmentRequisition(request.positionId(), request.departmentId(),
                 request.headcount(), request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
@@ -125,6 +136,7 @@ public class RequisitionService {
         requireDraft(requisition);
         requireValidSalaryRange(request);
         requireActivePositionAndDepartment(request);
+        requireJustificationOutsideStandardBand(request);
         requisition.updateDraft(request.positionId(), request.departmentId(), request.headcount(),
                 request.reasonCode(), request.proposedSalaryMin(), request.proposedSalaryMax(),
                 request.salaryJustification(), request.neededBy(), request.jobDescription(),
@@ -231,6 +243,30 @@ public class RequisitionService {
             throw invalidField("REQUISITION_DEPARTMENT_INACTIVE", "departmentId",
                     "Phòng ban đã ngừng áp dụng, hãy chọn phòng ban khác.");
         }
+    }
+
+    // Task 247: a proposed salary outside the standard band of the chosen position must be explained. The band
+    // edges themselves count as inside (SalaryBandComparison.WITHIN). A draft may still give only one end of the
+    // proposal, so each end that is filled in is compared on its own; no proposal at all needs no justification.
+    // RequisitionRequest has already turned a blank justification into null, so "   " counts as missing.
+    // A justification that is written is always kept, even when the proposal is inside the band.
+    // Called after requireActivePositionAndDepartment: the position exists, is active and is locked FOR SHARE, so
+    // SalaryBandService never answers 404/409 here, and HR cannot change the band before this transaction commits.
+    // The band is compared on every save with its current value: a draft saved earlier may need a justification
+    // when it is saved again after HR changed the band.
+    private void requireJustificationOutsideStandardBand(RequisitionRequest request) {
+        if (request.salaryJustification() != null) {
+            return;
+        }
+        if (isOutsideStandardBand(request.positionId(), request.proposedSalaryMin())
+                || isOutsideStandardBand(request.positionId(), request.proposedSalaryMax())) {
+            throw invalidField("SALARY_JUSTIFICATION_REQUIRED", "salaryJustification", JUSTIFICATION_REQUIRED_MESSAGE);
+        }
+    }
+
+    // compare() returns only BELOW/WITHIN/ABOVE, so this service never handles the band amounts at all.
+    private boolean isOutsideStandardBand(UUID positionId, Long proposedSalary) {
+        return proposedSalary != null && salaryBands.compare(positionId, proposedSalary) != SalaryBandComparison.WITHIN;
     }
 
     // A 400 about one request field: the same text is the message and the form error of that field.
