@@ -108,7 +108,7 @@ public class RequisitionService {
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Writer writer = lockWriter(jwt);
         requireStillWriter(jwt, writer);
-        return createDraft(jwt, writer, request);
+        return createDraft(jwt, writer, request, calendar.today());
     }
 
     /**
@@ -121,6 +121,13 @@ public class RequisitionService {
      * the source's department is in the read scope (403), then the checks of create. The read permission comes before
      * the lookup, so a caller who may only write cannot learn which ids exist. The source is only read, never locked
      * or changed.
+     * <p>
+     * Task 279: the copy starts its own life as a draft. Only the content listed above is taken; everything about
+     * the source's life is not: its status (any status may be copied, the copy is always DRAFT), its creator and
+     * times (the copy belongs to the caller, now), its HR exceptions to the headcount plan (the copy is checked
+     * against the plan on its own) and, once the approval workflow exists, its approval steps and decisions. Those
+     * tables must stay keyed by requisition id, so a copy, which has a new id, has none of them. A needed-by date
+     * that has passed is left empty instead of making the copy fail: the manager picks a new date in the copy.
      */
     @Transactional
     public RequisitionView copy(Jwt jwt, UUID sourceId, String headcountOverrideReason) {
@@ -129,12 +136,21 @@ public class RequisitionService {
         Caller reader = asReader(caller);
         var source = requisitions.findById(sourceId).orElseThrow(RequisitionService::notFound);
         requireInScope(reader, source.getDepartmentId());
+        // One "today" for both the date taken from the source and the needed-by check of createDraft: if midnight
+        // passed between two readings, a date kept as today's would then be refused as already past.
+        LocalDate today = calendar.today();
         var request = new RequisitionRequest(source.getPositionId(), source.getDepartmentId(),
                 source.getHeadcount(), source.getReason().name(), source.getProposedSalaryMin(),
-                source.getProposedSalaryMax(), source.getSalaryJustification(), source.getNeededBy(),
+                source.getProposedSalaryMax(), source.getSalaryJustification(), neededByForCopy(source, today),
                 source.getJobDescription(), source.getCandidateRequirements(), headcountOverrideReason);
         requireValidCopy(request);
-        return createDraft(jwt, writer, request);
+        return createDraft(jwt, writer, request, today);
+    }
+
+    // Task 279: the source's needed-by date if it is still today or later in the business time zone, else empty.
+    private static LocalDate neededByForCopy(RecruitmentRequisition source, LocalDate today) {
+        LocalDate neededBy = source.getNeededBy();
+        return neededBy == null || neededBy.isBefore(today) ? null : neededBy;
     }
 
     // The copied content did not come through @Valid. A row saved by the API always passes; one written by hand, or
@@ -151,10 +167,11 @@ public class RequisitionService {
     }
 
     // The checks and the save shared by create and copy, after the first check of the caller (right after lockWriter).
-    // The row locks below can wait, so the caller is checked again after them (see create).
-    private RequisitionView createDraft(Jwt jwt, Writer writer, RequisitionRequest request) {
+    // The row locks below can wait, so the caller is checked again after them (see create). today: the business date
+    // read once the account and session were locked (see requireNeededByNotInPast).
+    private RequisitionView createDraft(Jwt jwt, Writer writer, RequisitionRequest request, LocalDate today) {
         requireValidSalaryRange(request);
-        requireNeededByNotInPast(request);
+        requireNeededByNotInPast(request, today);
         requireActivePositionAndDepartment(request);
         // The FOR SHARE locks above can wait for HR's edit of the position or the department, and meanwhile the
         // access token may expire or the permission may be removed: check the caller again before saving.
@@ -226,7 +243,7 @@ public class RequisitionService {
         requireInScope(caller, requisition.getDepartmentId());
         requireDraft(requisition);
         requireValidSalaryRange(request);
-        requireNeededByNotInPast(request);
+        requireNeededByNotInPast(request, calendar.today());
         requireActivePositionAndDepartment(request);
         caller = requireStillWriter(jwt, writer);
         requireChosenDepartmentInScope(caller, request);
@@ -379,10 +396,10 @@ public class RequisitionService {
     // before the FOR SHARE locks on the position and department, because NEEDED_BY_IN_PAST is reported before their
     // errors on purpose. So a wait on those two locks past midnight, or midnight passing before the commit, can still
     // save a date that is one day in the past at commit time. A draft whose date has passed is saved again only with
-    // a new date or none.
-    private void requireNeededByNotInPast(RequisitionRequest request) {
+    // a new date or none. The caller passes calendar.today(), read at that point; copy reads it once for both its uses.
+    private static void requireNeededByNotInPast(RequisitionRequest request, LocalDate today) {
         LocalDate neededBy = request.neededBy();
-        if (neededBy != null && neededBy.isBefore(calendar.today())) {
+        if (neededBy != null && neededBy.isBefore(today)) {
             throw invalidField("NEEDED_BY_IN_PAST", "neededBy", "Ngày cần người không được trước ngày hôm nay.");
         }
     }

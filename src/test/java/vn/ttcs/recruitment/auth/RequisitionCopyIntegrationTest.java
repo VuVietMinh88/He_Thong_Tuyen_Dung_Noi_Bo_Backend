@@ -36,6 +36,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Task 278: POST /api/v1/requisitions/{id}/copy saves a new draft with the content of a requisition the caller may read.
+// Task 279: the copy is a fresh draft: nothing of the source's life (creator, times, HR exceptions, a passed date).
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -252,6 +253,60 @@ class RequisitionCopyIntegrationTest {
         assertThat(tooLong.path("fieldErrors").path("headcountOverrideReason").asText())
                 .isEqualTo("Lý do vượt định biên tối đa 1.000 ký tự.");
         assertThat(count()).isEqualTo(5);
+    }
+
+    @Test
+    void aCopyStartsAsAFreshDraftWithoutTheHistoryOfItsSource() throws Exception {
+        // The source went over the plan with the HR manager's confirmation, so it has one exception in its history.
+        jdbc.update("""
+                INSERT INTO headcount_plans (id, department_id, plan_year, headcount_limit, created_at, updated_at,
+                    updated_by)
+                VALUES (?, ?, 2026, 0, ?, ?, ?)
+                """, UUID.randomUUID(), itId, Timestamp.from(START), Timestamp.from(START), hrId);
+        Map<String, Object> over = full(itId);
+        over.put("headcountOverrideReason", "Dự án gấp");
+        UUID source = id(create(over, hrToken));
+        // HR then raises the plan, so a copy fits without any confirmation.
+        jdbc.update("UPDATE headcount_plans SET headcount_limit = 10");
+        clock.set(START.plus(Duration.ofMinutes(5)));
+
+        JsonNode copy = expect(copy(source, null, headToken), 201);
+        UUID id = UUID.fromString(copy.path("id").asText());
+        assertThat(copy.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(copy.path("createdBy").asText()).isEqualTo(headId.toString());
+        assertThat(Instant.parse(copy.path("createdAt").asText())).isEqualTo(START.plus(Duration.ofMinutes(5)));
+        assertThat(expect(get(BASE + "/" + id + "/headcount-overrides", headToken), 200).path("items").isEmpty())
+                .isTrue();
+        assertThat(expect(get(BASE + "/" + source + "/headcount-overrides", headToken), 200).path("items").size())
+                .isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_headcount_overrides WHERE requisition_id = ?",
+                Integer.class, id)).isZero();
+
+        // The source's confirmation does not carry over: when the plan is full again, a copy needs its own.
+        jdbc.update("UPDATE headcount_plans SET headcount_limit = 4");
+        assertThat(expect(copy(source, null, headToken), 409).path("code").asText())
+                .isEqualTo("HEADCOUNT_LIMIT_EXCEEDED");
+    }
+
+    @Test
+    void aNeededByDateThatHasPassedIsLeftEmptyButTodayAndLaterAreCopied() throws Exception {
+        UUID passed = id(create(body(itId, 1, null, null, "2026-10-15"), headToken));
+        // Yesterday in Vietnam, but still today in UTC: only the business date makes it a passed date.
+        UUID yesterday = id(create(body(itId, 1, null, null, "2026-10-19"), headToken));
+        UUID today = id(create(body(itId, 1, null, null, "2026-10-20"), headToken));
+        UUID later = id(create(body(itId, 1, null, null, "2026-12-01"), headToken));
+        // 00:30 on 20 Oct 2026 in Vietnam, while UTC is still on 19 Oct: "today" is the business date.
+        clock.set(Instant.parse("2026-10-19T17:30:00Z"));
+        headToken = token("head@example.test");
+
+        JsonNode fromPassed = expect(copy(passed, null, headToken), 201);
+        assertThat(fromPassed.path("neededBy").isNull()).isTrue();
+        assertThat(expect(copy(yesterday, null, headToken), 201).path("neededBy").isNull()).isTrue();
+        assertThat(expect(copy(today, null, headToken), 201).path("neededBy").asText()).isEqualTo("2026-10-20");
+        assertThat(expect(copy(later, null, headToken), 201).path("neededBy").asText()).isEqualTo("2026-12-01");
+        // The source keeps its date.
+        assertThat(jdbc.queryForObject("SELECT needed_by::text FROM recruitment_requisitions WHERE id = ?",
+                String.class, passed)).isEqualTo("2026-10-15");
     }
 
     private Map<String, Object> full(UUID department) {
