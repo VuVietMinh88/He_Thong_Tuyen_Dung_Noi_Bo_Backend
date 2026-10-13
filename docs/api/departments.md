@@ -83,7 +83,7 @@ Phòng ban còn được dùng thì **không xóa được, chỉ ngừng áp d�
 |3|Còn tài khoản thuộc phòng ban (kể cả tài khoản chưa kích hoạt hoặc bị khóa)|409|DEPARTMENT_HAS_MEMBERS|Chuyển tài khoản sang phòng khác qua `PUT /accounts/{id}`, hoặc ngừng áp dụng|
 |4|Một dòng dữ liệu khác vẫn tham chiếu phòng ban (khóa ngoại)|409|DEPARTMENT_IN_USE|Ngừng áp dụng phòng ban thay vì xóa|
 
-- "Chưa đóng": V13 chỉ có trạng thái `DRAFT` và bản nháp được coi là chưa đóng, nên **hiện nay mọi yêu cầu tuyển dụng của phòng ban đều chặn việc xóa**. Khi luồng duyệt thêm trạng thái mới, trạng thái nào chưa đóng/chưa hủy phải được thêm vào danh sách `OPEN_REQUISITION_STATUSES` của `DepartmentRepository`. Yêu cầu đã đóng vẫn tham chiếu phòng ban (khóa ngoại V13 `ON DELETE RESTRICT` giữ lịch sử), nên vẫn chặn xóa nhưng với mã 4 `DEPARTMENT_IN_USE`.
+- "Chưa đóng": `DRAFT`, `PENDING_APPROVAL`, `RETURNED` và `APPROVED` (task 257, danh sách `OPEN_REQUISITION_STATUSES` của `DepartmentRepository`). Yêu cầu `REJECTED` đã đóng. Trạng thái mới chưa đóng/chưa hủy phải được thêm vào danh sách này. Yêu cầu đã đóng vẫn tham chiếu phòng ban (khóa ngoại V13 `ON DELETE RESTRICT` giữ lịch sử), nên vẫn chặn xóa nhưng với mã 4 `DEPARTMENT_IN_USE`.
 - Chỉ tính yêu cầu tuyển dụng của chính phòng ban: yêu cầu của phòng con chặn xóa phòng con, còn phòng cha bị chặn vì còn phòng con (mã 2).
 - Phòng ban đã ngừng áp dụng vẫn bị kiểm như trên; ngừng áp dụng không làm phòng "xóa được".
 - Mã 4 là lớp chặn cuối khi các bước 1–3 không biết tới dòng tham chiếu (ví dụ yêu cầu đã đóng sau này hoặc bảng mới), để không trả 500.
