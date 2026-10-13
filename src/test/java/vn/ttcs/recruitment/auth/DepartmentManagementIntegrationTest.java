@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.department.DepartmentRequest;
 
 import javax.sql.DataSource;
 import java.net.URI;
@@ -270,6 +271,83 @@ class DepartmentManagementIntegrationTest {
         unknown.put("password", "ShouldNotBeAccepted");
         error(create(unknown, adminToken), 400, "INVALID_JSON");
         expect(create(payload("c".repeat(50), "n".repeat(255), null, managerId, true), adminToken), 201);
+    }
+
+    @Test
+    void removesInvisibleCharactersAroundCodeAndNameAndRefusesValuesWithoutAVisibleCharacter() throws Exception {
+        // trim() and @NotBlank kept these, so they were stored around a code or name, or alone as an invisible one:
+        // non-breaking spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the
+        // ideographic and em spaces at the ends, and zero-width characters (U+200B, U+FEFF, U+2060). The characters are
+        // built from code points, so the source shows which one each case sends.
+        int number = 0;
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            number++;
+            JsonNode created = expect(create(payload(character + "HR" + number + character,
+                    character + "Nhân sự " + number + character, null, managerId, true), adminToken), 201);
+            UUID id = UUID.fromString(created.path("id").asText());
+            assertThat(created.path("code").asText()).as("U+%04X", invisible).isEqualTo("HR" + number);
+            assertThat(created.path("name").asText()).as("U+%04X", invisible).isEqualTo("Nhân sự " + number);
+            JsonNode updated = expect(update(id, payload(character + "IT" + number + character,
+                    character + "Công nghệ " + number + character, null, managerId, true), adminToken), 200);
+            assertThat(updated.path("code").asText()).as("U+%04X", invisible).isEqualTo("IT" + number);
+            assertThat(updated.path("name").asText()).as("U+%04X", invisible).isEqualTo("Công nghệ " + number);
+            assertThat(jdbc.queryForMap("SELECT code, name FROM departments WHERE id = ?", id))
+                    .containsEntry("code", "IT" + number).containsEntry("name", "Công nghệ " + number);
+        }
+        // A code that only differs from an existing one by such a character is the same code.
+        String nbsp = Character.toString(0x00A0);
+        error(create(payload("IT1" + nbsp, "Bản sao", null, managerId, true), adminToken), 409, "DEPARTMENT_CODE_EXISTS");
+        // Characters inside the value belong to it and are kept; the length limit counts the value without its ends.
+        JsonNode inner = expect(create(payload(nbsp + "c".repeat(50) + nbsp, "Nhân" + nbsp + "sự", null, managerId,
+                true), adminToken), 201);
+        assertThat(inner.path("code").asText()).isEqualTo("c".repeat(50));
+        assertThat(inner.path("name").asText()).isEqualTo("Nhân" + nbsp + "sự");
+
+        // Without a visible character the value counts as empty, on POST and on PUT.
+        UUID target = department("KEEP", "Giữ nguyên", null, managerId, true);
+        int count = jdbc.queryForObject("SELECT count(*) FROM departments", Integer.class);
+        Map<String, String> messages = Map.of("code", "Mã phòng ban không được để trống.",
+                "name", "Tên phòng ban không được để trống.");
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            for (String field : List.of("code", "name")) {
+                Map<String, Object> created = payload("NEW", "Mới", null, managerId, true);
+                created.put(field, invisible);
+                JsonNode refused = expect(create(created, adminToken), 400);
+                assertThat(refused.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+                assertThat(refused.path("fieldErrors").path(field).asText()).as("%s %s", field, invisible.codePoints()
+                        .mapToObj(Integer::toHexString).toList()).isEqualTo(messages.get(field));
+                Map<String, Object> updated = payload("KEEP", "Giữ nguyên", null, managerId, true);
+                updated.put(field, invisible);
+                refused = expect(update(target, updated, adminToken), 400);
+                assertThat(refused.path("fieldErrors").path(field).asText()).isEqualTo(messages.get(field));
+            }
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM departments", Integer.class)).isEqualTo(count);
+        assertThat(jdbc.queryForMap("SELECT code, name FROM departments WHERE id = ?", target))
+                .containsEntry("code", "KEEP").containsEntry("name", "Giữ nguyên");
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundCodeAndName() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            DepartmentRequest request = new DepartmentRequest(character + "HR" + character,
+                    character + "Nhân sự" + character, null, managerId, true);
+            assertThat(request.code()).as("U+%04X", space).isEqualTo("HR");
+            assertThat(request.name()).as("U+%04X", space).isEqualTo("Nhân sự");
+            DepartmentRequest invisible = new DepartmentRequest(character, character, null, managerId, true);
+            assertThat(invisible.code()).as("U+%04X", space).isNull();
+            assertThat(invisible.name()).as("U+%04X", space).isNull();
+        }
     }
 
     @Test
