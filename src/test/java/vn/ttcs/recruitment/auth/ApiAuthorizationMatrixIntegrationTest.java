@@ -144,6 +144,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/requisitions", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
             endpoint("GET", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             endpoint("PUT", "/api/v1/requisitions/{id}", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 278: copying; the empty JSON object is a valid body, so a permitted call stops at the unknown id.
+            endpoint("POST", "/api/v1/requisitions/{id}/copy", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 404),
             // Task 275: the HR exceptions of a requisition; the unknown id makes a permitted call stop at 404.
             endpoint("GET", "/api/v1/requisitions/{id}/headcount-overrides", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             // Task 197: deleting a department. The unknown id makes a permitted call stop at 404.

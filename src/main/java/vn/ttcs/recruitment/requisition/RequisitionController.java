@@ -54,6 +54,15 @@ public class RequisitionController {
                 .body(service.create(jwt, request));
     }
 
+    // Task 278: the body is optional; it only carries headcountOverrideReason when the copy goes over the plan.
+    @PostMapping("/{id}/copy")
+    public ResponseEntity<RequisitionView> copy(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                @Valid @RequestBody(required = false) RequisitionCopyRequest request) {
+        String reason = request == null ? null : request.headcountOverrideReason();
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
+                .body(service.copy(jwt, id, reason));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<RequisitionView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                   @Valid @RequestBody RequisitionRequest request) {

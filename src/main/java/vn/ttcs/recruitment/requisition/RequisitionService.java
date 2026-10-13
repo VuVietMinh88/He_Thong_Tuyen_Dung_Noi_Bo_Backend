@@ -1,5 +1,7 @@
 package vn.ttcs.recruitment.requisition;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -33,6 +35,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,13 +61,14 @@ public class RequisitionService {
     private final PermissionService permissions;
     private final SalaryBandService salaryBands;
     private final HeadcountQuota headcountQuota;
+    private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
 
     public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
                               DepartmentRepository departments, AccountRepository accounts,
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              SalaryBandService salaryBands, HeadcountQuota headcountQuota,
+                              SalaryBandService salaryBands, HeadcountQuota headcountQuota, Validator validator,
                               BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
@@ -75,6 +79,7 @@ public class RequisitionService {
         this.permissions = permissions;
         this.salaryBands = salaryBands;
         this.headcountQuota = headcountQuota;
+        this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
     }
@@ -103,6 +108,51 @@ public class RequisitionService {
     public RequisitionView create(Jwt jwt, RequisitionRequest request) {
         Writer writer = lockWriter(jwt);
         requireStillWriter(jwt, writer);
+        return createDraft(jwt, writer, request);
+    }
+
+    /**
+     * Task 278: a new draft with the content of an existing requisition the caller may read: position, department,
+     * headcount, reason, proposed salary, salary justification, needed-by date, job description and candidate
+     * requirements. The copy is a new draft of the caller, checked exactly like POST /requisitions (active position
+     * and department, department scope, standard band, headcount plan), so a copy can never be a draft that create
+     * would refuse. headcountOverrideReason plays the same role as in the create body.
+     * Checks in order: write access (401/403), read access to requisitions at all (403), the source exists (404),
+     * the source's department is in the read scope (403), then the checks of create. The read permission comes before
+     * the lookup, so a caller who may only write cannot learn which ids exist. The source is only read, never locked
+     * or changed.
+     */
+    @Transactional
+    public RequisitionView copy(Jwt jwt, UUID sourceId, String headcountOverrideReason) {
+        Writer writer = lockWriter(jwt);
+        Caller caller = requireStillWriter(jwt, writer);
+        Caller reader = asReader(caller);
+        var source = requisitions.findById(sourceId).orElseThrow(RequisitionService::notFound);
+        requireInScope(reader, source.getDepartmentId());
+        var request = new RequisitionRequest(source.getPositionId(), source.getDepartmentId(),
+                source.getHeadcount(), source.getReason().name(), source.getProposedSalaryMin(),
+                source.getProposedSalaryMax(), source.getSalaryJustification(), source.getNeededBy(),
+                source.getJobDescription(), source.getCandidateRequirements(), headcountOverrideReason);
+        requireValidCopy(request);
+        return createDraft(jwt, writer, request);
+    }
+
+    // The copied content did not come through @Valid. A row saved by the API always passes; one written by hand, or
+    // saved before a limit was lowered, is reported like an invalid create body (400 VALIDATION_ERROR) and not copied.
+    private void requireValidCopy(RequisitionRequest request) {
+        Map<String, String> errors = new LinkedHashMap<>();
+        for (ConstraintViolation<RequisitionRequest> violation : validator.validate(request)) {
+            errors.putIfAbsent(violation.getPropertyPath().toString(), violation.getMessage());
+        }
+        if (!errors.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Yêu cầu gốc có dữ liệu không còn hợp lệ nên không sao chép được.", errors);
+        }
+    }
+
+    // The checks and the save shared by create and copy, after the first check of the caller (right after lockWriter).
+    // The row locks below can wait, so the caller is checked again after them (see create).
+    private RequisitionView createDraft(Jwt jwt, Writer writer, RequisitionRequest request) {
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request);
         requireActivePositionAndDepartment(request);
@@ -262,6 +312,14 @@ public class RequisitionService {
         Set<String> granted = permissions.forUser(writer.actorId());
         AccessScope scope = AccessScope.write(granted, PermissionModule.REQUISITIONS).orDeny();
         return new Caller(writer.actorId(), scope, granted);
+    }
+
+    // Task 278: copying shows the source's content, so the writer must also be allowed to read it. This is the same
+    // caller with its READ scope of REQUISITIONS, which a writer may lack (WRITE never implies READ: 403 here) or have
+    // with another scope (READ_ALL with WRITE_SCOPED, for example). Permissions were read after the account lock.
+    private static Caller asReader(Caller writer) {
+        AccessScope readScope = AccessScope.read(writer.permissions(), PermissionModule.REQUISITIONS).orDeny();
+        return new Caller(writer.id(), readScope, writer.permissions());
     }
 
     // ALL reaches every department. SCOPED only reaches a department the caller manages, directly or through a
