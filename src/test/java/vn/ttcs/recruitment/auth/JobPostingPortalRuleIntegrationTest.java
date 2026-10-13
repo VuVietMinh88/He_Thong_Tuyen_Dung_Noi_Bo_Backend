@@ -7,14 +7,19 @@ import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.jobposting.JobPostingApplicationGate;
+import vn.ttcs.recruitment.jobposting.JobPostingApplicationGate.OpenJobPosting;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
 
@@ -34,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.EMPLOYMENT_TYPE;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 
@@ -43,6 +49,9 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // deadline before, on and after today, and an approved or paused requisition: a posting is listed exactly when it is
 // open; its detail opens exactly when it is open or expired, with applicationOpen true exactly when it is open; every
 // other posting answers 404 with the same body as an id that does not exist.
+// Task 321: the application gate (JobPostingApplicationGate, for the apply API of task 326) gives the same answers:
+// it passes exactly the open postings, refuses the expired ones with 409 JOB_POSTING_EXPIRED and every other one with
+// the 404 of an id that does not exist.
 // The postings are written with SQL, each with its own requisition and department. The clock is 00:30 on 11 Oct 2026
 // in Vietnam, when the date in UTC is still 10 Oct, so a date read in the wrong zone gives other answers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -59,8 +68,8 @@ class JobPostingPortalRuleIntegrationTest {
 
     private enum Expected { OPEN, EXPIRED, NOT_PUBLIC }
 
-    private record Fixture(UUID id, UUID department, JobPostingStatus status, RequisitionStatus requisition,
-                           LocalDate deadline, Expected expected) {
+    private record Fixture(UUID id, UUID requisitionId, UUID department, JobPostingStatus status,
+                           RequisitionStatus requisition, LocalDate deadline, Expected expected) {
         @Override
         public String toString() {
             return status + ", requisition " + requisition + ", deadline " + deadline;
@@ -73,6 +82,7 @@ class JobPostingPortalRuleIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingApplicationGate gate;
 
     private JobPostingTestSupport postings;
     private ApprovalTestSupport api;
@@ -163,6 +173,48 @@ class JobPostingPortalRuleIntegrationTest {
                     .isEqualTo(fixture.deadline() + "T17:00:00Z");
         }
         assertThat(answers).containsEntry(Expected.NOT_PUBLIC, fixtures.size() - 3);
+
+        // Task 321: an application to each posting, checked the way the apply API will check it.
+        var applications = new TransactionTemplate(transactions);
+        for (Fixture fixture : fixtures) {
+            Object outcome;
+            try {
+                outcome = applications.execute(transaction -> gate.requireOpen(fixture.id()));
+            } catch (ApiException exception) {
+                outcome = exception;
+            }
+            switch (fixture.expected()) {
+                case OPEN -> assertThat(outcome).as(fixture.toString()).isEqualTo(new OpenJobPosting(fixture.id(),
+                        fixture.requisitionId(), fixture.deadline()));
+                case EXPIRED -> assertRefused(outcome, fixture, HttpStatus.CONFLICT, "JOB_POSTING_EXPIRED",
+                        "Tin tuyển dụng đã hết hạn nộp hồ sơ.");
+                case NOT_PUBLIC -> assertRefused(outcome, fixture, HttpStatus.NOT_FOUND, "JOB_POSTING_NOT_FOUND",
+                        unknownMessage(unknown));
+            }
+        }
+        assertThatThrownBy(() -> applications.execute(transaction -> gate.requireOpen(UUID.randomUUID())))
+                .isInstanceOfSatisfying(ApiException.class, exception -> {
+                    assertThat(exception.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(exception.getMessage()).isEqualTo(unknownMessage(unknown));
+                });
+    }
+
+    // Task 321: the gate's refusal, with the code and message of the HTTP answer the apply API will give.
+    private static void assertRefused(Object outcome, Fixture fixture, HttpStatus status, String code,
+                                      String message) {
+        assertThat(outcome).as(fixture.toString()).isInstanceOfSatisfying(ApiException.class, exception -> {
+            assertThat(exception.getStatus()).as(fixture.toString()).isEqualTo(status);
+            assertThat(exception.getCode()).as(fixture.toString()).isEqualTo(code);
+            assertThat(exception.getMessage()).as(fixture.toString()).isEqualTo(message);
+            assertThat(exception.getFieldErrors()).as(fixture.toString()).isEmpty();
+        });
+    }
+
+    // The message of the public detail's 404 for an unknown id, so the gate's 404 says the same.
+    private String unknownMessage(HttpResponse<String> unknown) {
+        JsonNode body = json.readTree(unknown.body());
+        assertThat(body.path("code").asText()).isEqualTo("JOB_POSTING_NOT_FOUND");
+        return body.path("message").asText();
     }
 
     // The answer candidates should get, written out without the code's sets. A posting is public only while its
@@ -219,7 +271,7 @@ class JobPostingPortalRuleIntegrationTest {
                 + "created_by, created_at, updated_at" + trailColumns + ") "
                 + "VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, ?" + trailValues + ")", values.toArray());
         assertThat(postings.row(id).get("status")).isEqualTo(status.name());
-        return new Fixture(id, department, status, requisitionStatus, deadline,
+        return new Fixture(id, requisition, department, status, requisitionStatus, deadline,
                 expected(status, requisitionStatus, deadline));
     }
 

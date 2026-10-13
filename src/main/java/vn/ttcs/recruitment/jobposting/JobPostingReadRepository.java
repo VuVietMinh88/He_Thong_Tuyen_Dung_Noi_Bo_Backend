@@ -26,6 +26,8 @@ import java.util.UUID;
 // the public detail reads the row by id like the preview (findRow) and JobPostingApplicability decides in Java
 // whether it is open, expired or not public; the list keeps PUBLIC_WHERE.
 // Task 310: the publication trail (publisher and time, V23) and the publisher's current name.
+// Task 321: lockForApplication locks the posting for the application gate and reads only the two columns the gate
+// decides on, outside SELECT_ROW; it shows nothing.
 @Repository
 class JobPostingReadRepository {
     static final String SELECT_ROW = """
@@ -103,6 +105,27 @@ class JobPostingReadRepository {
     Optional<JobPostingRow> findRow(UUID id) {
         return jdbc.query(SELECT_ROW + " WHERE p.id = :id", new MapSqlParameterSource("id", id),
                 (row, number) -> map(row)).stream().findFirst();
+    }
+
+    // Task 321: what JobPostingApplicationGate decides on, read under the posting's lock.
+    record ApplicationState(JobPostingStatus status, LocalDate applicationDeadline) { }
+
+    // Task 321 (story S4-02): the posting's status and deadline, locked FOR SHARE until commit, for
+    // JobPostingApplicationGate, which locks the requisition first (lock order of every posting writer). FOR SHARE
+    // conflicts with the lock of every posting writer (JobPostingRepository.findByIdForUpdate, FOR NO KEY UPDATE on
+    // PostgreSQL; the closure of task 292 too) and with any UPDATE of the row, so a change committed while this waited
+    // is seen and none can commit before the caller does; FOR KEY SHARE would not conflict with an UPDATE that leaves
+    // the keys alone. A share lock is enough for the posting, unlike for the requisition: the gate already holds the
+    // requisition FOR NO KEY UPDATE (JobPostingSourceRepository.lockStatusForApplication), which every posting writer
+    // locks first, so applications reach this row one at a time and never get ahead of a waiting write. Not
+    // SELECT_ROW: a lock statement reads the posting table alone, because after a wait PostgreSQL reads the locked row
+    // again but not the other rows of a join. JDBC, not a JPA lock, so a JobPosting already managed in the caller's
+    // persistence context cannot hide the row as it is now. Read-write transactions only. The status is read by name.
+    Optional<ApplicationState> lockForApplication(UUID id) {
+        return jdbc.query("SELECT p.status, p.application_deadline FROM job_postings p WHERE p.id = :id FOR SHARE",
+                new MapSqlParameterSource("id", id),
+                (row, number) -> new ApplicationState(JobPostingStatus.valueOf(row.getString("status")),
+                        row.getObject("application_deadline", LocalDate.class))).stream().findFirst();
     }
 
     // One page of the postings the caller may see, newest first; the id keeps the order stable. status = null means
