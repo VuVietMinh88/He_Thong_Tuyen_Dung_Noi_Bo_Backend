@@ -63,6 +63,15 @@ public class RequisitionController {
                 .body(service.copy(jwt, id, reason));
     }
 
+    // Task 257: sends the saved requisition for approval. The body is optional; it only carries a note for the
+    // approvers.
+    @PostMapping("/{id}/submit")
+    public ResponseEntity<RequisitionView> submit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                  @Valid @RequestBody(required = false) RequisitionSubmitRequest request) {
+        String comment = request == null ? null : request.comment();
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.submit(jwt, id, comment));
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<RequisitionView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                   @Valid @RequestBody RequisitionRequest request) {
