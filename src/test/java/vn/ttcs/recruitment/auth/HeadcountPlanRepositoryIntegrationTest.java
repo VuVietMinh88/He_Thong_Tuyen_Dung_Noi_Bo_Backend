@@ -214,7 +214,8 @@ class HeadcountPlanRepositoryIntegrationTest {
     @EnumSource(RequisitionStatus.class)
     void everyRequisitionStatusIsCountedOrNotAccordingToItsGroup(RequisitionStatus status) {
         boolean counted = switch (status) {
-            case DRAFT -> true;
+            case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED -> true;
+            case REJECTED -> false;
         };
         UUID id = requisition(itId, 3, null, 20_000_000L, LocalDate.of(2026, 6, 1), CREATED_AT);
         jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", status.name(), id);
