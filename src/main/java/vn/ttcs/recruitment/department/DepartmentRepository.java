@@ -84,6 +84,15 @@ public class DepartmentRepository {
                 (row, number) -> row.getObject("id", UUID.class)));
     }
 
+    // Task 246: is this department still used (active)? Empty when it does not exist. FOR SHARE keeps the row
+    // locked until the caller's transaction ends, so a PUT that deactivates the department waits for the caller's
+    // commit; other FOR SHARE readers (account assignment, requisitions) still run in parallel. Must be called in a
+    // read-write transaction (PostgreSQL refuses FOR SHARE in a read-only one).
+    public Optional<Boolean> findActiveForShare(UUID id) {
+        return jdbc.query("SELECT active FROM departments WHERE id = :id FOR SHARE",
+                new MapSqlParameterSource("id", id), (row, number) -> row.getBoolean("active")).stream().findFirst();
+    }
+
     public void acquireTreeWriteLock() {
         // All hierarchy writers hold this until commit; concurrent parent changes cannot create a cycle.
         jdbc.query("SELECT pg_advisory_xact_lock(:key)", new MapSqlParameterSource("key", TREE_WRITE_LOCK_KEY),

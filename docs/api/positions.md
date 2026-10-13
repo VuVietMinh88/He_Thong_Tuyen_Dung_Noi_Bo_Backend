@@ -69,6 +69,8 @@ Lương là số nguyên đồng (database `BIGINT`, Java `long`), có thể vư
 
 Thứ tự kiểm tra: trước hết từng trường riêng lẻ (bắt buộc, độ dài, lương không âm, không vượt trần), mọi trường sai được trả cùng lúc trong `fieldErrors` với mã `VALIDATION_ERROR`. Chỉ khi từng trường đều hợp lệ, backend mới so hai mức lương: `salaryMin` lớn hơn `salaryMax` trả `POSITION_SALARY_RANGE_INVALID` kèm lỗi ở trường `salaryMax`. `salaryMin` bằng `salaryMax` là dải lương cố định, hợp lệ. Sau đó mới kiểm tra chức danh tồn tại (PUT) và mã trùng. Ràng buộc CHECK của V7 (`0 <= salary_min <= salary_max`) vẫn là lớp chặn cuối trong database.
 
+Chức danh `active=false` không chọn được khi tạo hoặc lưu lại bản nháp [yêu cầu tuyển dụng](requisitions.md) (task 246, `REQUISITION_POSITION_INACTIVE`); nháp đã có vẫn xem được. Trong lúc một yêu cầu tuyển dụng đang được lưu, PUT sửa chức danh đó (kể cả ngừng áp dụng) phải chờ yêu cầu lưu xong.
+
 PUT phải gửi đủ sáu trường; nên GET chi tiết trước rồi gửi lại các giá trị muốn giữ. Giữ nguyên mã của chính chức danh đang sửa không bị coi là trùng. Trường ngoài hợp đồng như `id`, `createdAt` hay `competencyFrameworkId` bị từ chối với HTTP 400 `INVALID_JSON`. PUT này **giữ nguyên** khung năng lực đang gán; muốn đổi khung thì dùng API ở mục [Khung năng lực của chức danh](#khung-năng-lực-của-chức-danh-task-214).
 
 Response của tạo/sửa và `GET /positions/{id}` cho người có `SALARY_RANGES_READ_ALL`:
