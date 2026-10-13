@@ -189,14 +189,21 @@ class ApiAuthorizationMatrixIntegrationTest {
                     anyOf(HEADCOUNT_PLANS_READ_ALL, REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 400),
             endpoint("GET", "/api/v1/headcount-plans/{id}", permission(HEADCOUNT_PLANS_READ_ALL), null, 404),
             endpoint("POST", "/api/v1/headcount-plans", permission(HEADCOUNT_PLANS_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("PUT", "/api/v1/headcount-plans/{id}", permission(HEADCOUNT_PLANS_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/headcount-plans/{id}", permission(HEADCOUNT_PLANS_WRITE_ALL), INVALID_BODY, 400),
+            // Tasks 254/255: approval-flow configuration. The matcher also requires role ADMIN or HR_MANAGER, which
+            // every holder of these codes has in the seed. The empty body stops a permitted write or preview at 400.
+            endpoint("GET", "/api/v1/approval-flows", permission(REQUISITIONS_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/approval-flows/{id}", permission(REQUISITIONS_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/approval-flows", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/approval-flows/{id}", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/approval-flows/preview", permission(REQUISITIONS_READ_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
             "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
             "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
             "requisition_headcount_overrides", "requisition_recruiters",
-            "requisition_recruiter_changes");
+            "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -230,6 +237,8 @@ class ApiAuthorizationMatrixIntegrationTest {
         jdbc.update("DELETE FROM recruitment_requisitions");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id = NULL, admin_locked_at = NULL, admin_lock_reason = NULL, admin_locked_by = NULL");
+        // Approval-flow versions can never be deleted (triggers of V18), but TRUNCATE does not fire them.
+        jdbc.execute("TRUNCATE approval_flow_steps, approval_flow_versions, approval_flows");
         jdbc.update("UPDATE departments SET parent_id = NULL");
         jdbc.update("DELETE FROM departments");
         jdbc.update("DELETE FROM positions");
@@ -358,6 +367,11 @@ class ApiAuthorizationMatrixIntegrationTest {
         Map<String, Object> changedRequisition = Map.of("positionId", position, "departmentId", department,
                 "headcount", 9, "reason", "REPLACEMENT");
         // Task 197: nothing uses this department, so a permitted DELETE would remove it.
+        // Tasks 254/255: TARGET has an approval flow, so a forbidden PUT that slipped through would add a version.
+        UUID flow = UUID.fromString(expect(request("POST", "/api/v1/approval-flows", json.writeValueAsString(Map.of(
+                "departmentId", department, "name", "Target",
+                "steps", List.of(Map.of("position", 1, "approverRole", "HR_MANAGER")))),
+                actors.get(Identity.HR_MANAGER).token()), 201).path("id").asText());
         UUID unused = UUID.fromString(expect(request("POST", "/api/v1/departments", json.writeValueAsString(Map.of(
                 "code", "UNUSED", "name", "Unused", "managerUserId", interviewer, "active", true)),
                 actors.get(Identity.ADMIN).token()), 201).path("id").asText());
@@ -440,6 +454,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                         Map.of("recruiterId", backup)),
                 new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + requisition + "/unassign",
                         Map.of("recruiterId", spare)),
+                // Only ADMIN and HR_MANAGER configure approval flows, even with a REQUISITIONS write permission.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/approval-flows", Map.of("departmentId", unused,
+                        "name", "Shadow", "steps", List.of(Map.of("position", 1, "approverRole", "HIRING_MANAGER")))),
+                new Attack(Identity.RECRUITER, "PUT", "/api/v1/approval-flows/" + flow, Map.of("departmentId", department,
+                        "name", "Taken over", "expectedVersion", 1,
+                        "steps", List.of(Map.of("position", 1, "approverRole", "RECRUITER")))),
                 new Attack(Identity.NO_ROLE, "POST", "/api/v1/requisitions/" + requisition + "/unassign",
                         Map.of("recruiterId", spare)));
 
