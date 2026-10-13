@@ -216,6 +216,16 @@ final class JobPostingTestSupport {
         return api.request("GET", PUBLIC_POSTINGS + "?page=" + page + "&size=" + size, null, null);
     }
 
+    // Task 315: the public list with a raw query string ("" or starting with "?", values already URL-encoded), and the
+    // values of its filters, both without a token.
+    HttpResponse<String> publicList(String rawQuery) throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + rawQuery, null, null);
+    }
+
+    HttpResponse<String> publicFilters() throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + "/filters", null, null);
+    }
+
     // Task 310: the review and publication history, newest step first.
     HttpResponse<String> history(UUID posting, String token) throws Exception {
         return api.request("GET", POSTINGS + "/" + posting + "/history", null, token);

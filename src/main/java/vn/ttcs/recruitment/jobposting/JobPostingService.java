@@ -268,10 +268,21 @@ public class JobPostingService {
 
     // Task 309: one page of the postings getPublic shows, newest publication first. REPEATABLE_READ: the count and
     // the page come from the same snapshot.
+    // Task 315 (story S4-01): only the postings that match every filter and the keyword of the query (an empty query
+    // is the whole list). Checks in order: page and size, then the keyword (400 VALIDATION_ERROR each); an unknown id
+    // is not checked and gives an empty page.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PublicJobPostingPage publicPage(int page, int size) {
+    public PublicJobPostingPage publicPage(PublicJobPostingQuery query, int page, int size) {
         requireValidPage(page, size, "Trang hoặc số lượng tin tuyển dụng không hợp lệ.");
-        return reads.publicPage(calendar.today(), page, size);
+        query.requireValid();
+        return reads.publicPage(calendar.today(), query, page, size);
+    }
+
+    // Task 315: the departments, work locations and employment types the public list can be filtered by, taken from
+    // the postings publicPage lists today, for anyone. REPEATABLE_READ: the three lists come from the same snapshot.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PublicJobPostingFilters publicFilters() {
+        return reads.publicFilters(calendar.today());
     }
 
     // The body's content, with the title, the job description and the candidate requirements it leaves out taken from
