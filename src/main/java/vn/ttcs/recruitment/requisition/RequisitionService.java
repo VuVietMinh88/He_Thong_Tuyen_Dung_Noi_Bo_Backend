@@ -35,6 +35,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,12 @@ public class RequisitionService {
     private static final String JUSTIFICATION_REQUIRED_MESSAGE =
             "Dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh, vui lòng nhập giải trình.";
 
+    // Task 257: the statuses in which a requisition may still be edited (PUT) and sent for approval (submit).
+    // RequisitionStatus asks every new status to be classified here; RequisitionWorkflowStatusTest does not compile
+    // until it is.
+    static final Set<RequisitionStatus> EDITABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+    static final Set<RequisitionStatus> SUBMITTABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+
     private final RecruitmentRequisitionRepository requisitions;
     private final PositionRepository positions;
     private final DepartmentRepository departments;
@@ -61,6 +68,8 @@ public class RequisitionService {
     private final PermissionService permissions;
     private final SalaryBandService salaryBands;
     private final HeadcountQuota headcountQuota;
+    private final ApprovalChainSelector approvalChains;
+    private final RequisitionApprovalRepository approvals;
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
@@ -68,8 +77,9 @@ public class RequisitionService {
     public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
                               DepartmentRepository departments, AccountRepository accounts,
                               AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              SalaryBandService salaryBands, HeadcountQuota headcountQuota, Validator validator,
-                              BusinessCalendar calendar, Clock clock) {
+                              SalaryBandService salaryBands, HeadcountQuota headcountQuota,
+                              ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
+                              Validator validator, BusinessCalendar calendar, Clock clock) {
         this.requisitions = requisitions;
         this.positions = positions;
         this.departments = departments;
@@ -79,6 +89,8 @@ public class RequisitionService {
         this.permissions = permissions;
         this.salaryBands = salaryBands;
         this.headcountQuota = headcountQuota;
+        this.approvalChains = approvalChains;
+        this.approvals = approvals;
         this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
@@ -143,6 +155,7 @@ public class RequisitionService {
                 source.getHeadcount(), source.getReason().name(), source.getProposedSalaryMin(),
                 source.getProposedSalaryMax(), source.getSalaryJustification(), neededByForCopy(source, today),
                 source.getJobDescription(), source.getCandidateRequirements(), headcountOverrideReason);
+        // Task 257: the approval status and history are never copied: the copy is a DRAFT without events.
         requireValidCopy(request);
         return createDraft(jwt, writer, request, today);
     }
@@ -241,7 +254,7 @@ public class RequisitionService {
         var requisition = locked.orElseThrow(RequisitionService::notFound);
         // The scope is checked after this lock, so a department manager change made while we waited is respected.
         requireInScope(caller, requisition.getDepartmentId());
-        requireDraft(requisition);
+        requireEditable(requisition);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request, calendar.today());
         requireActivePositionAndDepartment(request);
@@ -257,6 +270,51 @@ public class RequisitionService {
                 request.candidateRequirements(), updatedAt);
         requisitions.flush();
         recordHeadcountOverride(confirmed, id, request, caller, updatedAt);
+        return RequisitionView.from(requisition);
+    }
+
+    /**
+     * Task 257: sends a requisition for approval (S3-01, S3-02). Only a complete requisition is sent: both proposed
+     * salaries, the needed-by date (today or later), the job description and the candidate requirements, an active
+     * position and department, and a justification when the proposal is outside the current standard band. The
+     * approval levels come from the department's current flow version and the proposed maximum salary (task 256) and
+     * are recorded as the snapshot of the round: a later change of the configuration does not change this round.
+     * <p>
+     * Checks in order: write access (401/403), read access to requisitions at all (403 before the lookup, like copy:
+     * the answer shows the whole requisition, and WRITE never implies READ), the requisition exists (404), it is in the
+     * caller's write and read scope (403), its status allows submitting (409), it is complete (400 listing every
+     * missing field), the date, position, department and justification checks of a save (400), then the approval
+     * chain (409). The headcount plan is not checked again: the requisition already counts and asks for nothing new.
+     * <p>
+     * Lock order like update: account, session, requisition, then position and department FOR SHARE. The department
+     * lock also makes a new flow version of that department wait until this commits (its writer locks the department
+     * FOR UPDATE), so the snapshot is never taken from a version being published. The caller is checked again after
+     * each lock. updatedAt (the last content edit) does not change.
+     */
+    @Transactional
+    public RequisitionView submit(Jwt jwt, UUID id, String comment) {
+        Writer writer = lockWriter(jwt);
+        requireStillWriter(jwt, writer);
+        var locked = requisitions.findByIdForUpdate(id);
+        Caller caller = requireStillWriter(jwt, writer);
+        asReader(caller);
+        var requisition = locked.orElseThrow(RequisitionService::notFound);
+        requireInWriteAndReadScope(caller, requisition.getDepartmentId());
+        requireSubmittable(requisition);
+        requireComplete(requisition);
+        RequisitionRequest content = contentOf(requisition);
+        requireNeededByNotInPast(content, calendar.today());
+        requireActivePositionAndDepartment(content);
+        caller = requireStillWriter(jwt, writer);
+        requireInWriteAndReadScope(caller, requisition.getDepartmentId());
+        requireJustificationOutsideStandardBand(content);
+        long salaryBasis = requisition.getProposedSalaryMax();
+        SelectedChain chain = approvalChains.select(requisition.getDepartmentId(), salaryBasis,
+                requisition.getCreatedBy(), caller.id());
+        RequisitionStatus before = requisition.getStatus();
+        approvals.appendSubmitted(id, approvals.nextRound(id), before, chain, salaryBasis, caller.id(), now(), comment);
+        requisition.moveTo(before, RequisitionStatus.PENDING_APPROVAL);
+        requisitions.flush();
         return RequisitionView.from(requisition);
     }
 
@@ -373,13 +431,69 @@ public class RequisitionService {
         requireInScope(caller, request.departmentId());
     }
 
-    // Only a draft can be edited. V13 only allows DRAFT today, so this guard matters once the approval workflow
-    // adds new statuses: a submitted requisition then changes only through that workflow.
-    private static void requireDraft(RecruitmentRequisition requisition) {
-        if (requisition.getStatus() != RequisitionStatus.DRAFT) {
+    // Only a requisition in EDITABLE_STATUSES can be edited. A submitted requisition changes only through the
+    // approval workflow (task 257), and an approved or rejected one not at all.
+    private static void requireEditable(RecruitmentRequisition requisition) {
+        if (!EDITABLE_STATUSES.contains(requisition.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_DRAFT",
                     "Chỉ sửa được yêu cầu tuyển dụng đang ở trạng thái nháp.");
         }
+    }
+
+    // Task 257: a write that answers with the whole requisition needs both scopes. They differ only for unusual grants
+    // such as WRITE_SCOPED with READ_ALL; asReader has already refused a caller without any READ permission.
+    private void requireInWriteAndReadScope(Caller writer, UUID departmentId) {
+        requireInScope(writer, departmentId);
+        Caller reader = asReader(writer);
+        if (reader.scope() != writer.scope()) {
+            requireInScope(reader, departmentId);
+        }
+    }
+
+    // Task 257: a submitted requisition waits for its approvers; it is sent again only after they ask for more
+    // information (task 264). A second click on "gửi duyệt" ends here too.
+    private static void requireSubmittable(RecruitmentRequisition requisition) {
+        if (!SUBMITTABLE_STATUSES.contains(requisition.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_SUBMITTABLE",
+                    "Chỉ gửi duyệt được yêu cầu tuyển dụng đang ở trạng thái nháp.");
+        }
+    }
+
+    // Task 257: a draft may leave these empty (task 246), a requisition sent for approval may not. Every missing field
+    // is reported at once, like a form.
+    private static void requireComplete(RecruitmentRequisition requisition) {
+        Map<String, String> missing = new LinkedHashMap<>();
+        if (requisition.getProposedSalaryMin() == null) {
+            missing.put("proposedSalaryMin", "Vui lòng nhập lương đề xuất tối thiểu trước khi gửi duyệt.");
+        }
+        if (requisition.getProposedSalaryMax() == null) {
+            missing.put("proposedSalaryMax", "Vui lòng nhập lương đề xuất tối đa trước khi gửi duyệt.");
+        }
+        if (requisition.getNeededBy() == null) {
+            missing.put("neededBy", "Vui lòng chọn ngày cần người trước khi gửi duyệt.");
+        }
+        if (isBlank(requisition.getJobDescription())) {
+            missing.put("jobDescription", "Vui lòng nhập mô tả công việc trước khi gửi duyệt.");
+        }
+        if (isBlank(requisition.getCandidateRequirements())) {
+            missing.put("candidateRequirements", "Vui lòng nhập yêu cầu ứng viên trước khi gửi duyệt.");
+        }
+        if (!missing.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "REQUISITION_INCOMPLETE",
+                    "Yêu cầu tuyển dụng chưa đủ thông tin để gửi duyệt.", missing);
+        }
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.isBlank();
+    }
+
+    // Task 257: the saved content in the shape of a save, so that submit runs the same checks as PUT.
+    private static RequisitionRequest contentOf(RecruitmentRequisition requisition) {
+        return new RequisitionRequest(requisition.getPositionId(), requisition.getDepartmentId(),
+                requisition.getHeadcount(), requisition.getReason().name(), requisition.getProposedSalaryMin(),
+                requisition.getProposedSalaryMax(), requisition.getSalaryJustification(), requisition.getNeededBy(),
+                requisition.getJobDescription(), requisition.getCandidateRequirements(), null);
     }
 
     // RequisitionRequest has already checked each salary on its own. A draft may leave one or both ends empty;
