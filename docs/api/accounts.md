@@ -64,7 +64,7 @@ Admin gửi đầy đủ trạng thái mới của các trường được phép
 }
 ```
 
-`fullName` bắt buộc, trim/tối đa255; `phone` và `displayTitle` là tùy chọn (chuỗi trắng/null/bỏ trường sẽ xóa dữ liệu đó), chức danh tối đa120. Điện thoại theo quy tắc ở [hồ sơ cá nhân](profile.md); `+84` được lưu thành số bắt đầu bằng0. `departmentId=null` hoặc bỏ trường sẽ gỡ phòng ban, nên frontend cần gửi lại phòng ban hiện tại nếu muốn giữ nguyên. Đây là PUT thay thế các trường được phép, không phải PATCH.
+`fullName` bắt buộc, trim/tối đa255; `phone` và `displayTitle` là tùy chọn (chuỗi trắng/null/bỏ trường sẽ xóa dữ liệu đó), chức danh tối đa120. Trim ở đây bỏ mọi ký tự không nhìn thấy ở đầu/cuối: khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060; ký tự ở giữa được giữ và giới hạn độ dài đếm sau khi bỏ. Họ tên không có ký tự nhìn thấy được bị coi là trống (HTTP 400 `VALIDATION_ERROR`); chức danh như vậy được xóa như chuỗi trắng. Điện thoại theo quy tắc ở [hồ sơ cá nhân](profile.md); `+84` được lưu thành số bắt đầu bằng0. `departmentId=null` hoặc bỏ trường sẽ gỡ phòng ban, nên frontend cần gửi lại phòng ban hiện tại nếu muốn giữ nguyên. Đây là PUT thay thế các trường được phép, không phải PATCH.
 
 Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. [API phòng ban 195–196](departments.md) cung cấp danh sách/cây, tạo/sửa và ngừng áp dụng trên schema của 194. Không tự tạo phòng ban từ tên do người dùng nhập.
 
