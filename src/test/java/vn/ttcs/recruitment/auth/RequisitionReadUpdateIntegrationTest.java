@@ -388,6 +388,36 @@ class RequisitionReadUpdateIntegrationTest {
         assertThat(count()).isEqualTo(1);
     }
 
+    // As on create: a section without a visible character has not been written, so PUT clears it. Before, the
+    // no-break spaces U+00A0, U+2007, U+202F and U+0085, U+180E passed String.isBlank() and failed V13's CHECK (500).
+    @Test
+    void updateClearsSectionsWithoutAVisibleCharacter() throws Exception {
+        Map<String, Object> written = changed(positionId, itId);
+        written.put("salaryJustification", "Thị trường khan hiếm.");
+        written.put("jobDescription", "Kiểm thử tự động.");
+        written.put("candidateRequirements", "Tối thiểu 3 năm kinh nghiệm.");
+        UUID id = id(createDraft(written, headToken));
+
+        for (int invisible : new int[] {0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x200B, 0xFEFF, 0x2060}) {
+            expect(put(id, written, headToken), 200);
+            Map<String, Object> cleared = changed(positionId, itId);
+            String section = new String(new int[] {invisible, '\n', invisible}, 0, 3);
+            cleared.put("salaryJustification", section);
+            cleared.put("jobDescription", section);
+            cleared.put("candidateRequirements", section);
+
+            JsonNode updated = expect(put(id, cleared, headToken), 200);
+            for (String field : List.of("salaryJustification", "jobDescription", "candidateRequirements")) {
+                assertThat(updated.path(field).isNull()).as(Integer.toHexString(invisible) + " " + field).isTrue();
+            }
+            Map<String, Object> stored = row(id);
+            assertThat(stored.get("salary_justification")).as(Integer.toHexString(invisible)).isNull();
+            assertThat(stored.get("job_description")).as(Integer.toHexString(invisible)).isNull();
+            assertThat(stored.get("candidate_requirements")).as(Integer.toHexString(invisible)).isNull();
+        }
+        assertThat(count()).isEqualTo(1);
+    }
+
     @Test
     void updateRejectsInvalidContentWithTheSameErrorsAsCreateAndLeavesTheDraftUnchanged() throws Exception {
         UUID id = id(createDraft(payload(positionId, itId), headToken));

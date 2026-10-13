@@ -6,7 +6,8 @@ import jakarta.validation.constraints.Size;
 
 // Task 278: the optional body of POST /requisitions/{id}/copy. Everything else comes from the source requisition, so
 // a client cannot send other fields; edit the copy afterwards with PUT. headcountOverrideReason has the same rules and
-// meaning as in RequisitionRequest (task 275): only the HR manager may use it, only when the copy goes over the plan.
+// meaning as in RequisitionRequest (task 275): only the HR manager may use it, only when the copy goes over the plan,
+// and a reason without a visible character is no reason (RequisitionText).
 public record RequisitionCopyRequest(
         @Size(max = 1_000, message = "Lý do vượt định biên tối đa 1.000 ký tự.")
         @Pattern(regexp = RequisitionRequest.NO_NUL_CHARACTER,
@@ -14,8 +15,7 @@ public record RequisitionCopyRequest(
         String headcountOverrideReason) {
 
     public RequisitionCopyRequest {
-        headcountOverrideReason = headcountOverrideReason == null || headcountOverrideReason.isBlank()
-                ? null : headcountOverrideReason;
+        headcountOverrideReason = RequisitionText.invisibleToNull(headcountOverrideReason);
     }
 
     @JsonAnySetter
