@@ -40,9 +40,9 @@ public class StaffImportController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.preview(jwt, file));
     }
 
-    // Creates the accounts. Same "file" field as the preview; the file is read and checked again.
+    // Creates the accounts and returns the summary report. Same "file" field as the preview; it is checked again.
     @PostMapping
-    public ResponseEntity<StaffImportResult> importStaff(@AuthenticationPrincipal Jwt jwt,
+    public ResponseEntity<StaffImportReport> importStaff(@AuthenticationPrincipal Jwt jwt,
             @RequestParam(name = "file", required = false) MultipartFile file) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.importStaff(jwt, file));
     }

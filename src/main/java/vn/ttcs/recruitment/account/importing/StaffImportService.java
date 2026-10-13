@@ -15,6 +15,8 @@ import vn.ttcs.recruitment.account.DuplicateEmailException;
 import vn.ttcs.recruitment.account.InvalidDepartmentException;
 import vn.ttcs.recruitment.account.NewAccountProfile;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.account.importing.StaffImportReport.CreatedRow;
+import vn.ttcs.recruitment.account.importing.StaffImportReport.SkippedRow;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -72,47 +74,58 @@ public class StaffImportService {
         return StaffImportPreview.of(validator.check(rows));
     }
 
-    // Creates an account for every row that is valid now and skips the others. The file is read and checked again
-    // instead of trusting an earlier preview, because accounts and departments may have changed since.
+    // Creates an account for every row that is valid now and skips the others, then reports both with the reason of
+    // every skipped row. The file is read and checked again instead of trusting an earlier preview, because
+    // accounts and departments may have changed since.
     // This method deliberately has no transaction. AccountProvisioningService.create then runs every row in its own
     // transaction, so a row that fails rolls back alone and the accounts created before it stay. With @Transactional
     // here, one failing row would undo the whole file.
-    public StaffImportResult importStaff(Jwt jwt, MultipartFile file) {
+    public StaffImportReport importStaff(Jwt jwt, MultipartFile file) {
         requireImportAccess(jwt);
         List<StaffImportCheckedRow> rows = validator.check(reader.read(uploadedXlsx(file)));
-        List<StaffImportRowResult> results = new ArrayList<>();
+        // Rows are handled in file order, so both lists of the report are in file order too.
+        List<CreatedRow> created = new ArrayList<>();
+        List<SkippedRow> skipped = new ArrayList<>();
         Integer stoppedAtRow = null;
         for (StaffImportCheckedRow row : rows) {
             if (!row.valid()) {
-                results.add(StaffImportRowResult.skipped(row));
+                // The same cell errors the preview shows for this row.
+                skipped.add(SkippedRow.of(row, row.errors()));
                 continue;
             }
             if (stoppedAtRow != null) {
-                results.add(StaffImportRowResult.notAttempted(row));
+                skipped.add(SkippedRow.of(row, StaffImportRowError.notAttempted(row.rowNumber(), stoppedAtRow)));
                 continue;
             }
             // A lost session or permission is not caught: create checks them again for every row, and the request
             // then stops with 401/403. Accounts created before that stay.
             try {
-                var created = provisioning.create(jwt, accountRequest(row),
+                var account = provisioning.create(jwt, accountRequest(row),
                         new NewAccountProfile(row.departmentCode(), row.phone(), row.displayTitle()));
-                results.add(StaffImportRowResult.created(row, created.id()));
-            } catch (DuplicateEmailException | InvalidDepartmentException exception) {
-                // Since the rows were checked, someone created an account with this email or stopped the department.
-                results.add(StaffImportRowResult.skipped(row));
+                created.add(new CreatedRow(row.rowNumber(), row.email(), account.id()));
+            } catch (DuplicateEmailException exception) {
+                // Since the rows were checked, someone created an account with this email.
+                skipped.add(SkippedRow.of(row, StaffImportRowError.emailTaken(row.rowNumber())));
+            } catch (InvalidDepartmentException exception) {
+                // Since the rows were checked, someone stopped the department or changed its code.
+                skipped.add(SkippedRow.of(row,
+                        StaffImportRowError.departmentUnavailable(row.rowNumber(), row.departmentCode())));
             } catch (AccountInvitationException exception) {
                 // The invitation was not sent, so this account was rolled back as in POST /accounts.
-                results.add(StaffImportRowResult.skipped(row));
-                if (!exception.isAddressRefused()) {
+                if (exception.isAddressRefused()) {
+                    // Only this address is the problem; the mail server still works, so the next rows are tried.
+                    skipped.add(SkippedRow.of(row, StaffImportRowError.addressRefused(row.rowNumber())));
+                } else {
                     // The mail server itself is not working, so every next row would fail the same way, and each
                     // try may wait for a timeout. The valid rows after this one are therefore not tried. Importing
                     // the same file again later creates them: accounts already created are skipped then, because
-                    // their emails exist. When the server only refused this address, the next rows are tried.
+                    // their emails exist.
+                    skipped.add(SkippedRow.of(row, StaffImportRowError.mailServerUnavailable(row.rowNumber())));
                     stoppedAtRow = row.rowNumber();
                 }
             }
         }
-        return new StaffImportResult(results, stoppedAtRow);
+        return StaffImportReport.of(created, skipped, stoppedAtRow);
     }
 
     // A valid row has an email, a name and only known role codes.
