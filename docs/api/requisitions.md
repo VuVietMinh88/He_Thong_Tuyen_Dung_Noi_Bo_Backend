@@ -2,7 +2,7 @@
 
 Phạm vi TKNHTTDNB1-244 (tạo và lưu nháp), TKNHTTDNB1-245 (xem và cập nhật bản nháp), TKNHTTDNB1-246 (kiểm tra trường bắt buộc và lý do tuyển), TKNHTTDNB1-247 (bắt buộc giải trình khi dải lương đề xuất ngoài chuẩn), TKNHTTDNB1-248 (ngày cần người không ở quá khứ) và TKNHTTDNB1-249 (kiểm tra quyền và phòng ban của người tạo yêu cầu), story TKNHTTDNB1-29 (S2-10); TKNHTTDNB1-274 (kiểm tra định biên khi lưu) và TKNHTTDNB1-275 (HR cho phép vượt định biên có lý do), story TKNHTTDNB1-33 (S3-04); TKNHTTDNB1-278 (sao chép yêu cầu tuyển dụng) và TKNHTTDNB1-279 (bản sao bắt đầu ở trạng thái nháp), story TKNHTTDNB1-34 (S3-05). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; response thành công và các lỗi nghiệp vụ `REQUISITION_*`, `INVALID_REQUISITION_*`, `SALARY_JUSTIFICATION_REQUIRED`, `NEEDED_BY_IN_PAST` dùng `Cache-Control: no-store`.
 
-Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Task 249 bắt phòng ban ghi vào yêu cầu (khi tạo, và khi sửa) phải thuộc phạm vi người gọi (mục "Phạm vi dữ liệu"). Sau task 249, phần backend cho các tiêu chí của story S2-10 đã có; trong story còn task 250 (kết nối giao diện, phía frontend) và 251 (test tạo và lưu nháp). Sprint 3 thêm: kiểm định biên khi lưu (task 274, mục "Kiểm tra định biên"), HR xác nhận vượt định biên và `GET /requisitions/{id}/headcount-overrides` (task 275), sao chép yêu cầu `POST /requisitions/{id}/copy` (task 278, 279, mục "Sao chép yêu cầu"). Phân công recruiter chính và hỗ trợ cho một yêu cầu (task 283, 284) và lịch sử thay đổi phân công (task 286) nằm ở [API phân công recruiter](requisition-recruiters.md).
+Hiện có `POST /requisitions`, `GET /requisitions`, `GET /requisitions/{id}` và `PUT /requisitions/{id}`. Task 246 đã thêm kiểm tra trường bắt buộc, lý do tuyển, giới hạn số lượng và chức danh/phòng ban đang áp dụng (mục "Kiểm tra trường bắt buộc và lý do tuyển"). Task 247 bắt buộc nhập giải trình khi dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh (mục "Giải trình khi dải lương đề xuất ngoài chuẩn"). Task 248 từ chối ngày cần người trước ngày hôm nay theo múi giờ nghiệp vụ (mục "Ngày cần người không ở quá khứ"). Task 249 bắt phòng ban ghi vào yêu cầu (khi tạo, và khi sửa) phải thuộc phạm vi người gọi (mục "Phạm vi dữ liệu"). Sau task 249, phần backend cho các tiêu chí của story S2-10 đã có; trong story còn task 250 (kết nối giao diện, phía frontend) và 251 (test tạo và lưu nháp). Sprint 3 thêm: kiểm định biên khi lưu (task 274, mục "Kiểm tra định biên"), HR xác nhận vượt định biên và `GET /requisitions/{id}/headcount-overrides` (task 275), sao chép yêu cầu `POST /requisitions/{id}/copy` (task 278, 279, mục "Sao chép yêu cầu"). Phân công recruiter chính và hỗ trợ cho một yêu cầu (task 283, 284) và lịch sử thay đổi phân công (task 286) nằm ở [API phân công recruiter](requisition-recruiters.md). Gửi duyệt (task 257) và luồng duyệt nằm ở [API duyệt yêu cầu tuyển dụng](requisition-approvals.md). Tin tuyển dụng tạo từ yêu cầu đã duyệt (task 303) nằm ở [API tin tuyển dụng](job-postings.md).
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
@@ -23,7 +23,7 @@ Mọi thao tác ghi còn kiểm lại hạn JWT, phiên và quyền (đọc lạ
 - Người chỉ có `SCOPED` chỉ xem, tạo và sửa yêu cầu thuộc **phòng ban mình phụ trách** (`departments.manager_user_id` là người gọi), tính cả mọi phòng ban con, cháu bên dưới trong cây. Ví dụ cây `IT > IT_DEV > IT_QA`: trưởng IT thấy và tạo được yêu cầu cho cả ba phòng; trưởng IT_DEV thấy và tạo được cho IT_DEV và IT_QA nhưng không cho IT.
 - Người tạo yêu cầu không quyết định quyền xem: khi HR đổi người phụ trách phòng ban, bản nháp của phòng ban đó chuyển sang người phụ trách mới, người phụ trách cũ không xem/sửa được nữa (nhưng `createdBy` vẫn giữ người tạo).
 - Trạng thái `active` của phòng ban không ảnh hưởng phạm vi: phòng ban ngừng áp dụng vẫn do người phụ trách của nó xem. Riêng việc **lưu** nháp vào phòng ban ngừng áp dụng bị chặn từ task 246 (xem mục kiểm tra bên dưới).
-- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở, sửa hay tạo một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). API phân công recruiter (task 284, [API phân công recruiter](requisition-recruiters.md)) đã có nhưng **không** mở rộng phạm vi này: recruiter được phân công vẫn nhận 403 khi mở yêu cầu. Mở rộng theo phân công hay theo luồng duyệt chờ BA/PO trả lời câu hỏi 2 và 14, rồi task 285.
+- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở, sửa hay tạo một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). API phân công recruiter (task 284, [API phân công recruiter](requisition-recruiters.md)) đã có nhưng **không** mở rộng phạm vi này: recruiter được phân công vẫn nhận 403 khi mở yêu cầu. Mở rộng theo phân công chờ BA/PO trả lời câu hỏi 2 và 14, rồi task 285. Từ task 262, người tham gia duyệt một yêu cầu xem được nó qua `GET /requisitions/{id}` (xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md), mục "Ai được xem yêu cầu"); danh sách vẫn chỉ theo phòng ban.
 - Yêu cầu tồn tại nhưng ngoài phạm vi trả 403 `FORBIDDEN` theo quy ước chung của [thiết kế phân quyền](../architecture/authorization.md), không trả 404. UUID không tồn tại trả 404 `REQUISITION_NOT_FOUND` cho mọi người gọi; vì vậy người `SCOPED` phân biệt được "không tồn tại" và "không được phép", nhưng UUID là ngẫu nhiên nên không đoán được mã của phòng ban khác.
 
 Task 245 giới hạn **yêu cầu đã có** mà người gọi được xem/sửa. Task 249 (kết quả Jira: "Bảo đảm Trưởng bộ phận tạo và cập nhật yêu cầu thuộc phạm vi phòng ban được phép") giới hạn thêm **phòng ban ghi vào body** (`departmentId`):
@@ -145,7 +145,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 
 **Đồng thời:** dòng chức danh và dòng phòng ban được đọc bằng `SELECT active ... FOR SHARE` trong transaction ghi (mức cô lập mặc định READ COMMITTED). Khóa chia sẻ giữ đến khi tạo/sửa xong, nên `PUT /positions/{id}` hoặc `PUT /departments/{id}` của HR (ví dụ ngừng áp dụng) phải chờ, không thể chen vào giữa lúc kiểm và lúc lưu. Ngược lại, nếu HR đang ngừng áp dụng dở dang, yêu cầu tạo/sửa chờ HR xong rồi dùng giá trị mới: HR commit thì trả `*_INACTIVE`, HR hủy thì lưu bình thường. Nhiều yêu cầu dùng cùng chức danh/phòng ban vẫn chạy song song vì khóa chia sẻ không chặn nhau. `DELETE /departments/{id}` (task 197) khóa dòng phòng ban `FOR UPDATE`: đang có yêu cầu tạo/sửa chọn phòng đó thì lệnh xóa chờ rồi trả 409 `DEPARTMENT_HAS_OPEN_REQUISITIONS`; lệnh xóa chạy trước thì yêu cầu tạo/sửa chờ xóa xong rồi nhận 400 `INVALID_REQUISITION_DEPARTMENT`.
 
-Response của tạo (cũng là cấu trúc của chi tiết, mỗi item trong danh sách và response của sửa):
+Response của tạo (cũng là cấu trúc của chi tiết và response của sửa):
 
 ```json
 {
@@ -175,11 +175,15 @@ UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `nul
 
 | Tham số | Ý nghĩa |
 |---|---|
-|status|Không bắt buộc. Mã trạng thái đúng chữ hoa; hiện chỉ có `DRAFT`. Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|
+|status|Không bắt buộc. Mã trạng thái đúng chữ hoa: `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `REJECTED` (task 257, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md)). Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|
 |page|Từ 0, mặc định 0; `page × size` (số dòng bỏ qua) không được vượt 2.147.483.647|
 |size|Từ 1 đến 100, mặc định 20|
 
-Response: `{items, page, size, totalElements, totalPages}`; mỗi item có đúng cấu trúc của response tạo ở trên. Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database.
+Response: `{items, page, size, totalElements, totalPages}`; mỗi item có 15 trường của response tạo ở trên và thêm `daysOpen`, `daysUntilNeededBy`, `overdue`. Ba trường tính toán chỉ có trong item danh sách; tạo, chi tiết và sửa giữ cấu trúc response cũ.
+
+`daysOpen` là số ngày từ ngày tạo tới hôm nay (ngày tạo tính là 0). `daysUntilNeededBy` là số ngày từ hôm nay tới `neededBy`, âm khi đã trễ và `null` nếu chưa có ngày cần người. `overdue` chỉ là `true` khi `neededBy` trước hôm nay; đến hạn hôm nay chưa trễ. Các ngày được tính theo `app.business-zone`, mặc định `Asia/Ho_Chi_Minh`, tại thời điểm đọc danh sách.
+
+Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database.
 
 `status` sai (ví dụ `draft` chữ thường hoặc `SUBMITTED`), `page`/`size` không phải số nguyên trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; `page` âm, `size` nhỏ hơn 1 hoặc lớn hơn 100, hoặc `page × size` lớn hơn 2.147.483.647 (ví dụ `page=21474837&size=100`) trả 400 `VALIDATION_ERROR` "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.".
 
@@ -191,7 +195,7 @@ Response: `{items, page, size, totalElements, totalPages}`; mỗi item có đún
 
 `PUT /requisitions/{id}` lưu lại bản nháp với nội dung mới, trả **200** cùng yêu cầu sau khi sửa. Body có đúng các trường và quy tắc của `POST` ở trên. `PUT` **thay toàn bộ** nội dung: trường không gửi, gửi `null` hoặc văn bản rỗng/chỉ có khoảng trắng trở thành `null`, nên giao diện phải gửi lại mọi trường đang có trên form. `id`, `status`, `createdBy`, `createdAt` không sửa được (gửi lên là `INVALID_JSON`); `createdBy` và `createdAt` giữ nguyên kể cả khi người sửa không phải người tạo, `updatedAt` là thời điểm sửa (UTC, micro giây).
 
-Chỉ yêu cầu ở trạng thái `DRAFT` được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Hiện V13 chỉ cho phép `DRAFT` nên lỗi này chưa xảy ra được; nó có hiệu lực khi luồng duyệt thêm trạng thái mới.
+Chỉ yêu cầu ở trạng thái `DRAFT`, hoặc `RETURNED` (người duyệt yêu cầu bổ sung, task 264), được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
 
 Thứ tự kiểm tra:
 
@@ -200,7 +204,7 @@ Thứ tự kiểm tra:
 3. Khóa tài khoản rồi phiên, kiểm lại quyền (403 nếu vừa mất quyền, 401 `SESSION_INVALID` nếu phiên/tài khoản/token không còn hợp lệ).
 4. Khóa dòng yêu cầu (`SELECT ... FOR UPDATE`): không có thì 404 `REQUISITION_NOT_FOUND`.
 5. Phạm vi: người `SCOPED` không phụ trách phòng ban hiện tại của yêu cầu thì 403 `FORBIDDEN`. Bước này chạy sau khi đã khóa dòng, nên nếu HR đổi người phụ trách phòng ban trong lúc yêu cầu đang chờ khóa, kết quả dùng người phụ trách mới.
-6. Còn là `DRAFT`, nếu không thì 409 `REQUISITION_NOT_DRAFT`.
+6. Ở trạng thái sửa được (`DRAFT` hoặc `RETURNED`, task 264), nếu không thì 409 `REQUISITION_NOT_DRAFT`.
 7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi phòng ban trong body thuộc phạm vi người gọi (403 `FORBIDDEN`, task 249), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), rồi định biên (409, task 274), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng, và phòng ban vẫn được kiểm phạm vi lần nữa sau khi bị khóa `FOR SHARE`.
 
 Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ khóa dòng: người đến sau chờ người trước commit rồi ghi đè toàn bộ (người lưu sau cùng thắng). Chưa có kiểm tra phiên bản (optimistic locking), nên giao diện nên tải lại chi tiết trước khi sửa. Mọi lỗi đều không đổi dòng nào.
@@ -227,7 +231,7 @@ Kết quả Jira: so sánh với dải chuẩn của chức danh và yêu cầu 
 }
 ```
 
-**Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response thành công giữ đúng 15 trường như trên, không có `salaryMin`/`salaryMax` của chức danh và không có cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
+**Không lộ dải chuẩn.** Lời nhắn chỉ nói đề xuất nằm ngoài dải chuẩn: không có con số, không nói thấp hơn hay cao hơn. Response tạo, chi tiết và sửa giữ đúng 15 trường như trên; item danh sách thêm ba trường thời gian nhưng không có `salaryMin`/`salaryMax` của chức danh hoặc cờ "ngoài chuẩn". Điều này áp dụng cho mọi người gọi, kể cả HR_MANAGER (người có `SALARY_RANGES_READ_ALL` xem dải chuẩn ở [API chức danh](positions.md)). Trong code, `RequisitionService` chỉ nhận `BELOW`/`WITHIN`/`ABOVE` từ `SalaryBandService.compare`, không cầm con số của dải. Giới hạn còn lại: chính quy tắc này cho người gọi biết một mức lương cụ thể nằm trong hay ngoài dải (lưu được hay bị đòi giải trình), nên thử nhiều mức có thể dò ra hai đầu dải. Mỗi lần thử lưu được đều tạo hoặc sửa một bản nháp có ghi người tạo và thời điểm, nên việc dò để lại dấu vết. Nếu BA/PO cần chặn hẳn việc này thì phải đổi yêu cầu nghiệp vụ (ví dụ luôn bắt giải trình).
 
 Thứ tự: đây là bước 8 của tạo và phần cuối bước 7 của sửa ở trên, chạy sau mọi bước kiểm khác. Chức danh không tồn tại hoặc đã ngừng áp dụng trả `INVALID_REQUISITION_POSITION`/`REQUISITION_POSITION_INACTIVE` trước, không bao giờ trả 404 `POSITION_NOT_FOUND` hay 409 `POSITION_INACTIVE` của `SalaryBandService`. Giải trình dài hơn 2.000 ký tự là `VALIDATION_ERROR` ở bước 2, không phải `SALARY_JUSTIFICATION_REQUIRED`. Người thiếu quyền, sửa nháp ngoài phạm vi hoặc chọn phòng ban ngoài phạm vi (task 249) nhận 403 trước khi lương được so.
 
@@ -236,8 +240,8 @@ Thứ tự: đây là bước 8 của tạo và phần cuối bước 7 của s�
 Quyết định của backend (chờ BA/PO xác nhận):
 
 - Ngoài chuẩn tính cả **thấp hơn** dải, không chỉ cao hơn: tiêu chí story ghi "nằm ngoài dải chuẩn".
-- Không bắt nhập đủ hai mức lương khi một mức đã có: nháp được lưu dở (task 244). Việc bắt đủ thông tin trước khi gửi duyệt thuộc luồng duyệt sau này.
-- Không thêm cờ kiểu `salaryOutsideStandardBand` vào response: giao diện biết qua lỗi 400; cờ phải tính lại ở mỗi `GET`/danh sách vì HR có thể đổi dải sau khi lưu. Nháp đã lưu không được kiểm lại khi HR đổi dải; nó chỉ được kiểm ở lần lưu sau (luồng gửi duyệt sau này nên kiểm lại).
+- Không bắt nhập đủ hai mức lương khi một mức đã có: nháp được lưu dở (task 244). Từ task 257, gửi duyệt mới bắt đủ thông tin (cả hai mức lương, ngày cần người, mô tả công việc, yêu cầu ứng viên) và chạy lại kiểm tra dải lương, ngày cần người, chức danh và phòng ban, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md).
+- Không thêm cờ kiểu `salaryOutsideStandardBand` vào response: giao diện biết qua lỗi 400; cờ phải tính lại ở mỗi `GET`/danh sách vì HR có thể đổi dải sau khi lưu. Nháp đã lưu không được kiểm lại khi HR đổi dải; nó được kiểm ở lần lưu sau, và gửi duyệt (task 257) kiểm lại với dải hiện tại, xem `requisition-approvals.md`.
 
 ## Ngày cần người không ở quá khứ (task 248)
 
@@ -248,7 +252,7 @@ Kết quả Jira: từ chối ngày cần người trước ngày hiện tại t
 - `neededBy` không gửi hoặc `null` vẫn lưu được: nháp được để trống ngày cần người như task 244.
 - **So ở mỗi lần lưu với ngày hiện tại.** Nháp lưu hôm qua với ngày cần người là hôm qua: `GET` vẫn trả như cũ, nhưng `PUT` lại (kể cả gửi nội dung y hệt) bị từ chối và dòng giữ nguyên; muốn lưu thì chọn ngày từ hôm nay trở đi hoặc để trống. Nháp đã lưu không tự bị sửa khi qua ngày.
 - "Hôm nay" được tính **sau khi đã khóa tài khoản, phiên (và dòng yêu cầu khi sửa)**, không phải lúc request đến. Request gửi lúc 23:59:59 nhưng phải chờ **các khóa này** tới sau 00:00 thì so với ngày mới.
-- Giới hạn sát nửa đêm: ngày được so **trước** khi khóa `FOR SHARE` dòng chức danh và phòng ban (bước 6 của tạo), vì thứ tự lỗi (`NEEDED_BY_IN_PAST` trước lỗi chức danh/phòng ban) được giữ có chủ ý. Nếu request so ngày xong rồi phải chờ khóa chức danh/phòng ban qua 00:00 (ví dụ HR đang sửa đúng chức danh đó bằng `PUT /positions/{id}`), hoặc qua 00:00 trong khoảng ngắn trước khi commit, thì ngày vừa lưu có thể đã sớm hơn hôm nay một ngày tính theo lúc commit. Lần `PUT` sau sẽ bị từ chối nếu ngày đó vẫn ở quá khứ; luồng gửi duyệt sau này nên kiểm lại.
+- Giới hạn sát nửa đêm: ngày được so **trước** khi khóa `FOR SHARE` dòng chức danh và phòng ban (bước 6 của tạo), vì thứ tự lỗi (`NEEDED_BY_IN_PAST` trước lỗi chức danh/phòng ban) được giữ có chủ ý. Nếu request so ngày xong rồi phải chờ khóa chức danh/phòng ban qua 00:00 (ví dụ HR đang sửa đúng chức danh đó bằng `PUT /positions/{id}`), hoặc qua 00:00 trong khoảng ngắn trước khi commit, thì ngày vừa lưu có thể đã sớm hơn hôm nay một ngày tính theo lúc commit. Lần `PUT` sau sẽ bị từ chối nếu ngày đó vẫn ở quá khứ; gửi duyệt (task 257) cũng kiểm lại ngày với hôm nay, xem `requisition-approvals.md`.
 
 ```json
 {
@@ -267,7 +271,7 @@ Thứ tự: bước 5 của tạo (sau so hai mức lương, trước kiểm ch�
 Quyết định của backend (chờ BA/PO xác nhận):
 
 - **Hôm nay được phép**: tiêu chí story là "không được ở quá khứ", và Jira ghi "trước ngày hiện tại".
-- **Kiểm cả khi sửa nháp có ngày cũ không đổi**: yêu cầu tuyển dụng xin người cho hiện tại và tương lai, giống quy tắc chức danh/phòng ban phải đang áp dụng (task 246) và dải lương hiện tại (task 247). Luồng gửi duyệt sau này nên kiểm lại.
+- **Kiểm cả khi sửa nháp có ngày cũ không đổi**: yêu cầu tuyển dụng xin người cho hiện tại và tương lai, giống quy tắc chức danh/phòng ban phải đang áp dụng (task 246) và dải lương hiện tại (task 247). Gửi duyệt (task 257) kiểm lại ngày đã lưu với hôm nay, xem `requisition-approvals.md`.
 - **Không giới hạn ngày xa nhất** và không bắt nhập ngày khi lưu nháp.
 - **Một múi giờ nghiệp vụ chung** cho cả hệ thống (công ty ở Việt Nam), không theo múi giờ của từng người dùng hay trình duyệt.
 
@@ -276,7 +280,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 Story S3-04: "Vượt chỉ tiêu là cảnh báo chặn". Khi tạo hoặc sửa nháp, backend so yêu cầu với [định biên](headcount-plans.md) của **phòng ban trong body** cho **năm kế hoạch** của yêu cầu: năm của `neededBy`, chưa có ngày thì năm tạo yêu cầu theo múi giờ nghiệp vụ (khi sửa, vẫn là năm tạo ban đầu, không phải năm sửa).
 
 - Phòng ban chưa có định biên cho năm đó: không giới hạn, không kiểm.
-- Chỉ tiêu headcount: số người của các yêu cầu khác đã tính vào định biên đó (hiện là mọi bản nháp, kể cả của người khác) cộng `headcount` của yêu cầu này không được vượt `headcountLimit`. Lấp đúng chỉ tiêu là được.
+- Chỉ tiêu headcount: số người của các yêu cầu khác đã tính vào định biên đó (mọi yêu cầu ở trạng thái `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED`, kể cả của người khác) cộng `headcount` của yêu cầu này không được vượt `headcountLimit`. Lấp đúng chỉ tiêu là được.
 - Ngân sách (khi định biên có `salaryBudget`): chi phí năm của các yêu cầu khác cộng của yêu cầu này (`headcount` × lương đề xuất tối đa, thiếu thì tối thiểu, × 12; chưa đề xuất lương thì 0) không được vượt `salaryBudget`.
 - Vượt chỉ tiêu: 409 `HEADCOUNT_LIMIT_EXCEEDED`, lời nhắn ví dụ "Phòng ban chỉ còn 0 chỉ tiêu headcount năm 2026 nhưng yêu cầu cần 1 người. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Nếu vượt cả ngân sách, lời nhắn thêm "Yêu cầu cũng vượt ngân sách lương năm 2026."
 - Chỉ vượt ngân sách: 409 `SALARY_BUDGET_EXCEEDED`, "Yêu cầu vượt ngân sách lương năm 2026 của phòng ban. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Lời nhắn **không** nêu số tiền, vì chỉ HR được xem ngân sách.
@@ -301,7 +305,7 @@ Story S3-04: "cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do
 
 Luồng gợi ý: Trưởng bộ phận lưu nháp và nhận 409, báo cho Trưởng phòng Nhân sự. HR mở nháp của phòng ban đó (HR có `REQUISITIONS_WRITE_ALL`) và lưu lại kèm lý do; với nháp mới bị chặn ngay khi tạo, HR tạo nháp cho phòng ban đó kèm lý do. Nháp đi theo phòng ban, không theo người tạo, nên Trưởng bộ phận vẫn xem và sửa tiếp được. HR cũng có thể tăng chỉ tiêu bằng `PUT /headcount-plans/{id}` thay vì ghi đè từng yêu cầu.
 
-`GET /requisitions/{id}/headcount-overrides` trả lịch sử ngoại lệ của một yêu cầu, mới nhất trước, với cùng quyền và phạm vi như `GET /requisitions/{id}` (404 nếu không có yêu cầu, 403 nếu ngoài phạm vi `SCOPED`):
+`GET /requisitions/{id}/headcount-overrides` trả lịch sử ngoại lệ của một yêu cầu, mới nhất trước, với cùng quyền như `GET /requisitions/{id}` nhưng chỉ theo phạm vi phòng ban: người tham gia duyệt không phụ trách phòng ban đó vẫn bị 403 (task 262). 404 nếu không có yêu cầu, 403 nếu ngoài phạm vi `SCOPED`:
 
 ```json
 {
@@ -334,7 +338,7 @@ Story S3-05: "Sao chép toàn bộ mô tả công việc và yêu cầu ứng vi
 
 - Bản sao lấy từ bản gốc: chức danh, phòng ban, số lượng, lý do tuyển, hai mức lương đề xuất, giải trình lương, ngày cần người, mô tả công việc và yêu cầu ứng viên. Văn bản được giữ nguyên từng ký tự, kể cả xuống dòng.
 - Bản sao có `id` mới, ở trạng thái `DRAFT`, người tạo là người gọi, `createdAt`/`updatedAt` là lúc sao chép. Bản gốc không bị đổi hay khóa.
-- Task 279 ("Bản sao luôn bắt đầu ở trạng thái Nháp, không kế thừa lịch sử duyệt"): bản sao **không** lấy gì thuộc về quá trình xử lý của bản gốc. Không lấy trạng thái: bản gốc ở trạng thái nào cũng sao chép được, bản sao luôn là `DRAFT`. Không lấy người tạo và thời điểm. Không lấy lịch sử ngoại lệ định biên (task 275): bản sao được kiểm định biên như một yêu cầu mới, `GET /requisitions/{id}/headcount-overrides` của bản sao trống cho tới khi chính nó được HR xác nhận. Khi có luồng duyệt (story S3-02, S3-03), các bước duyệt, quyết định và nhận xét gắn với `id` của yêu cầu, nên bản sao (có `id` mới) cũng không có.
+- Task 279 ("Bản sao luôn bắt đầu ở trạng thái Nháp, không kế thừa lịch sử duyệt"): bản sao **không** lấy gì thuộc về quá trình xử lý của bản gốc. Không lấy trạng thái: bản gốc ở trạng thái nào cũng sao chép được, bản sao luôn là `DRAFT`. Không lấy người tạo và thời điểm. Không lấy lịch sử ngoại lệ định biên (task 275): bản sao được kiểm định biên như một yêu cầu mới, `GET /requisitions/{id}/headcount-overrides` của bản sao trống cho tới khi chính nó được HR xác nhận. Lịch sử duyệt (task 257, bảng `requisition_workflow_events`) gắn với `id` của yêu cầu, nên bản sao (có `id` mới) không có lượt duyệt, quyết định hay nhận xét nào.
 - Ngày cần người của bản gốc đã qua (trước hôm nay theo múi giờ nghiệp vụ) thì bản sao để **trống** thay vì báo lỗi `NEEDED_BY_IN_PAST`; người dùng chọn ngày mới khi sửa bản sao. Ngày hôm nay hoặc sau đó được giữ nguyên. Khi bản sao chưa có ngày, nó tính vào định biên của năm tạo bản sao. Hai điểm này (bỏ ngày đã qua, và sao chép được bản gốc ở mọi trạng thái) là quyết định của backend, chờ PO xác nhận; khi có trạng thái mới, nhóm cần quyết định trạng thái đó có được sao chép không (ghi chú trong `RequisitionStatus`).
 - Body không bắt buộc. Nếu có, chỉ nhận `{"headcountOverrideReason": "..."}` (task 275, cùng quy tắc như khi tạo); mọi trường khác trả 400 `INVALID_JSON`. Muốn đổi nội dung thì sửa bản sao bằng `PUT /requisitions/{id}` sau khi sao chép.
 
@@ -364,9 +368,9 @@ Hạn JWT, phiên và quyền ghi được kiểm lại sau các khóa dòng ch�
 |400|REQUISITION_DEPARTMENT_INACTIVE|Phòng ban `departmentId` đã ngừng áp dụng (`active = false`); `fieldErrors.departmentId`|
 |400|SALARY_JUSTIFICATION_REQUIRED|Một mức lương đề xuất đã nhập nằm ngoài dải lương chuẩn của chức danh và `salaryJustification` trống; `fieldErrors.salaryJustification`. Lời nhắn không chứa dải chuẩn|
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
-|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách; hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
+|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách (trừ xem yêu cầu mà người đó tham gia duyệt, task 262); hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT`, lịch sử ngoại lệ hoặc sao chép với UUID không có yêu cầu nào|
-|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không còn ở trạng thái `DRAFT` (chưa xảy ra được, xem trên)|
+|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không ở trạng thái `DRAFT` hay `RETURNED` (đang chờ duyệt, đã duyệt hoặc bị từ chối)|
 |409|HEADCOUNT_LIMIT_EXCEEDED|Lưu yêu cầu làm phòng ban vượt chỉ tiêu headcount của năm kế hoạch (task 274); lời nhắn nêu số chỉ tiêu còn lại|
 |409|SALARY_BUDGET_EXCEEDED|Lưu yêu cầu làm phòng ban vượt ngân sách lương của năm kế hoạch (task 274); lời nhắn không nêu số tiền|
 |403|FORBIDDEN|Lưu vượt định biên kèm `headcountOverrideReason` nhưng người gọi không có `HEADCOUNT_PLANS_WRITE_ALL` (task 275); sao chép khi không có quyền đọc yêu cầu tuyển dụng, bản gốc ngoài phạm vi đọc, hoặc phòng ban của bản gốc ngoài phạm vi ghi (task 278)|
