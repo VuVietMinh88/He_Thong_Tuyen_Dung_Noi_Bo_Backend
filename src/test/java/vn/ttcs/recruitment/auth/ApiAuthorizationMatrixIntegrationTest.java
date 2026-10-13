@@ -87,6 +87,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String REQUISITIONS_READ_SCOPED = "REQUISITIONS_READ_SCOPED";
     private static final String REQUISITIONS_WRITE_ALL = "REQUISITIONS_WRITE_ALL";
     private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
+    private static final String JOB_POSTINGS_WRITE_ALL = "JOB_POSTINGS_WRITE_ALL";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -147,11 +148,17 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/recruitment-catalogs/{type}/items", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/recruitment-catalogs/{type}/items/{id}", permission(ORGANIZATION_WRITE_ALL), null, 404),
-            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/order", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/recruitment-catalogs/{type}/order", permission(ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            // No company page is saved in this test, so both reads stop at 404.
+            endpoint("GET", "/api/v1/company-profile", permission(JOB_POSTINGS_WRITE_ALL), null, 404),
+            endpoint("PUT", "/api/v1/company-profile", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/company-profile/preview", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/public/company-profile", PUBLIC, null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
-            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items");
+            "competency_frameworks", "competency_criteria", "interview_questions", "recruitment_requisitions", "recruitment_catalog_items",
+            "company_profile", "company_profile_images");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -187,6 +194,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         jdbc.update("DELETE FROM positions");
         jdbc.update("DELETE FROM competency_frameworks");
         jdbc.update("DELETE FROM recruitment_catalog_items");
+        jdbc.update("DELETE FROM company_profile");
         jdbc.update("DELETE FROM user_accounts");
         bootstrap.run(new DefaultApplicationArguments());
         fixturePasswordHash = jdbc.queryForObject("SELECT password_hash FROM user_accounts WHERE email = ?",
@@ -363,7 +371,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "POST", CATALOG_ITEMS, catalogItemBody("SHADOW", "Shadow")),
                 new Attack(Identity.APPROVER, "PUT", CATALOG_ITEMS + "/" + catalogItem,
                         catalogItemBody("TARGET", "Taken over")),
-                new Attack(Identity.HIRING_MANAGER, "DELETE", CATALOG_ITEMS + "/" + catalogItem, null));
+                new Attack(Identity.HIRING_MANAGER, "DELETE", CATALOG_ITEMS + "/" + catalogItem, null),
+                // JOB_POSTINGS_WRITE_SCOPED is not enough for the company-wide page.
+                new Attack(Identity.RECRUITER, "PUT", "/api/v1/company-profile",
+                        Map.of("companyName", "Shadow company", "introduction", "Taken over")));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
