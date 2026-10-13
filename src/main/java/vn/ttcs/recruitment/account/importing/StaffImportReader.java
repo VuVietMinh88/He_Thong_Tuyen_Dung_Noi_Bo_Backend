@@ -163,7 +163,10 @@ public class StaffImportReader {
                 .toList();
     }
 
-    // The cell as Excel shows it, trimmed; null when empty. A formula is refused, never evaluated.
+    // The cell as Excel shows it, without leading and trailing white space; null when nothing else is left. Both
+    // follow Character.isWhitespace (strip), the rule POST /accounts uses for @NotBlank, so a cell that holds only a
+    // Unicode space such as U+2003 is empty here too. String.trim() would keep it, and the row would pass the
+    // "required" check with a name nobody can see. A formula is refused, never evaluated.
     private static String text(Cell cell, DataFormatter formatter) {
         if (cell == null) {
             return null;
@@ -173,7 +176,8 @@ public class StaffImportReader {
                     "Ô " + cell.getAddress().formatAsString() + " đang dùng công thức. Chỉ nhập giá trị: "
                             + "sao chép rồi dán dạng giá trị (Paste Values) trước khi tải lên.");
         }
-        return ProfileValidation.optionalText(formatter.formatCellValue(cell));
+        String shown = formatter.formatCellValue(cell).strip();
+        return shown.isEmpty() ? null : shown;
     }
 
     private static ApiException headerInvalid(String detail) {

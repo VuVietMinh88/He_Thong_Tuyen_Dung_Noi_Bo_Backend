@@ -249,6 +249,22 @@ class StaffImportIntegrationTest {
         assertThat(recipients()).containsExactlyInAnyOrder("first@example.com", "last@example.com");
     }
 
+    // A full name of nothing but a Unicode space (U+2003) is as empty as no name: POST /accounts refuses it with 400,
+    // so the import skips that row and creates no account, instead of saving an account with an invisible name.
+    @Test
+    void aNameOfOnlyUnicodeSpacesIsSkippedLikeAnEmptyOne() throws Exception {
+        byte[] file = staffFile(
+                row("an@example.com", "An", "RECRUITER"),
+                row("khong-ten@example.com", "\u2003", "RECRUITER"));
+
+        JsonNode body = expectOk(upload(IMPORT, adminToken, file));
+
+        assertThat(statuses(body)).containsExactly("2 CREATED", "3 SKIPPED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("code")).containsExactly("REQUIRED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("cell")).containsExactly("B3");
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com");
+    }
+
     @Test
     void anAddressTheMailServerRefusesSkipsOnlyItsRowAndTheNextRowsAreStillCreated() throws Exception {
         byte[] file = staffFile(
