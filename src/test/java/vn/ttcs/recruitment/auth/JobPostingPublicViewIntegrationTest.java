@@ -38,6 +38,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static vn.ttcs.recruitment.auth.JobPostingTestSupport.PUBLIC_POSTINGS;
+import static vn.ttcs.recruitment.auth.JobPostingTestSupport.withoutApplicationState;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.EMPLOYMENT_TYPE;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 
@@ -45,6 +46,9 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // posting are built by one builder from one row query, so HR approves and publishes exactly what candidates then see.
 // Candidates read only published postings whose deadline has not passed and whose requisition is still approved,
 // without an account; every other posting answers 404 like an id that does not exist.
+// Task 320 (story S4-02): "Xây dựng API chi tiết tin tuyển dụng công khai". The public detail is the preview's content
+// plus whether candidates may still apply (applicationOpen) and when applications close (applicationClosesAt). A
+// published posting whose deadline has passed leaves the list but its detail still opens, with applicationOpen false.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -70,6 +74,9 @@ class JobPostingPublicViewIntegrationTest {
     private static final List<String> LIST_ITEM_KEYS_WITH_SALARY = List.of("id", "title", "positionName",
             "departmentName", "workLocationName", "employmentTypeName", "applicationDeadline", "salaryMin",
             "salaryMax");
+    // Task 320: the public detail is the public posting followed by the application state.
+    private static final List<String> DETAIL_KEYS = withApplicationState(PUBLIC_KEYS);
+    private static final List<String> DETAIL_KEYS_WITH_SALARY = withApplicationState(PUBLIC_KEYS_WITH_SALARY);
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -168,12 +175,15 @@ class JobPostingPublicViewIntegrationTest {
         ok(postings.publish(id, approved.path("revision").asInt(), hrToken));
 
         // No organization value is renamed in between (see aRenamedOrganizationValueChangesPreviewAndPublicTogether),
-        // so the public posting is byte for byte the preview HR approved.
+        // so the public posting is byte for byte the preview HR approved. Task 320: the detail adds that candidates
+        // may still apply, until 00:00 on 1 Dec 2026 in Vietnam.
         var reading = postings.publicDetail(id);
         JsonNode published = ok(reading);
         postings.noStore(reading);
-        assertThat(published).isEqualTo(approved.path("content"));
-        assertThat(ok(postings.preview(id, hrToken)).path("content")).isEqualTo(published);
+        assertThat(fieldNames(published)).containsExactlyElementsOf(DETAIL_KEYS);
+        assertThat(withoutApplicationState(published)).isEqualTo(approved.path("content"));
+        JobPostingTestSupport.assertApplicationState(published, true);
+        assertThat(ok(postings.preview(id, hrToken)).path("content")).isEqualTo(withoutApplicationState(published));
         // The list item is the same posting without its texts.
         JsonNode item = onlyItem(ok(postings.publicList(0, 20)));
         assertThat(fieldNames(item)).containsExactlyElementsOf(LIST_ITEM_KEYS);
@@ -231,8 +241,10 @@ class JobPostingPublicViewIntegrationTest {
         assertThat(latest.path("revision").asInt()).isEqualTo(10);
         ok(postings.publish(id, latest.path("revision").asInt(), hrToken));
         JsonNode published = ok(postings.publicDetail(id));
-        assertThat(published).isEqualTo(latest.path("content"));
+        assertThat(withoutApplicationState(published)).isEqualTo(latest.path("content"));
         assertThat(published.path("applicationDeadline").asText()).isEqualTo("2026-12-15");
+        assertThat(published.path("applicationOpen").asBoolean()).isTrue();
+        assertThat(published.path("applicationClosesAt").asText()).isEqualTo("2026-12-15T17:00:00Z");
     }
 
     @Test
@@ -248,7 +260,7 @@ class JobPostingPublicViewIntegrationTest {
             assertThat(response.body()).doesNotContain("salary", "20000000", "22000000");
         }
         assertThat(fieldNames(ok(hiddenPreview).path("content"))).containsExactlyElementsOf(PUBLIC_KEYS);
-        assertThat(fieldNames(ok(hiddenDetail))).containsExactlyElementsOf(PUBLIC_KEYS);
+        assertThat(fieldNames(ok(hiddenDetail))).containsExactlyElementsOf(DETAIL_KEYS);
         assertThat(fieldNames(onlyItem(ok(hiddenList)))).containsExactlyElementsOf(LIST_ITEM_KEYS);
         // The authors still see the approved proposal in their own view, to know what showSalary would publish.
         JsonNode internal = ok(postings.get(hidden, recruiterToken));
@@ -261,8 +273,9 @@ class JobPostingPublicViewIntegrationTest {
 
         JsonNode shownPreview = ok(postings.preview(shown, hrToken)).path("content");
         JsonNode shownDetail = ok(postings.publicDetail(shown));
-        assertThat(shownDetail).isEqualTo(shownPreview);
-        assertThat(fieldNames(shownDetail)).containsExactlyElementsOf(PUBLIC_KEYS_WITH_SALARY);
+        assertThat(withoutApplicationState(shownDetail)).isEqualTo(shownPreview);
+        JobPostingTestSupport.assertApplicationState(shownDetail, true);
+        assertThat(fieldNames(shownDetail)).containsExactlyElementsOf(DETAIL_KEYS_WITH_SALARY);
         // The requisition's approved proposal, whole VND per person and month.
         assertThat(shownDetail.path("salaryMin").asLong())
                 .isEqualTo(((Number) requisition.get("proposed_salary_min")).longValue()).isEqualTo(20_000_000L);
@@ -294,6 +307,8 @@ class JobPostingPublicViewIntegrationTest {
         };
         if (shown) {
             assertThat(ok(detail).path("id").asText()).isEqualTo(id.toString());
+            // Task 320: before its deadline a published posting takes applications.
+            JobPostingTestSupport.assertApplicationState(ok(detail), true);
             assertThat(ids(list)).containsExactly(id);
             assertThat(list.path("totalElements").asLong()).isEqualTo(1);
         } else {
@@ -305,10 +320,13 @@ class JobPostingPublicViewIntegrationTest {
         assertThat(ok(postings.preview(id, hrToken)).path("status").asText()).isEqualTo(status.name());
     }
 
-    // A published posting leaves the portal once its last day to apply has passed in Vietnam, or once its
-    // requisition is no longer approved. It stays PUBLISHED, and its authors still preview it.
+    // A published posting leaves the list once its last day to apply has passed in Vietnam, and leaves the portal
+    // once its requisition is no longer approved. It stays PUBLISHED, and its authors still preview it.
+    // Task 320 (story S4-02): past its deadline the detail still opens with the same content and applicationOpen
+    // false, so a candidate who follows a link sees a notice instead of the apply form. A posting whose requisition is
+    // no longer approved still answers 404 like an id that does not exist.
     @Test
-    void aPublishedPostingLeavesThePortalAfterItsDeadlineOrWhenItsRequisitionIsNoLongerApproved() throws Exception {
+    void aPublishedPostingLeavesTheListAfterItsDeadlineAndItsDetailSaysItExpired() throws Exception {
         UUID expiring = published(false);
         UUID withdrawn = published(false);
         assertThat(ids(ok(postings.publicList(0, 20)))).containsExactlyInAnyOrder(expiring, withdrawn);
@@ -326,19 +344,37 @@ class JobPostingPublicViewIntegrationTest {
 
         // 23:59:59 on 30 Nov 2026 in Vietnam (still 30 Nov in UTC too): the deadline day itself is open.
         clock.set(Instant.parse("2026-11-30T16:59:59Z"));
-        ok(postings.publicDetail(expiring));
+        var lastDay = postings.publicDetail(expiring);
+        postings.noStore(lastDay);
+        JsonNode open = ok(lastDay);
+        assertThat(fieldNames(open)).containsExactlyElementsOf(DETAIL_KEYS);
+        JobPostingTestSupport.assertApplicationState(open, true);
         assertThat(ids(ok(postings.publicList(0, 20)))).containsExactly(expiring);
 
-        // 00:00 on 1 Dec 2026 in Vietnam, while it is still 30 Nov in UTC: the deadline has passed.
+        // 00:00 on 1 Dec 2026 in Vietnam, while it is still 30 Nov in UTC: the deadline has passed. The posting has
+        // left the list and its count, but its detail still opens: the same content, no longer taking applications,
+        // and still no status name.
         clock.set(Instant.parse("2026-11-30T17:00:00Z"));
-        assertThat(postings.error(postings.publicDetail(expiring), 404, "JOB_POSTING_NOT_FOUND")).isEqualTo(unknown);
+        var nextDay = postings.publicDetail(expiring);
+        postings.noStore(nextDay);
+        JsonNode expired = ok(nextDay);
+        assertThat(fieldNames(expired)).containsExactlyElementsOf(DETAIL_KEYS);
+        JobPostingTestSupport.assertApplicationState(expired, false);
+        assertThat(withoutApplicationState(expired)).isEqualTo(withoutApplicationState(open));
+        assertThat(nextDay.body()).doesNotContain("\"status\"", "PUBLISHED", "EXPIRED");
         JsonNode none = ok(postings.publicList(0, 20));
         assertThat(ids(none)).isEmpty();
         assertThat(none.path("totalElements").asLong()).isZero();
+        // The notice follows the date: the posting is still PUBLISHED, and its authors still preview the same content.
         assertThat(postings.row(expiring).get("status")).isEqualTo("PUBLISHED");
         String laterToken = api.token("hr@example.test");
-        assertThat(ok(postings.preview(expiring, laterToken)).path("content").path("applicationDeadline").asText())
+        JsonNode preview = ok(postings.preview(expiring, laterToken));
+        assertThat(preview.path("status").asText()).isEqualTo("PUBLISHED");
+        assertThat(preview.path("content")).isEqualTo(withoutApplicationState(expired));
+        assertThat(preview.path("content").path("applicationDeadline").asText())
                 .isEqualTo(JobPostingTestSupport.DEADLINE);
+        // Past its deadline too, the posting of a requisition that is no longer approved shows nothing.
+        assertThat(postings.error(postings.publicDetail(withdrawn), 404, "JOB_POSTING_NOT_FOUND")).isEqualTo(unknown);
     }
 
     // Task 314 (story S4-01): "Là Ứng viên, tôi muốn xem danh sách việc làm đang tuyển trên trang công khai". Task 309
@@ -573,7 +609,7 @@ class JobPostingPublicViewIntegrationTest {
     void aRenamedOrganizationValueChangesPreviewAndPublicTogether() throws Exception {
         UUID id = published(false);
         JsonNode before = ok(postings.preview(id, hrToken));
-        assertThat(ok(postings.publicDetail(id))).isEqualTo(before.path("content"));
+        assertThat(withoutApplicationState(ok(postings.publicDetail(id)))).isEqualTo(before.path("content"));
         assertThat(onlyItem(ok(postings.publicList(0, 20))).path("workLocationName").asText()).isEqualTo("Hà Nội");
         Map<String, Object> rowBefore = postings.row(id);
         List<Map<String, Object>> eventsBefore = postings.events(id);
@@ -587,11 +623,12 @@ class JobPostingPublicViewIntegrationTest {
         JsonNode after = ok(postings.preview(id, hrToken));
         JsonNode detail = ok(postings.publicDetail(id));
         JsonNode item = onlyItem(ok(postings.publicList(0, 20)));
-        assertThat(after.path("content")).isEqualTo(detail);
+        assertThat(after.path("content")).isEqualTo(withoutApplicationState(detail));
+        JobPostingTestSupport.assertApplicationState(detail, true);
         ObjectNode renamed = (ObjectNode) before.path("content").deepCopy();
         renamed.put("departmentName", "Phòng Công nghệ");
         renamed.put("workLocationName", "Hà Nội (Cầu Giấy)");
-        assertThat(detail).isEqualTo(renamed);
+        assertThat(withoutApplicationState(detail)).isEqualTo(renamed);
         assertThat(item.path("departmentName").asText()).isEqualTo("Phòng Công nghệ");
         assertThat(item.path("workLocationName").asText()).isEqualTo("Hà Nội (Cầu Giấy)");
         // Nothing about the posting changed: same status and revision, no new review step.
@@ -700,5 +737,11 @@ class JobPostingPublicViewIntegrationTest {
 
     private static List<String> fieldNames(JsonNode node) {
         return new ArrayList<>(node.propertyNames());
+    }
+
+    private static List<String> withApplicationState(List<String> keys) {
+        List<String> detail = new ArrayList<>(keys);
+        detail.addAll(List.of("applicationOpen", "applicationClosesAt"));
+        return List.copyOf(detail);
     }
 }

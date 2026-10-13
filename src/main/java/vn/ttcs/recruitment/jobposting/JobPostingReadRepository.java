@@ -22,7 +22,9 @@ import java.util.UUID;
 // (newest revision first). The decision of APPROVE reads the latest submitter from this same query under the posting
 // lock, so actions.canApprove and the server's answer use one rule on one row.
 // Task 309: the preview and the public portal read the same SELECT_ROW (the portal only adds a filter), so at any
-// one moment the preview and the public posting show the same content, live names included.
+// one moment the preview and the public posting show the same content, live names included. Task 320 (story S4-02):
+// the public detail reads the row by id like the preview (findRow) and JobPostingApplicability decides in Java
+// whether it is open, expired or not public; the list keeps PUBLIC_WHERE.
 // Task 310: the publication trail (publisher and time, V23) and the publisher's current name.
 @Repository
 class JobPostingReadRepository {
@@ -58,6 +60,8 @@ class JobPostingReadRepository {
     // later (today: the business date, read by the caller) and a requisition still in SOURCE_STATUSES (task 290
     // pauses, fills and cancels requisitions: a paused one hides its postings until it is resumed; task 292 closes the
     // postings of a filled or cancelled one). Statuses are bound by name: PgJDBC cannot bind a Java enum.
+    // Task 320: these are exactly the postings JobPostingApplicability calls OPEN, which the public detail uses;
+    // JobPostingPortalRuleIntegrationTest checks that the list and the detail agree.
     private static final String PUBLIC_WHERE = """
              WHERE p.status IN (:public) AND p.application_deadline >= :today
                AND r.status IN (:sourceStatuses)
@@ -122,13 +126,6 @@ class JobPostingReadRepository {
         var items = jdbc.query(SELECT_ROW + where + " ORDER BY p.created_at DESC, p.id DESC LIMIT :size OFFSET :offset",
                 parameters, (row, number) -> JobPostingSummary.from(map(row)));
         return new JobPostingPage(items, page, size, total, (total + size - 1) / size);
-    }
-
-    // Task 309: the posting candidates may see, by id. The same SELECT_ROW as the preview, so both are built from
-    // the same row; the filter only decides whether the row is public.
-    Optional<JobPostingRow> findPublic(UUID id, LocalDate today) {
-        return jdbc.query(SELECT_ROW + PUBLIC_WHERE + " AND p.id = :id", publicParameters(today).addValue("id", id),
-                (row, number) -> map(row)).stream().findFirst();
     }
 
     // Task 309: one page of the public postings, newest publication first; the id keeps the order stable. Task 310:

@@ -1,6 +1,6 @@
 # API cổng việc làm công khai
 
-Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm) và TKNHTTDNB1-316 (giới hạn dữ liệu trả ra trên cổng công khai), story TKNHTTDNB1-40 (S4-01). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
+Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm) và TKNHTTDNB1-316 (giới hạn dữ liệu trả ra trên cổng công khai), story TKNHTTDNB1-40 (S4-01); TKNHTTDNB1-320 (xây dựng API chi tiết tin tuyển dụng công khai), story TKNHTTDNB1-41 (S4-02). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
 
 ## Tổng quan
 
@@ -8,7 +8,7 @@ Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TK
 |---|---|
 |`GET /public/job-postings?page=0&size=20`|Một trang việc làm đang tuyển, tin xuất bản gần nhất trước; lọc theo `departmentId`, `workLocationId`, `employmentTypeId` và tìm theo `q` (task 315, mục "Lọc và tìm kiếm")|
 |`GET /public/job-postings/filters`|Giá trị cho ba bộ lọc, chỉ lấy từ các tin đang tuyển (task 315, mục "Giá trị bộ lọc")|
-|`GET /public/job-postings/{id}`|Một tin đang tuyển, cùng dạng với `content` của bản xem trước|
+|`GET /public/job-postings/{id}`|Một tin đã xuất bản: tin đang tuyển, hoặc tin đã qua hạn nộp kèm `applicationOpen: false` để trang hiện thông báo hết hạn (task 320, mục "Chi tiết tin"); nội dung là `content` của bản xem trước|
 
 Ai cũng gọi được, kể cả ứng viên không có tài khoản; người đã đăng nhập (mọi vai trò, kể cả tài khoản không vai trò) nhận đúng JSON như ứng viên. Kết quả không phụ thuộc người gọi.
 
@@ -21,7 +21,7 @@ Story S4-01: "Là Ứng viên, tôi muốn xem danh sách việc làm đang tuy�
 |1. Không cần đăng nhập|`SecurityConfiguration`: `permitAll` cho đúng `GET /api/v1/public/job-postings`, `GET /api/v1/public/job-postings/filters` (task 315) và `GET /api/v1/public/job-postings/*`, đứng trước `anyRequest().denyAll()`; phiên `STATELESS` (task 309)|`JobPostingPublicViewIntegrationTest.thePortalNeedsNoTokenAndIsNotCached`: gọi không token, với token của mọi vai trò và tài khoản không vai trò cho cùng JSON; không response nào có `Set-Cookie` (task 314); Bearer hỏng hoặc hết hạn nhận 401; phương thức khác GET nhận 401 khi không kèm token và 403 khi kèm token hợp lệ|
 |2. Lọc theo phòng ban, địa điểm, hình thức làm việc|Tham số `departmentId`, `workLocationId`, `employmentTypeId` (task 315): mỗi bộ lọc thêm một điều kiện AND vào cùng điều kiện "đang tuyển" của trang và số đếm (`JobPostingReadRepository.publicPage`); giá trị cho ô chọn từ `GET /public/job-postings/filters` (`publicFilters`)|`JobPostingPortalSearchIntegrationTest.eachFilterNarrowsTheListAndTheCount`, `unknownIdsGiveAnEmptyPageNotAnError`, `malformedIdsAreRefusedAndEmptyMeansNone`, `filterOptionsListOnlyOpenPostings`, `sameNamedValuesAreSeparateOptions`|
 |3. Tìm từ khóa trong tiêu đề và mô tả|Tham số `q` (task 315): một cụm từ trong `title` hoặc `jobDescription` của tin (`PublicJobPostingQuery`, `JobPostingReadRepository.KEYWORD_MATCH`)|`theKeywordSearchesTitleAndDescription`, `invalidKeywordsAre400`, `theDatabaseIsUtf8`; `PublicJobPostingQueryTest`|
-|4. Chỉ hiện tin đã xuất bản và chưa hết hạn|`JobPostingReadRepository.PUBLIC_WHERE` (task 309), dùng cho cả trang và số đếm|`theAnonymousListShowsOnlyOpenPostingsAmongEveryOtherKind` (task 314), `onlyLivePublishedPostingsArePublic`, `aPublishedPostingLeavesThePortalAfterItsDeadlineOrWhenItsRequisitionIsNoLongerApproved`, `RequisitionStatusChangeIntegrationTest` (tạm dừng rồi mở lại yêu cầu)|
+|4. Chỉ hiện tin đã xuất bản và chưa hết hạn|`JobPostingReadRepository.PUBLIC_WHERE` (task 309), dùng cho cả trang và số đếm|`theAnonymousListShowsOnlyOpenPostingsAmongEveryOtherKind` (task 314), `onlyLivePublishedPostingsArePublic`, `aPublishedPostingLeavesTheListAfterItsDeadlineAndItsDetailSaysItExpired`, `RequisitionStatusChangeIntegrationTest` (tạm dừng rồi mở lại yêu cầu), `JobPostingPortalRuleIntegrationTest` (task 320)|
 
 ### "Đang tuyển" nghĩa là gì
 
@@ -31,7 +31,7 @@ Một tin có trong danh sách khi đủ **cả ba** điều:
 2. Hạn nộp (`applicationDeadline`) từ hôm nay trở đi, "hôm nay" là ngày ở múi giờ `app.business-zone` (`Asia/Ho_Chi_Minh`, `BusinessCalendar.today()`), không theo giờ UTC của server hay giờ của trình duyệt. Chính ngày hạn vẫn hiện tới 23:59:59 giờ Việt Nam; từ 00:00 ngày hôm sau (17:00 UTC của ngày hạn) tin rời danh sách. Ví dụ hạn 30/11/2026: còn ở `2026-11-30T16:59:59Z`, hết ở `2026-11-30T17:00:00Z`.
 3. Yêu cầu tuyển dụng nguồn vẫn `APPROVED` (`JobPostingService.SOURCE_STATUSES`). Yêu cầu tạm dừng (task 290) thì tin ẩn và hiện lại khi mở lại; yêu cầu đã tuyển đủ hoặc bị hủy thì tin chuyển hẳn sang `CLOSED` (task 292).
 
-Không có trong danh sách: nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu, tin của yêu cầu không còn đã duyệt và tin đã qua hạn nộp. Tin qua hạn vẫn ở trạng thái `PUBLISHED` trong database; nó rời cổng vì điều kiện ngày, không vì một tác vụ nào chạy. `totalElements` và `totalPages` chỉ đếm tin đang tuyển, tính trong cùng một transaction `REPEATABLE_READ` với trang, nên số đếm khớp với trang.
+Không có trong danh sách: nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu, tin của yêu cầu không còn đã duyệt và tin đã qua hạn nộp. Tin qua hạn vẫn ở trạng thái `PUBLISHED` trong database; nó rời danh sách vì điều kiện ngày, không vì một tác vụ nào chạy. Từ task 320, chi tiết của nó vẫn mở được bằng liên kết, kèm `applicationOpen: false` (mục "Chi tiết tin"). `totalElements` và `totalPages` chỉ đếm tin đang tuyển, tính trong cùng một transaction `REPEATABLE_READ` với trang, nên số đếm khớp với trang.
 
 ### Yêu cầu và kết quả
 
@@ -119,18 +119,75 @@ Response có đúng dạng của mục "Yêu cầu và kết quả". UUID trong 
 - `name` **không** duy nhất: hai phòng ban có thể cùng tên (V5 chỉ bắt `code` duy nhất), hai giá trị của cùng một danh mục cũng vậy (V10 chỉ bắt mã duy nhất trong một loại). `id` mới là khóa. Hai giá trị cùng tên là hai phòng ban (hoặc hai giá trị danh mục) khác nhau, mỗi giá trị chỉ lọc tin của riêng nó, và đứng cạnh nhau theo id. Ví dụ "Phòng Phát triển" của Khối Công nghệ và của Khối Sản phẩm là hai dòng giống hệt nhau; hiện chưa có nhãn nào phân biệt chúng, kể cả trong `departmentName` của tin (câu hỏi 21, ý 5; `JobPostingPortalSearchIntegrationTest.sameNamedValuesAreSeparateOptions`).
 - Ba danh sách đọc trong một transaction `REPEATABLE_READ` chỉ đọc, không khóa gì.
 
-## Chi tiết tin
+## Chi tiết tin (S4-02, task 320)
 
-`GET /public/job-postings/{id}` trả một tin đúng ba điều kiện ở mục "Đang tuyển" nghĩa là gì. Mọi tin khác (nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu, quá hạn nộp, yêu cầu không còn đã duyệt) trả **404** `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", giống hệt tin không tồn tại, nên cổng không cho biết tin nào đang được soạn hay duyệt.
+Story S4-02 (TKNHTTDNB1-41): ứng viên xem chi tiết một tin tuyển dụng. Tiêu chí: (1) hiện mô tả công việc, yêu cầu, quyền lợi và hạn nộp; (2) nút ứng tuyển nổi bật, dùng tốt trên điện thoại; (3) tin đã hết hạn hiện thông báo thay cho form ứng tuyển. Task 320 (Jira: "Xây dựng API chi tiết tin tuyển dụng công khai") trả nội dung công khai và thông tin hạn nộp của tin đã xuất bản. Task 309 đã có API chi tiết với đủ nội dung; task 320 đổi hợp đồng cho tiêu chí 3: trước đây tin qua hạn trả 404 như tin không tồn tại, nên trang không thể hiện thông báo hết hạn.
 
-Trường của tin: `id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax`, `jobDescription`, `candidateRequirements`, `benefits` (`benefits` là `null` khi chưa viết). Đây đúng là `content` của bản xem trước `GET /job-postings/{id}/preview`: cả hai dựng bằng `PublicJobPostingView.of` từ cùng câu truy vấn `JobPostingReadRepository.SELECT_ROW` (task 309).
+| Tiêu chí của S4-02 | Làm ở đâu | Test |
+|---|---|---|
+|1. Mô tả công việc, yêu cầu, quyền lợi, hạn nộp|Task 309: `jobDescription`, `candidateRequirements`, `benefits`, `applicationDeadline`, cùng tiêu đề, chức danh, phòng ban, số lượng, địa điểm, hình thức làm việc và lương nếu tin chọn hiển thị|`JobPostingPublicViewIntegrationTest.theApprovedPreviewIsExactlyWhatCandidatesSeeOncePublished`, `theSalaryIsPublicOnlyWhenChosen`|
+|2. Nút ứng tuyển nổi bật, thân thiện di động|Frontend (task 318). Backend cho biết khi nào hiện nút: `applicationOpen`, `applicationClosesAt` (task 320)|Không có test backend|
+|3. Tin hết hạn hiện thông báo thay cho form|Task 320: tin đã xuất bản qua hạn trả **200** cùng nội dung, kèm `applicationOpen: false`, thay vì 404 (`JobPostingApplicability`)|`aPublishedPostingLeavesTheListAfterItsDeadlineAndItsDetailSaysItExpired`, `JobPostingPortalRuleIntegrationTest`, `JobPostingApplicabilityTest`|
 
+Chặn nộp hồ sơ vào tin hết hạn ở phía server (task 321) và API nộp hồ sơ (task 326, story S4-03) không thuộc task 320.
+
+### Ba trường hợp
+
+| Trường hợp | Điều kiện | Response |
+|---|---|---|
+|Đang nhận hồ sơ (`OPEN`)|Trạng thái `PUBLISHED`, hạn nộp từ hôm nay trở đi theo giờ Việt Nam, yêu cầu nguồn `APPROVED` (đúng ba điều kiện "đang tuyển")|200, `applicationOpen: true`; tin có trên danh sách|
+|Hết hạn (`EXPIRED`)|Trạng thái `PUBLISHED`, yêu cầu nguồn `APPROVED`, hạn nộp đã qua|200 với **cùng nội dung**, `applicationOpen: false`; tin không còn trên danh sách và trong `/filters`|
+|Không công khai (`NOT_PUBLIC`)|Nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu (`CLOSED`), tin của yêu cầu không còn `APPROVED` (ví dụ tạm dừng, kể cả khi đã qua hạn), id không tồn tại|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", body giống hệt từng byte với id không tồn tại|
+
+`JobPostingService.getPublic` đọc "hôm nay" một lần (`BusinessCalendar.today()`, giờ Việt Nam), đọc dòng của tin theo id như bản xem trước (`JobPostingReadRepository.findRow`), rồi quyết định bằng một quy tắc Java duy nhất `JobPostingApplicability.of`: trạng thái thuộc `JobPostingService.PORTAL_STATUSES` (hiện chỉ `PUBLISHED`), yêu cầu thuộc `SOURCE_STATUSES`, rồi so hạn nộp. Danh sách và `/filters` vẫn lọc bằng SQL (`PUBLIC_WHERE`), chọn đúng các tin `OPEN`; `JobPostingPortalRuleIntegrationTest` kiểm hai bên khớp nhau với mọi trạng thái tin, hạn nộp hôm qua, hôm nay, ngày mai và yêu cầu đã duyệt hoặc tạm dừng, lúc 00:30 giờ Việt Nam khi ngày UTC còn là hôm trước.
+
+### Trường của chi tiết
+
+```
+GET /api/v1/public/job-postings/6f1c0e4e-8f8a-4a5e-9c55-2b8f3d7c1a10
+```
+
+```json
+{
+  "id": "6f1c0e4e-8f8a-4a5e-9c55-2b8f3d7c1a10",
+  "title": "Lập trình viên Java (Hà Nội)",
+  "positionName": "Lập trình viên",
+  "departmentName": "Phòng IT",
+  "headcount": 2,
+  "workLocationName": "Hà Nội",
+  "employmentTypeName": "Toàn thời gian",
+  "applicationDeadline": "2026-11-30",
+  "jobDescription": "Phát triển API tuyển dụng.\n- Spring Boot",
+  "candidateRequirements": "Tối thiểu 2 năm kinh nghiệm Java.",
+  "benefits": "Bảo hiểm đầy đủ.",
+  "applicationOpen": true,
+  "applicationClosesAt": "2026-11-30T17:00:00Z"
+}
+```
+
+UUID trong ví dụ chỉ minh họa.
+
+- `id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax`, `jobDescription`, `candidateRequirements`, `benefits` (`benefits` là `null` khi chưa viết): đúng là `content` của bản xem trước `GET /job-postings/{id}/preview`, cùng thứ tự. Cả hai dựng bằng `PublicJobPostingView.of` từ cùng câu truy vấn `JobPostingReadRepository.SELECT_ROW` (task 309); chi tiết công khai là `PublicJobPostingDetail.of(view, …)`. Vì vậy `content` của bản xem trước bằng chi tiết công khai bỏ hai khóa cuối.
+- `applicationOpen` (boolean): `true` khi tin còn nhận hồ sơ, `false` khi hạn nộp đã qua. Chỉ hiện form ứng tuyển khi `true`.
+- `applicationClosesAt` (thời điểm ISO 8601, UTC): lúc tin hết nhận hồ sơ, tức 00:00 ngày sau hạn nộp theo giờ Việt Nam. Hạn 30/11/2026 cho `2026-11-30T17:00:00Z`. Trang đang mở chuyển sang thông báo hết hạn khi đồng hồ qua thời điểm này, không cần biết múi giờ của công ty.
 - Lương chỉ có khi tin chọn hiển thị (`showSalary: true`): `salaryMin`, `salaryMax` là lương đề xuất đã duyệt của yêu cầu (đồng VND mỗi người mỗi tháng). Khi không chọn, hai khóa này **không có** trong JSON, và server không gửi số tiền đi.
 - Tên chức danh, phòng ban, địa điểm và hình thức làm việc được đọc trực tiếp: đổi tên trong danh mục hiện ngay trên cổng (câu hỏi 16 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).
+- Không có khóa `status`, không giá trị nào là tên trạng thái: trạng thái nhận hồ sơ chỉ là `applicationOpen`.
+
+### Hạn nộp theo giờ Việt Nam
+
+Ví dụ tin hạn 30/11/2026:
+
+| Thời điểm (UTC) | Giờ Việt Nam | Danh sách | Chi tiết |
+|---|---|---|---|
+|`2026-11-30T16:59:59Z`|23:59:59 ngày 30/11|Có tin|200, `applicationOpen: true`|
+|`2026-11-30T17:00:00Z`|00:00 ngày 1/12|Không có tin|200, cùng nội dung, `applicationOpen: false`|
+
+Trạng thái trong database vẫn là `PUBLISHED`: thông báo hết hạn đi theo ngày, không cần tác vụ nào chạy. Tin hết hạn vẫn mở được bằng liên kết, không giới hạn thời gian, cho tới khi yêu cầu nguồn được đóng (tin chuyển `CLOSED`, task 292) hoặc bị tạm dừng (404 cho tới khi mở lại); câu hỏi 22. `applicationOpen` là trạng thái lúc đọc: API nộp hồ sơ (task 326) phải tự kiểm lại khi nhận hồ sơ.
 
 ## Dữ liệu trả ra (task 316)
 
-Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): cổng chỉ trả trường công khai của tin, không bao giờ trả dữ liệu nội bộ của yêu cầu tuyển dụng. Task 309 đã làm điều này bằng các record chỉ chứa trường công khai, task 315 thêm hai record của `/filters`. Task 316 không đổi code chạy thật hay hợp đồng: không test nào tìm ra trường bị lộ, nên commit chỉ thêm test ghim từng record, từng response, và mục này.
+Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): cổng chỉ trả trường công khai của tin, không bao giờ trả dữ liệu nội bộ của yêu cầu tuyển dụng. Task 309 đã làm điều này bằng các record chỉ chứa trường công khai, task 315 thêm hai record của `/filters`, task 320 thêm record của chi tiết (`PublicJobPostingDetail`). Task 316 không đổi code chạy thật hay hợp đồng: không test nào tìm ra trường bị lộ, nên commit chỉ thêm test ghim từng record, từng response, và mục này.
 
 ### Trường của từng response
 
@@ -138,7 +195,7 @@ Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): c�
 |---|---|---|
 |Trang danh sách (kể cả khi lọc, tìm, trang rỗng)|`items`, `page`, `size`, `totalElements`, `totalPages`|`PublicJobPostingPage`|
 |Một mục của danh sách|`id`, `title`, `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`, `applicationDeadline`; thêm `salaryMin`, `salaryMax` ở cuối chỉ khi tin chọn hiển thị lương|`PublicJobPostingSummary`|
-|Chi tiết tin|`id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax` (chỉ khi hiển thị lương), `jobDescription`, `candidateRequirements`, `benefits`|`PublicJobPostingView`|
+|Chi tiết tin|`id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax` (chỉ khi hiển thị lương), `jobDescription`, `candidateRequirements`, `benefits`, `applicationOpen`, `applicationClosesAt` (hai khóa cuối từ task 320)|`PublicJobPostingDetail` (dựng từ `PublicJobPostingView`, cũng là `content` của bản xem trước)|
 |Giá trị bộ lọc|`departments`, `workLocations`, `employmentTypes`; mỗi giá trị đúng `id`, `name`|`PublicJobPostingFilters`, `PublicJobPostingFilterOption`|
 |Lỗi (400, 401, 403, 404)|`code`, `message`, `fieldErrors`|`ApiError`|
 
@@ -149,6 +206,7 @@ Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): c�
 |`id`|`job_postings.id`|Để mở chi tiết (và sau này nộp hồ sơ); không cho biết gì về yêu cầu nguồn|
 |`title`, `jobDescription`, `candidateRequirements`, `benefits`|Bản của chính tin (`job_postings`), viết bằng ngôn ngữ tuyển dụng và đã qua duyệt (task 304, 308)|Là nội dung tin. Văn bản của yêu cầu chỉ được chép một lần lúc tạo tin (nếu người soạn không tự viết), sau đó tách hẳn; cổng không bao giờ đọc văn bản của yêu cầu|
 |`applicationDeadline`|`job_postings.application_deadline`|Hạn nộp, ứng viên cần biết (S4-02)|
+|`applicationOpen`, `applicationClosesAt` (chỉ ở chi tiết, task 320)|Tính khi đọc từ hạn nộp và ngày hôm nay theo giờ Việt Nam|Để hiện nút ứng tuyển hay thông báo hết hạn (S4-02). Không phải trạng thái của tin: không cho biết tin đang được soạn, duyệt hay đã đóng|
 |`workLocationName`, `employmentTypeName`|Tên hiện tại của giá trị danh mục tin đã chọn|Thông tin công khai của tin; chỉ có tên, không có id hay mã|
 |`positionName`, `departmentName`, `headcount`|Từ yêu cầu tuyển dụng nguồn: tên chức danh và tên phòng ban hiện tại (đọc trực tiếp), số lượng đã duyệt|Câu hỏi 16 cho hiện ba trường này; frontend (task 312, 313, 318) dùng `positionName`. Chỉ có tên, không có id|
 |`salaryMin`, `salaryMax`|Lương đề xuất đã duyệt của yêu cầu, **chỉ** khi tin chọn `showSalary`|Người soạn chọn công khai. Khi không chọn, server bỏ cả hai khóa trước khi gửi (`PublicJobPostingView.of`); số tiền không có trong response|
@@ -159,23 +217,23 @@ Task 316 (Jira: "Giới hạn dữ liệu trả ra trên cổng công khai"): c�
 - id của yêu cầu tuyển dụng nguồn (không có `requisitionId`) và mọi dữ liệu riêng của yêu cầu: mô tả công việc, yêu cầu ứng viên và giải trình lương **của yêu cầu**, lý do tuyển, ngày cần người, trạng thái, lịch sử duyệt và nhận xét của người duyệt, nhóm recruiter, lương đề xuất khi tin không chọn hiển thị.
 - id chức danh (tên chức danh thì có, xem bảng trên), id phòng ban, địa điểm, hình thức ngoài `/filters`, mã phòng ban và mã danh mục, phòng ban cha, trưởng phòng, cờ áp dụng, thứ tự sắp xếp.
 - Trạng thái và `revision` của tin; người tạo, người sửa, người gửi duyệt, người duyệt, người xuất bản (id, tên, email); nhận xét khi gửi duyệt, yêu cầu chỉnh sửa và duyệt tin; mọi thời điểm (tạo, sửa, duyệt, xuất bản).
-- Bất cứ điều gì về tin không đang tuyển: chi tiết trả **cùng một body 404**, giống hệt từng byte, cho bản nháp, tin chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng, tin của yêu cầu tạm dừng và id không tồn tại; danh sách và số đếm không tính chúng; `/filters` không lấy giá trị của chúng.
+- Bất cứ điều gì về tin không công khai: chi tiết trả **cùng một body 404**, giống hệt từng byte, cho bản nháp, tin chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng, tin của yêu cầu tạm dừng và id không tồn tại; danh sách và số đếm không tính chúng; `/filters` không lấy giá trị của chúng. Riêng tin đã xuất bản qua hạn nộp vẫn mở chi tiết (cùng nội dung, `applicationOpen: false`, task 320) nhưng không có trên danh sách và `/filters`.
 - Lỗi 400 của từ khóa không lặp lại từ khóa; lỗi 404 không lặp lại id.
 
 Tìm kiếm cũng không dùng được để dò văn bản nội bộ: từ khóa `q` chỉ đọc tiêu đề và mô tả công việc của tin đang tuyển, nên một chuỗi chỉ có trong văn bản của yêu cầu, trong nhận xét duyệt, trong yêu cầu ứng viên hay quyền lợi của tin, trong tên chức danh, phòng ban, địa điểm, hình thức, hoặc trong bản nháp đều cho trang rỗng với `totalElements` 0.
 
 ### Cách bảo đảm
 
-- Response của cổng chỉ được dựng từ các record công khai ở bảng trên. `PublicJobPostingView.of` là chỗ duy nhất chọn trường từ dòng dữ liệu và bỏ lương bị ẩn; mục danh sách được cắt từ view đó (`PublicJobPostingSummary.of`), nên lương chỉ bị ẩn ở một chỗ.
+- Response của cổng chỉ được dựng từ các record công khai ở bảng trên. `PublicJobPostingView.of` là chỗ duy nhất chọn trường từ dòng dữ liệu và bỏ lương bị ẩn; mục danh sách được cắt từ view đó (`PublicJobPostingSummary.of`) và chi tiết chép từ view đó rồi thêm hai khóa nhận hồ sơ (`PublicJobPostingDetail.of`, task 320), nên lương chỉ bị ẩn ở một chỗ.
 - `JobPostingReadRepository.SELECT_ROW` đọc **nhiều hơn** những gì cổng trả (trạng thái yêu cầu, lương đề xuất, người tạo, nhận xét duyệt, người xuất bản...), vì bản xem trước, màn hình nội bộ và cổng dùng chung một câu truy vấn (task 303, 309) để luôn hiện cùng nội dung. Dòng đầy đủ (`JobPostingRow`) không bao giờ rời server: chỉ record công khai được chuyển sang JSON. Đây là lựa chọn có chủ ý; nếu sau này cần, có thể viết câu SQL riêng cho cổng mà không đổi hợp đồng.
-- Test (task 316): `PublicJobPostingViewTest.everyPortalRecordHasOnlyItsPublicComponents` ghim tên và kiểu từng thành phần của năm record (trang chỉ chứa `List<PublicJobPostingSummary>`, `/filters` chỉ chứa `List<PublicJobPostingFilterOption>`), `theSummaryJsonCarriesOnlyListFields`, `thePublicPostingNamesButNeverIdentifiesItsOrganizationValues`; `JobPostingPublicViewIntegrationTest.theSalaryIsPublicOnlyWhenChosen` ghim thêm khóa của mục có lương; `JobPostingPortalSearchIntegrationTest.filteredAndSearchedListsCarryOnlyListFields`, `theFilterValuesCarryOnlyIdAndName`, `thePortalNeverShowsRequisitionData` (yêu cầu nguồn đi qua luồng duyệt thật, văn bản nội bộ là chuỗi đánh dấu, kiểm mọi response kể cả 404 và 400), `theSearchNeverReadsInternalOrUnsearchedText`, `theNotFoundBodyIsTheSameForEveryHiddenPosting`. Thêm một trường vào cổng buộc phải sửa các danh sách khóa này, nên không thể lộ thêm trường mà không ai thấy.
+- Test (task 316): `PublicJobPostingViewTest.everyPortalRecordHasOnlyItsPublicComponents` ghim tên và kiểu từng thành phần của năm record (trang chỉ chứa `List<PublicJobPostingSummary>`, `/filters` chỉ chứa `List<PublicJobPostingFilterOption>`) và, từ task 320, của `PublicJobPostingDetail` (đúng các thành phần của `PublicJobPostingView` theo cùng thứ tự, thêm `applicationOpen`, `applicationClosesAt`; `theDetailIsThePublicViewWithTheApplicationState`, `theDetailJsonIsThePublicPostingFollowedByTheApplicationState`), `theSummaryJsonCarriesOnlyListFields`, `thePublicPostingNamesButNeverIdentifiesItsOrganizationValues`; `JobPostingPublicViewIntegrationTest.theSalaryIsPublicOnlyWhenChosen` ghim thêm khóa của mục có lương; `JobPostingPortalSearchIntegrationTest.filteredAndSearchedListsCarryOnlyListFields`, `theFilterValuesCarryOnlyIdAndName`, `thePortalNeverShowsRequisitionData` (yêu cầu nguồn đi qua luồng duyệt thật, văn bản nội bộ là chuỗi đánh dấu, kiểm mọi response kể cả 404 và 400), `theSearchNeverReadsInternalOrUnsearchedText`, `theNotFoundBodyIsTheSameForEveryHiddenPosting`. Thêm một trường vào cổng buộc phải sửa các danh sách khóa này, nên không thể lộ thêm trường mà không ai thấy.
 
 ## Bảo mật và cache
 
 - `permitAll` chỉ cho đúng phương thức GET và đúng ba đường dẫn trên (`/filters` được ghi tên riêng dù `/public/job-postings/*` đã gồm nó, để vẫn công khai nếu sau này `/*` bị thu hẹp lại chỉ cho id). Phương thức khác (ví dụ `POST /public/job-postings`, `POST /public/job-postings/filters`, `PUT` hay `DELETE /public/job-postings/{id}`) hoặc đường dẫn khác trả **401** `UNAUTHORIZED` khi gọi không kèm token, vì `anyRequest().denyAll()` đưa người gọi ẩn danh tới bước đăng nhập, và trả **403** `FORBIDDEN` khi kèm token hợp lệ (`JobPostingPublicViewIntegrationTest.thePortalNeedsNoTokenAndIsNotCached`; `ApiAuthorizationMatrixIntegrationTest` kiểm với token ADMIN).
 - Như [trang giới thiệu công ty](company-profile.md), gửi kèm Bearer hỏng hoặc hết hạn vẫn bị 401 ở bộ lọc bảo mật, nên trang công khai gọi ba API này **không** kèm header `Authorization`.
 - Server không tạo phiên (`SessionCreationPolicy.STATELESS`): response không có `Set-Cookie`, kể cả khi người gọi đã đăng nhập.
-- Mọi response dùng `Cache-Control: no-store`, kể cả `/filters`, 404 và lỗi, vì tin rời cổng ngay khi quá hạn hoặc khi yêu cầu không còn đã duyệt.
+- Mọi response dùng `Cache-Control: no-store`, kể cả `/filters`, 404 và lỗi, vì tin rời danh sách và chuyển sang `applicationOpen: false` ngay khi quá hạn, và rời cổng ngay khi yêu cầu không còn đã duyệt.
 - Lọc và tìm kiếm chỉ thêm điều kiện vào câu SQL đã có điều kiện "đang tuyển", với mọi giá trị là tham số bind (task 315); không tham số nào cho thấy thêm tin hay đổi câu SQL.
 - Hiển thị **mọi** chuỗi dạng chữ (không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`), kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`: server chỉ kiểm văn bản thuần với `title`, `jobDescription`, `candidateRequirements`, `benefits` (task 304); bốn tên kia đến từ dữ liệu tổ chức, chỉ được kiểm độ dài.
 
@@ -186,7 +244,7 @@ Tìm kiếm cũng không dùng được để dò văn bản nội bộ: từ kh
 |400|`VALIDATION_ERROR`|`page`/`size` sai ("Trang hoặc số lượng tin tuyển dụng không hợp lệ.", kiểm trước `q`); `q` quá 255 ký tự hoặc có ký tự điều khiển ("Từ khóa tìm kiếm tin tuyển dụng không hợp lệ.", kèm `fieldErrors.q`, task 315); `page` hoặc `size` không phải số, `{id}`, `departmentId`, `workLocationId` hoặc `employmentTypeId` không phải UUID ("Tham số đường dẫn hoặc bộ lọc không hợp lệ.")|
 |401|`UNAUTHORIZED`|Gửi kèm Bearer hỏng hoặc hết hạn; hoặc không kèm token mà gọi phương thức hay đường dẫn khác ba API trên, ví dụ `POST /public/job-postings` (có `WWW-Authenticate: Bearer`)|
 |403|`FORBIDDEN`|Kèm token hợp lệ mà gọi phương thức hoặc đường dẫn khác ba API trên, ví dụ `POST /public/job-postings`|
-|404|`JOB_POSTING_NOT_FOUND`|Chi tiết: không có tin với `{id}`, hoặc tin không đang tuyển (mục "Chi tiết tin")|
+|404|`JOB_POSTING_NOT_FOUND`|Chi tiết: không có tin với `{id}`, hoặc tin không công khai (mục "Chi tiết tin"). Tin đã xuất bản qua hạn nộp không phải lỗi: 200 với `applicationOpen: false` (task 320)|
 
 Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 
@@ -196,9 +254,12 @@ Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 - `page` đếm từ 0 (nút "Trang 1" gửi `page=0`); `size` tối đa 100. Dùng `totalPages` để vẽ phân trang, không tự đếm.
 - Bộ lọc (task 315): gửi `departmentId`, `workLocationId`, `employmentTypeId` và `q` (không phải `keyword`), mã hóa bằng `encodeURIComponent`; bỏ hẳn tham số hoặc gửi rỗng khi người dùng chọn "Tất cả". Đổi bộ lọc thì quay về `page=0`. Lấy ba ô chọn từ `GET /public/job-postings/filters`, không từ `/departments` hay `/recruitment-catalogs` (cần đăng nhập). Dùng `id` làm `key` và giá trị của ô chọn, không dùng `name`, và không gộp các giá trị cùng tên: hai phòng ban có thể cùng tên mà là hai phòng ban khác nhau (mục "Giá trị bộ lọc"; nhãn phân biệt còn chờ câu hỏi 21). Form soạn tin ở nhánh `UI` đang để "Remote", "Hybrid" trong ô địa điểm; backend lọc hình thức làm việc theo danh mục `EMPLOYMENT_TYPE` (câu hỏi 21).
 - Từ khóa có phân biệt dấu: gợi ý người dùng gõ có dấu; trang rỗng khi tìm là kết quả bình thường, không phải lỗi.
-- Tin đang mở có thể rời danh sách giữa hai lần tải (qua hạn lúc 00:00 giờ Việt Nam, yêu cầu bị tạm dừng); mở chi tiết khi đó nhận 404: hiện "Không tìm thấy tin tuyển dụng" thay vì báo lỗi hệ thống.
+- Chi tiết (task 320, trang của task 318): hiện form hoặc nút ứng tuyển chỉ khi `applicationOpen` là `true`; khi `false`, hiện thông báo hết hạn cùng nội dung tin. Trang đang mở chuyển sang thông báo khi `Date.now()` qua `applicationClosesAt` (so thời điểm, không tự tính theo múi giờ), không cần tải lại. API nộp hồ sơ (task 326) vẫn có thể từ chối nếu tin vừa hết hạn hoặc bị gỡ.
+- Tin đang mở có thể rời danh sách giữa hai lần tải (qua hạn lúc 00:00 giờ Việt Nam, yêu cầu bị tạm dừng). Qua hạn thì chi tiết vẫn mở, kèm `applicationOpen: false`; yêu cầu bị tạm dừng hoặc đóng thì chi tiết nhận 404: hiện "Không tìm thấy tin tuyển dụng" thay vì báo lỗi hệ thống.
 - So sánh hạn nộp theo ngày `applicationDeadline` (không có giờ); không đổi sang giờ của trình duyệt.
 
 ## Giả định chờ BA/PO
 
 Câu hỏi 21 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md): định nghĩa "đang tuyển" ở trên (tính cả ngày hạn theo giờ Việt Nam, yêu cầu tạm dừng thì ẩn, tin xuất bản gần nhất trước); bộ lọc phòng ban không gồm phòng ban con, mỗi bộ lọc một giá trị; "hình thức làm việc" là danh mục `EMPLOYMENT_TYPE`; từ khóa là một cụm, có phân biệt dấu, chỉ tìm trong tiêu đề và mô tả công việc; giá trị bộ lọc chỉ lấy từ tin đang tuyển và lộ id, id không tồn tại trả trang rỗng, giá trị cùng tên chưa có nhãn phân biệt (task 315); và các trường cổng hiện (có số lượng tuyển và tên chức danh, không có ngày đăng, người xuất bản, id chức danh và dữ liệu nội bộ của yêu cầu; task 316, mục "Dữ liệu trả ra").
+
+Câu hỏi 22 (task 320): tin đã qua hạn rời danh sách nhưng chi tiết vẫn mở kèm thông báo hết hạn, không giới hạn thời gian, cho tới khi bị đóng; tin của yêu cầu tạm dừng trả 404 chứ không hiện thông báo; có trả `applicationClosesAt` để trang tự chuyển sang thông báo.

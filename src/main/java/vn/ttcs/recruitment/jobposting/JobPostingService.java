@@ -29,7 +29,8 @@ import java.util.UUID;
  * Task 303 (story S3-09): job postings made from approved requisitions, saved as drafts by their authors. Task 308
  * (story S3-10): the authors send them for review (submit); HR's decisions and the publication are in
  * JobPostingApprovalService. Task 309: the preview, and the public portal of published postings; both answer with
- * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW).
+ * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW). Task 320 (story
+ * S4-02): the public detail adds whether candidates may still apply (PublicJobPostingDetail).
  * <p>
  * Lock order of every write: the actor's account, the actor's session (JobPostingAccess.lockWriter), the requisition
  * row (JobPostingSourceRepository.lockSource), the posting row, then the chosen catalog values FOR SHARE (work
@@ -58,11 +59,19 @@ public class JobPostingService {
 
     // Task 309: the statuses in which candidates see a posting on the public portal, while its application deadline
     // has not passed and its requisition is still in SOURCE_STATUSES. JobPostingStatus asks every new status to be
-    // classified here; JobPostingStatusTest does not compile until it is.
+    // classified here; JobPostingStatusTest does not compile until it is. Task 320: only these are listed and take
+    // applications, and only while both conditions hold (JobPostingApplicability.OPEN).
     static final Set<JobPostingStatus> PUBLIC_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
 
-    // Task 309: the two sets above as the names the public SQL filter binds (PgJDBC cannot bind a Java enum).
-    // Derived from the sets, so the filter and the sets cannot drift apart.
+    // Task 320 (story S4-02): the statuses whose public detail candidates may still open by its link while its
+    // requisition is in SOURCE_STATUSES: open to applications while the posting is in PUBLIC_STATUSES and its deadline
+    // has not passed, otherwise shown with a notice instead of the apply form (JobPostingApplicability). Holds every
+    // status of PUBLIC_STATUSES. JobPostingStatus asks every new status to be classified here; JobPostingStatusTest
+    // does not compile until it is.
+    static final Set<JobPostingStatus> PORTAL_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+
+    // Task 309: PUBLIC_STATUSES and SOURCE_STATUSES as the names the public SQL filter binds (PgJDBC cannot bind a
+    // Java enum). Derived from the sets, so the filter and the sets cannot drift apart.
     static final List<String> PUBLIC_STATUS_NAMES = PUBLIC_STATUSES.stream().map(Enum::name).toList();
     static final List<String> SOURCE_STATUS_NAMES = SOURCE_STATUSES.stream().map(Enum::name).toList();
 
@@ -255,19 +264,35 @@ public class JobPostingService {
     }
 
     /**
-     * Task 309: a posting on the public portal, for anyone, without logging in. Only a posting in PUBLIC_STATUSES
-     * whose application deadline is today or later (business date) and whose requisition is still in SOURCE_STATUSES;
-     * every other posting answers 404 exactly like an id that does not exist, so the portal tells nothing about
-     * drafts, postings under review or expired ones.
+     * Task 309: a posting on the public portal, for anyone, without logging in. Task 320 (story S4-02): what a
+     * candidate who opens the posting by its link may see, decided by JobPostingApplicability from the posting's
+     * status, its requisition's status, its deadline and today (the business date, read once at the start):
+     * <ul>
+     *   <li>OPEN (in PUBLIC_STATUSES, deadline today or later, requisition in SOURCE_STATUSES): the posting with
+     *   applicationOpen true;</li>
+     *   <li>EXPIRED (in PORTAL_STATUSES, requisition in SOURCE_STATUSES, deadline passed): the same content with
+     *   applicationOpen false, so the page shows a notice instead of the apply form; the list no longer has it;</li>
+     *   <li>NOT_PUBLIC (any other status, or a requisition no longer in SOURCE_STATUSES, for example paused): 404
+     *   exactly like an id that does not exist, so the portal tells nothing about drafts or postings under review.</li>
+     * </ul>
+     * applicationClosesAt is 00:00 of the day after the deadline in the business zone. The content is built by
+     * PublicJobPostingView.of from the row of the preview, so it equals the preview's content.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PublicJobPostingView getPublic(UUID id) {
-        return reads.findPublic(id, calendar.today()).map(PublicJobPostingView::of)
-                .orElseThrow(JobPostingService::notFound);
+    public PublicJobPostingDetail getPublic(UUID id) {
+        LocalDate today = calendar.today();
+        JobPostingRow row = reads.findRow(id).orElseThrow(JobPostingService::notFound);
+        var applicability = JobPostingApplicability.of(row.status(), row.requisitionStatus(),
+                row.applicationDeadline(), today);
+        if (applicability == JobPostingApplicability.NOT_PUBLIC) {
+            throw notFound(); // the same body as an id that does not exist
+        }
+        return PublicJobPostingDetail.of(PublicJobPostingView.of(row), applicability == JobPostingApplicability.OPEN,
+                calendar.startOf(row.applicationDeadline().plusDays(1)));
     }
 
     // Task 309: one page of the postings getPublic shows, newest publication first. REPEATABLE_READ: the count and
-    // the page come from the same snapshot.
+    // the page come from the same snapshot. Task 320: only those still open to applications (OPEN).
     // Task 315 (story S4-01): only the postings that match every filter and the keyword of the query (an empty query
     // is the whole list). Checks in order: page and size, then the keyword (400 VALIDATION_ERROR each); an unknown id
     // is not checked and gives an empty page.

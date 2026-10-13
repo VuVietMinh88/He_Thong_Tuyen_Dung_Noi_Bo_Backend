@@ -12,6 +12,9 @@ package vn.ttcs.recruitment.jobposting;
 // not compile until it is.
 // Task 309: decide whether candidates see it on the public portal (JobPostingService.PUBLIC_STATUSES).
 // JobPostingStatusTest does not compile until it is.
+// Task 320: decide whether candidates may open its detail page (JobPostingService.PORTAL_STATUSES, which holds every
+// status of PUBLIC_STATUSES): outside PUBLIC_STATUSES the detail shows a closed notice. JobPostingStatusTest and
+// JobPostingApplicabilityTest do not compile until it is.
 // Task 310: V23 job_posting_unpublished_without_trail lists the statuses before the publication, which have no
 // publisher and no publication time; a new status before the publication needs that CHECK re-created too, while one
 // after PUBLISHED (CLOSED) keeps the trail.
@@ -27,8 +30,9 @@ public enum JobPostingStatus {
     REVISION_REQUESTED,
     // HR approved it (task 308). Not public until it is published; HR may still ask for changes.
     APPROVED,
-    // Published (task 308). Candidates see it on the public portal (task 309) while its deadline has not passed. It
-    // always names who published it and when (task 310, V23).
+    // Published (task 308). Candidates see it on the public portal (task 309) while its deadline has not passed; after
+    // it, its detail still opens with a closed notice (task 320). It always names who published it and when (task
+    // 310, V23).
     PUBLISHED,
     // Task 292: the requisition was closed as filled or cancelled. Final; never public; a posting closed after
     // publication keeps who published it and when.

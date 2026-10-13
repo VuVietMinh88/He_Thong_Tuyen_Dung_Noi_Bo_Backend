@@ -68,7 +68,7 @@ class JobPostingPortalSearchIntegrationTest {
     private static final String TOO_LONG = "Từ khóa tìm kiếm tối đa 255 ký tự.";
     private static final String CONTROL = "Từ khóa tìm kiếm không được chứa ký tự điều khiển.";
     // Task 316: the exact keys of a page, of a list item (a shown salary adds its two keys at the end), of the detail
-    // of a posting that hides its salary and of an error.
+    // of a posting that hides its salary (task 320 adds the application state at its end) and of an error.
     private static final List<String> PAGE_KEYS = List.of("items", "page", "size", "totalElements", "totalPages");
     private static final List<String> LIST_ITEM_KEYS = List.of("id", "title", "positionName", "departmentName",
             "workLocationName", "employmentTypeName", "applicationDeadline");
@@ -77,7 +77,7 @@ class JobPostingPortalSearchIntegrationTest {
             "salaryMax");
     private static final List<String> DETAIL_KEYS = List.of("id", "title", "positionName", "departmentName",
             "headcount", "workLocationName", "employmentTypeName", "applicationDeadline", "jobDescription",
-            "candidateRequirements", "benefits");
+            "candidateRequirements", "benefits", "applicationOpen", "applicationClosesAt");
     private static final List<String> ERROR_KEYS = List.of("code", "message", "fieldErrors");
     // Task 316: texts only the editors may read, one per place: the requisition's job description, candidate
     // requirements and salary justification, HR's comment approving the requisition, and the comments of the
