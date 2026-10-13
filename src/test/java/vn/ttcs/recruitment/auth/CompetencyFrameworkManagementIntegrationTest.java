@@ -20,6 +20,8 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.competency.CompetencyCriterionRequest;
+import vn.ttcs.recruitment.competency.CompetencyFrameworkRequest;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -414,6 +416,168 @@ class CompetencyFrameworkManagementIntegrationTest {
         assertThat(row.get("code")).isEqualTo("c".repeat(50));
         assertThat(row.get("name")).isEqualTo("n".repeat(255));
         assertThat(row.get("description")).isEqualTo(description);
+    }
+
+    @Test
+    void removesUnicodeSpacesAroundDescriptionsAndStoresADescriptionWithoutAVisibleCharacterAsNull() throws Exception {
+        // PostgreSQL counts these as spaces ([[:space:]]) but String.strip() keeps them, so V8 refused such a description
+        // (500). The characters are built from code points, so the source shows which one each case sends.
+        int index = 0;
+        for (int space : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E}) {
+            String character = Character.toString(space);
+            String code = "UNICODE_" + ++index;
+            JsonNode created = expect(create(payload(code, "Unicode " + index, character + "Mô tả khung" + character,
+                    List.of(criterion(null, "Giao tiếp", character + " Lắng nghe" + character + "\n", 60),
+                            criterion(null, "Làm việc nhóm", character + character, 40))), hrToken), 201);
+            assertThat(created.path("description").asText()).as("U+%04X", space).isEqualTo("Mô tả khung");
+            assertThat(created.path("criteria").path(0).path("description").asText()).isEqualTo("Lắng nghe");
+            assertThat(created.path("criteria").path(1).path("description").isNull()).isTrue();
+
+            // PUT follows the same rules.
+            UUID id = UUID.fromString(created.path("id").asText());
+            UUID criterionId = UUID.fromString(created.path("criteria").path(0).path("id").asText());
+            JsonNode updated = expect(update(id, payload(code, "Unicode " + index, "Đã sửa" + character,
+                    List.of(criterion(criterionId, "Giao tiếp", character, 100))), hrToken), 200);
+            assertThat(updated.path("description").asText()).isEqualTo("Đã sửa");
+            assertThat(updated.path("criteria").path(0).path("description").isNull()).isTrue();
+            assertThat(jdbc.queryForObject("SELECT description FROM competency_frameworks WHERE id = ?", String.class, id))
+                    .isEqualTo("Đã sửa");
+            assertThat(jdbc.queryForObject("SELECT description FROM competency_criteria WHERE id = ?", String.class,
+                    criterionId)).isNull();
+        }
+
+        // A space inside the description is kept, and the 1000 character limit counts the text without the spaces
+        // around it. Zero-width characters (U+200B, U+FEFF, U+2060) show nothing, so such a description is left out.
+        String nbsp = Character.toString(0x00A0);
+        String inside = "d".repeat(500) + nbsp + "d".repeat(499);
+        JsonNode kept = expect(create(payload("UNICODE_KEPT", "Unicode kept", nbsp + inside + nbsp,
+                List.of(criterion(null, "Giao tiếp", new String(new int[]{0x200B, 0xFEFF, 0x2060}, 0, 3) + nbsp, 100))),
+                hrToken), 201);
+        assertThat(kept.path("description").asText()).isEqualTo(inside);
+        assertThat(kept.path("criteria").path(0).path("description").isNull()).isTrue();
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundADescription() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            String padded = character + "Mô tả" + character;
+            assertThat(new CompetencyFrameworkRequest("CODE", "Name", padded, null, List.of()).description())
+                    .as("U+%04X", space).isEqualTo("Mô tả");
+            assertThat(new CompetencyCriterionRequest(null, "Name", padded, BigDecimal.ONE).description())
+                    .as("U+%04X", space).isEqualTo("Mô tả");
+        }
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            assertThat(new CompetencyFrameworkRequest("CODE", "Name", character, null, List.of()).description())
+                    .as("U+%04X", space).isNull();
+            assertThat(new CompetencyCriterionRequest(null, "Name", character, BigDecimal.ONE).description())
+                    .as("U+%04X", space).isNull();
+        }
+    }
+
+    @Test
+    void removesInvisibleCharactersAroundCodesAndNamesAndRefusesValuesWithoutAVisibleCharacter() throws Exception {
+        // trim() and @NotBlank kept these, so they were stored around a code or name, or alone as an invisible one:
+        // non-breaking spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the
+        // ideographic and em spaces at the ends, and zero-width characters (U+200B, U+FEFF, U+2060). The characters are
+        // built from code points, so the source shows which one each case sends.
+        int number = 0;
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            number++;
+            JsonNode created = expect(create(payload(character + "HR" + number + character,
+                    character + "Khung " + number + character, null,
+                    List.of(criterion(null, character + "Giao tiếp" + character, null, 100))), hrToken), 201);
+            UUID id = UUID.fromString(created.path("id").asText());
+            assertThat(created.path("code").asText()).as("U+%04X", invisible).isEqualTo("HR" + number);
+            assertThat(created.path("name").asText()).as("U+%04X", invisible).isEqualTo("Khung " + number);
+            assertThat(created.path("criteria").path(0).path("name").asText()).as("U+%04X", invisible)
+                    .isEqualTo("Giao tiếp");
+            JsonNode updated = expect(update(id, payload(character + "IT" + number + character,
+                    character + "Khung sửa " + number + character, null,
+                    List.of(criterion(null, character + "Làm việc nhóm" + character, null, 100))), hrToken), 200);
+            assertThat(updated.path("code").asText()).as("U+%04X", invisible).isEqualTo("IT" + number);
+            assertThat(updated.path("name").asText()).as("U+%04X", invisible).isEqualTo("Khung sửa " + number);
+            assertThat(updated.path("criteria").path(0).path("name").asText()).as("U+%04X", invisible)
+                    .isEqualTo("Làm việc nhóm");
+            assertThat(jdbc.queryForMap("SELECT code, name FROM competency_frameworks WHERE id = ?", id))
+                    .containsEntry("code", "IT" + number).containsEntry("name", "Khung sửa " + number);
+            assertThat(jdbc.queryForList("SELECT name FROM competency_criteria WHERE framework_id = ?", String.class, id))
+                    .containsExactly("Làm việc nhóm");
+        }
+        // A code or criterion name that only differs from another one by such a character is the same.
+        String nbsp = Character.toString(0x00A0);
+        error(create(payload("IT1" + nbsp, "Bản sao", null, List.of()), hrToken), 409, "COMPETENCY_FRAMEWORK_CODE_EXISTS");
+        error(create(payload("NAMES", "Tên trùng", null, List.of(criterion(null, "Giao tiếp", null, 50),
+                criterion(null, "Giao tiếp" + nbsp, null, 50))), hrToken), 409, "COMPETENCY_CRITERION_NAME_DUPLICATE");
+        // Characters inside a value belong to it and are kept; the length limits count the value without its ends.
+        JsonNode inner = expect(create(payload(nbsp + "c".repeat(50) + nbsp, "Khung" + nbsp + "mới", null,
+                List.of(criterion(null, nbsp + "n".repeat(255) + nbsp, null, 100))), hrToken), 201);
+        assertThat(inner.path("code").asText()).isEqualTo("c".repeat(50));
+        assertThat(inner.path("name").asText()).isEqualTo("Khung" + nbsp + "mới");
+        assertThat(inner.path("criteria").path(0).path("name").asText()).isEqualTo("n".repeat(255));
+
+        // Without a visible character the value counts as empty, on POST and on PUT.
+        UUID target = UUID.fromString(framework("KEEP", "Giữ nguyên", criterion(null, "Giao tiếp", null, 100))
+                .path("id").asText());
+        var before = competencyRows();
+        Map<String, String> messages = Map.of("code", "Mã khung năng lực không được để trống.",
+                "name", "Tên khung năng lực không được để trống.", "criteria[0].name", "Tên tiêu chí không được để trống.");
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            for (String field : List.of("code", "name", "criteria[0].name")) {
+                boolean criterionName = field.startsWith("criteria");
+                Map<String, Object> created = payload("NEW", "Mới", null,
+                        List.of(criterion(null, criterionName ? invisible : "Giao tiếp", null, 100)));
+                if (!criterionName) {
+                    created.put(field, invisible);
+                }
+                JsonNode refused = expect(create(created, hrToken), 400);
+                assertThat(refused.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+                assertThat(refused.path("fieldErrors").path(field).asText()).as("%s %s", field, invisible.codePoints()
+                        .mapToObj(Integer::toHexString).toList()).isEqualTo(messages.get(field));
+                Map<String, Object> updated = payload("KEEP", "Giữ nguyên", null,
+                        List.of(criterion(null, criterionName ? invisible : "Giao tiếp", null, 100)));
+                if (!criterionName) {
+                    updated.put(field, invisible);
+                }
+                refused = expect(update(target, updated, hrToken), 400);
+                assertThat(refused.path("fieldErrors").path(field).asText()).isEqualTo(messages.get(field));
+            }
+        }
+        assertThat(competencyRows()).isEqualTo(before);
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundCodesAndNames() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            var framework = new CompetencyFrameworkRequest(character + "HR" + character, character + "Khung" + character,
+                    null, null, List.of());
+            assertThat(framework.code()).as("U+%04X", space).isEqualTo("HR");
+            assertThat(framework.name()).as("U+%04X", space).isEqualTo("Khung");
+            assertThat(new CompetencyCriterionRequest(null, character + "Giao tiếp" + character, null, BigDecimal.ONE)
+                    .name()).as("U+%04X", space).isEqualTo("Giao tiếp");
+            var invisible = new CompetencyFrameworkRequest(character, character, null, null, List.of());
+            assertThat(invisible.code()).as("U+%04X", space).isNull();
+            assertThat(invisible.name()).as("U+%04X", space).isNull();
+            assertThat(new CompetencyCriterionRequest(null, character, null, BigDecimal.ONE).name())
+                    .as("U+%04X", space).isNull();
+        }
     }
 
     @Test
