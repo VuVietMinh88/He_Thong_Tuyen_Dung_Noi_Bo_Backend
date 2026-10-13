@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 
@@ -28,6 +29,17 @@ public class BusinessCalendar {
     // A date read earlier is not refreshed: if the caller then waits for another lock, or simply commits, after
     // midnight, the date it used is already yesterday at commit time.
     public LocalDate today() {
-        return LocalDate.ofInstant(clock.instant(), zone);
+        return dateOf(clock.instant());
+    }
+
+    // Task 272: the business date of a stored moment, for example the day a requisition was created.
+    public LocalDate dateOf(Instant instant) {
+        return LocalDate.ofInstant(instant, zone);
+    }
+
+    // Task 272: the moment a business day begins. SQL then compares TIMESTAMPTZ columns with these moments and never
+    // needs the zone itself: PostgreSQL would read an offset zone such as +07:00 with the opposite (POSIX) sign.
+    public Instant startOf(LocalDate date) {
+        return date.atStartOfDay(zone).toInstant();
     }
 }
