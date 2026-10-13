@@ -1,5 +1,6 @@
 package vn.ttcs.recruitment.auth;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -56,6 +57,8 @@ class RecruitmentCatalogManagementIntegrationTest {
     private static final String REASONS = BASE + "REJECTION_REASON/items";
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-07T00:00:00Z");
+    // Test-only table that references catalog values, created by the delete tests and dropped after each test.
+    private static final String REFERENCES = "catalog_item_test_references";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -90,6 +93,11 @@ class RecruitmentCatalogManagementIntegrationTest {
         adminId = UUID.fromString(login.path("user").path("id").asText());
         adminToken = login.path("accessToken").asText();
         fixturePasswordHash = accounts.findById(adminId).orElseThrow().getPasswordHash();
+    }
+
+    @AfterEach
+    void dropReferenceTable() {
+        jdbc.execute("DROP TABLE IF EXISTS " + REFERENCES);
     }
 
     @Test
@@ -203,12 +211,16 @@ class RecruitmentCatalogManagementIntegrationTest {
         boolean writer = role == Role.ADMIN || role == Role.HR_MANAGER;
         var created = create(SOURCES, payload("NEW", "New value", true), token);
         var updated = update(SOURCES, target, payload("READ", "Updated", false), token);
+        var deleted = delete(SOURCES, target, token);
         if (writer) {
-            expect(created, 201);
+            UUID createdId = UUID.fromString(expect(created, 201).path("id").asText());
             assertThat(expect(updated, 200).path("name").asText()).isEqualTo("Updated");
+            assertThat(deleted.statusCode()).as(deleted.body()).isEqualTo(204);
+            assertThat(ids(expect(get(SOURCES, token), 200))).containsExactly(createdId.toString());
         } else {
             error(created, 403, "FORBIDDEN");
             error(updated, 403, "FORBIDDEN");
+            error(deleted, 403, "FORBIDDEN");
             assertThat(count()).isEqualTo(1);
             assertThat(jdbc.queryForObject("SELECT name FROM recruitment_catalog_items WHERE id = ?", String.class,
                     target)).isEqualTo("Read value");
@@ -268,7 +280,8 @@ class RecruitmentCatalogManagementIntegrationTest {
             String items = BASE + type + "/items";
             for (var response : List.of(get(items, adminToken), get(items + "/" + existing, adminToken),
                     create(items, payload("NEW", "New", true), adminToken),
-                    update(items, existing, payload("NEW", "New", true), adminToken))) {
+                    update(items, existing, payload("NEW", "New", true), adminToken),
+                    delete(items, existing, adminToken))) {
                 JsonNode body = expect(response, 404);
                 assertThat(body.path("code").asText()).as(type).isEqualTo("RECRUITMENT_CATALOG_TYPE_NOT_FOUND");
                 assertThat(body.path("message").asText()).as(type).isEqualTo(
@@ -297,9 +310,15 @@ class RecruitmentCatalogManagementIntegrationTest {
         error(get(REASONS + "/" + source, adminToken), 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
         error(update(REASONS, source, payload("LINKEDIN", "Moved", true), adminToken),
                 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
+        var missingDelete = delete(SOURCES, UUID.randomUUID(), adminToken);
+        error(missingDelete, 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
+        noStore(missingDelete);
+        // A DELETE through another catalog type must not remove the value either.
+        error(delete(REASONS, source, adminToken), 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
         assertThat(row(source)).isEqualTo(before);
 
         error(get(SOURCES + "/not-a-uuid", adminToken), 400, "VALIDATION_ERROR");
+        error(request("DELETE", SOURCES + "/not-a-uuid", null, adminToken), 400, "VALIDATION_ERROR");
         error(get(SOURCES + "?active=maybe", adminToken), 400, "VALIDATION_ERROR");
         assertThat(count()).isEqualTo(1);
     }
@@ -400,6 +419,142 @@ class RecruitmentCatalogManagementIntegrationTest {
         assertThat(count()).isZero();
     }
 
+    @Test
+    void deletesAValueNothingUsesAndFreesItsCode() throws Exception {
+        UUID first = item(SOURCES, "FIRST", "First", true);
+        UUID middle = item(SOURCES, "MIDDLE", "Middle", false);
+        UUID last = item(SOURCES, "LAST", "Last", true);
+        UUID reason = item(REASONS, "MIDDLE", "Cùng mã, danh mục khác", true);
+
+        var response = delete(SOURCES, middle, adminToken);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(204);
+        assertThat(response.body()).isEmpty();
+        noStore(response);
+
+        error(get(SOURCES + "/" + middle, adminToken), 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM recruitment_catalog_items WHERE id = ?", Integer.class,
+                middle)).isZero();
+        // The other values keep their display order, and the same code in another catalog type stays.
+        JsonNode remaining = expect(get(SOURCES, adminToken), 200);
+        assertThat(ids(remaining)).containsExactly(first.toString(), last.toString());
+        assertThat(remaining.get(1).path("sortOrder").asInt()).isEqualTo(2);
+        assertThat(ids(expect(get(REASONS, adminToken), 200))).containsExactly(reason.toString());
+
+        // Deleting twice finds nothing the second time; the freed code can be used again.
+        error(delete(SOURCES, middle, adminToken), 404, "RECRUITMENT_CATALOG_ITEM_NOT_FOUND");
+        JsonNode reused = expect(create(SOURCES, payload("MIDDLE", "Middle again", true), adminToken), 201);
+        assertThat(reused.path("id").asText()).isNotEqualTo(middle.toString());
+        assertThat(reused.path("sortOrder").asInt()).isEqualTo(3);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"NO ACTION", "RESTRICT"})
+    void refusesToDeleteAValueThatAnotherTableStillReferences(String onDelete) throws Exception {
+        UUID used = item(SOURCES, "LINKEDIN", "LinkedIn", true);
+        UUID unused = item(SOURCES, "TOPCV", "TopCV", true);
+        createReferenceTable(onDelete);
+        UUID reference = UUID.randomUUID();
+        jdbc.update("INSERT INTO " + REFERENCES + " (id, catalog_item_id) VALUES (?, ?)", reference, used);
+        Map<String, Object> before = row(used);
+
+        var response = delete(SOURCES, used, adminToken);
+        JsonNode body = expect(response, 409);
+        assertThat(body.path("code").asText()).isEqualTo("RECRUITMENT_CATALOG_ITEM_IN_USE");
+        assertThat(body.path("message").asText()).isEqualTo("Giá trị danh mục đang được dữ liệu khác sử dụng nên "
+                + "không thể xóa. Hãy chuyển giá trị sang ngừng sử dụng (active = false).");
+        noStore(response);
+        assertThat(row(used)).isEqualTo(before);
+        assertThat(referencesTo(used)).isEqualTo(1);
+
+        // Other values of the same catalog are still deleted normally.
+        assertThat(delete(SOURCES, unused, adminToken).statusCode()).isEqualTo(204);
+        // The message points to the supported way of retiring a value that is in use.
+        assertThat(expect(update(SOURCES, used, payload("LINKEDIN", "LinkedIn", false), adminToken), 200)
+                .path("active").asBoolean()).isFalse();
+        // Being inactive does not make a referenced value deletable.
+        error(delete(SOURCES, used, adminToken), 409, "RECRUITMENT_CATALOG_ITEM_IN_USE");
+        assertThat(referencesTo(used)).isEqualTo(1);
+
+        // Once the last reference is gone, the value can be deleted.
+        jdbc.update("DELETE FROM " + REFERENCES + " WHERE id = ?", reference);
+        assertThat(delete(SOURCES, used, adminToken).statusCode()).isEqualTo(204);
+        assertThat(count()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void referenceSavedByAnotherTransactionWhileTheDeleteWaitsDecidesTheResult(boolean referenceCommitted)
+            throws Exception {
+        UUID target = item(SOURCES, "LINKEDIN", "LinkedIn", true);
+        createReferenceTable("NO ACTION");
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            // The uncommitted reference keeps a lock on the catalog row, so the DELETE has to wait for it.
+            execute(connection, "INSERT INTO " + REFERENCES + " (id, catalog_item_id) VALUES (?, ?)",
+                    UUID.randomUUID(), target);
+            int blockerPid = backendPid(connection);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> delete(SOURCES, target, adminToken));
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    if (referenceCommitted) {
+                        connection.commit();
+                        error(response.get(10, TimeUnit.SECONDS), 409, "RECRUITMENT_CATALOG_ITEM_IN_USE");
+                    } else {
+                        connection.rollback();
+                        var result = response.get(10, TimeUnit.SECONDS);
+                        assertThat(result.statusCode()).as(result.body()).isEqualTo(204);
+                    }
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        assertThat(count()).isEqualTo(referenceCommitted ? 1 : 0);
+        assertThat(referencesTo(target)).isEqualTo(referenceCommitted ? 1 : 0);
+    }
+
+    @Test
+    void deleteRechecksThePermissionAfterWaitingForTheActorAccountLock() throws Exception {
+        UUID target = item(SOURCES, "KEEP", "Keep", true);
+        Map<String, Object> before = row(target);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blockerPid = lockAccount(connection, adminId);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                // The request passed the URL rule already; the permission disappears while it waits.
+                var response = executor.submit(() -> delete(SOURCES, target, adminToken));
+                try {
+                    awaitWaiters(blockerPid, 1);
+                    jdbc.update("DELETE FROM role_permissions "
+                            + "WHERE role_code = 'ADMIN' AND permission_code = 'ORGANIZATION_WRITE_ALL'");
+                    connection.commit();
+                    error(response.get(10, TimeUnit.SECONDS), 403, "FORBIDDEN");
+                } finally {
+                    connection.rollback();
+                }
+            }
+        } finally {
+            jdbc.update("""
+                    INSERT INTO role_permissions (role_code, permission_code)
+                    VALUES ('ADMIN', 'ORGANIZATION_WRITE_ALL')
+                    ON CONFLICT DO NOTHING
+                    """);
+        }
+        assertThat(row(target)).isEqualTo(before);
+    }
+
+    // No real table stores catalog values yet, so these tests create a small referencing table of their own.
+    private void createReferenceTable(String onDelete) {
+        jdbc.execute("CREATE TABLE " + REFERENCES + " (id UUID PRIMARY KEY, catalog_item_id UUID NOT NULL "
+                + "REFERENCES recruitment_catalog_items (id) ON DELETE " + onDelete + ")");
+    }
+
+    private int referencesTo(UUID itemId) {
+        return jdbc.queryForObject("SELECT count(*) FROM " + REFERENCES + " WHERE catalog_item_id = ?",
+                Integer.class, itemId);
+    }
+
     private UUID account(String email, Set<Role> roles) {
         return accounts.saveAndFlush(new Account(email, "Catalog test", fixturePasswordHash, roles, START)).getId();
     }
@@ -445,6 +600,10 @@ class RecruitmentCatalogManagementIntegrationTest {
     private HttpResponse<String> update(String items, UUID id, Map<String, Object> payload, String token)
             throws Exception {
         return request("PUT", items + "/" + id, json.writeValueAsString(payload), token);
+    }
+
+    private HttpResponse<String> delete(String items, UUID id, String token) throws Exception {
+        return request("DELETE", items + "/" + id, null, token);
     }
 
     private HttpResponse<String> get(String path, String token) throws Exception { return request("GET", path, null, token); }

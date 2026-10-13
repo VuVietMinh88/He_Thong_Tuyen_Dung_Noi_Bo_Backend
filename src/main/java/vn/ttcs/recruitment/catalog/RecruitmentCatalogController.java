@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -52,5 +53,13 @@ public class RecruitmentCatalogController {
             @PathVariable String type, @PathVariable UUID id,
             @Valid @RequestBody RecruitmentCatalogItemRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.update(jwt, type, id, request));
+    }
+
+    // 204 with no body when the value is gone; 409 RECRUITMENT_CATALOG_ITEM_IN_USE while other data uses it.
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable String type, @PathVariable UUID id) {
+        service.delete(jwt, type, id);
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 }

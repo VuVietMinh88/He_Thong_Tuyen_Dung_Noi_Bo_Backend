@@ -1,6 +1,6 @@
 # API danh mục tuyển dụng dùng chung
 
-Phạm vi TKNHTTDNB1-228 (story TKNHTTDNB1-27). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `RECRUITMENT_CATALOG_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-228 và TKNHTTDNB1-229 (story TKNHTTDNB1-27). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và các lỗi `RECRUITMENT_CATALOG_*` dùng `Cache-Control: no-store`.
 
 Đọc cần `ORGANIZATION_READ_ALL`; ghi cần `ORGANIZATION_WRITE_ALL`. Ma trận hiện tại cấp quyền đọc cho cả sáu vai trò nội bộ (recruiter, người phỏng vấn... cần đọc để chọn giá trị), ghi cho ADMIN và HR_MANAGER. Backend đọc quyền hiện tại trong database ở mỗi yêu cầu và kiểm lại phiên/quyền sau khi khóa tài khoản người gọi khi ghi.
 
@@ -69,6 +69,24 @@ UUID trong ví dụ chỉ minh họa. `createdAt` giữ nguyên khi sửa; `upda
 
 Response là **mảng JSON** chứa toàn bộ giá trị của loại đó, mỗi phần tử có cấu trúc như chi tiết ở trên; loại chưa có giá trị trả `[]`. Danh mục ngắn nên không phân trang. Thứ tự: `sortOrder` tăng dần, cùng `sortOrder` thì theo `code`, rồi UUID. Hai yêu cầu tạo cùng lúc trong một loại có thể nhận cùng `sortOrder` (V10 cho phép); khi đó danh sách xếp chúng theo `code`.
 
+## Xóa
+
+`DELETE /recruitment-catalogs/{type}/items/{id}` xóa hẳn giá trị có UUID tương ứng trong loại danh mục của URL. Không có body.
+
+- Thành công: **204**, body rỗng, `Cache-Control: no-store`. Giá trị biến mất khỏi danh sách và `GET` chi tiết trả 404; các giá trị còn lại giữ nguyên `sortOrder` (không tự dồn số). Mã của giá trị đã xóa được dùng lại cho giá trị mới.
+- Giá trị **đang được tham chiếu** (một dòng dữ liệu khác, ví dụ hồ sơ ứng viên lưu nguồn ứng viên này, còn trỏ tới nó): **409** `RECRUITMENT_CATALOG_ITEM_IN_USE`, không xóa gì. Kể cả giá trị đã ngừng dùng (`active=false`) vẫn bị chặn nếu còn tham chiếu.
+
+```json
+{
+  "code": "RECRUITMENT_CATALOG_ITEM_IN_USE",
+  "message": "Giá trị danh mục đang được dữ liệu khác sử dụng nên không thể xóa. Hãy chuyển giá trị sang ngừng sử dụng (active = false)."
+}
+```
+
+Muốn bỏ một giá trị đang được dùng thì PUT với `active=false`: dữ liệu cũ giữ nguyên tên gọi, màn hình chọn giá trị mới (`active=true`) không còn hiện giá trị đó. Xóa chỉ dành cho giá trị nhập nhầm hoặc chưa từng được dùng.
+
+Backend không đếm tham chiếu trước, mà để PostgreSQL kiểm khóa ngoại khi xóa rồi đổi lỗi khóa ngoại thành 409. Cách này đúng với mọi bảng tham chiếu tới danh mục, kể cả bảng thêm sau, và đúng cả khi một yêu cầu khác vừa lưu tham chiếu tới giá trị đó cùng lúc: yêu cầu xóa chờ yêu cầu kia kết thúc, rồi trả 409 nếu tham chiếu đã được lưu hoặc 204 nếu yêu cầu kia bị hủy. Hiện chưa có bảng nào tham chiếu tới danh mục nên mọi giá trị đều xóa được; quy tắc cho bảng tham chiếu sau này ở [tài liệu database](../database/README.md).
+
 ## Lỗi
 
 | HTTP | Mã | Trường hợp |
@@ -80,9 +98,10 @@ Response là **mảng JSON** chứa toàn bộ giá trị của loại đó, m�
 |404|RECRUITMENT_CATALOG_TYPE_NOT_FOUND|`{type}` không phải một trong bốn loại ở trên|
 |404|RECRUITMENT_CATALOG_ITEM_NOT_FOUND|Không có giá trị với UUID này trong loại danh mục của URL|
 |409|RECRUITMENT_CATALOG_CODE_EXISTS|Mã đã được giá trị khác trong cùng loại dùng, kể cả khi hai yêu cầu ghi cùng mã đồng thời|
+|409|RECRUITMENT_CATALOG_ITEM_IN_USE|DELETE giá trị còn được dữ liệu khác tham chiếu|
 
 Body được kiểm trước loại danh mục: POST/PUT với `{type}` sai và body thiếu trường trả 400, không phải 404.
 
 ## Database và phạm vi
 
-Dùng bảng `recruitment_catalog_items` của V10 và quyền ORGANIZATION của V3; task này không thêm migration hoặc thay `.env`. Chưa có DELETE: muốn ngừng dùng thì PUT `active=false`. Chặn xóa giá trị đang được tham chiếu thuộc task 229; đổi thứ tự hiển thị thuộc task 230.
+Dùng bảng `recruitment_catalog_items` của V10 và quyền ORGANIZATION của V3; task 228 và 229 không thêm migration hoặc thay `.env`. Đổi thứ tự hiển thị thuộc task 230.
