@@ -2,9 +2,6 @@ package vn.ttcs.recruitment.requisition;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -35,24 +32,33 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class RequisitionService {
-    // Newest first; the id only keeps the order stable when two requisitions share the same creation time.
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-
     // Task 247: the same text is the message and the form error of salaryJustification. It says only that the
     // proposal is outside the standard band, never the band itself: most callers lack SALARY_RANGES_READ_ALL.
     private static final String JUSTIFICATION_REQUIRED_MESSAGE =
             "Dải lương đề xuất nằm ngoài dải lương chuẩn của chức danh, vui lòng nhập giải trình.";
 
+    // Task 257: the statuses in which a requisition may still be edited (PUT) and sent for approval (submit).
+    // RequisitionStatus asks every new status to be classified here; RequisitionWorkflowStatusTest does not compile
+    // until it is.
+    // Task 264: a requisition returned for more information is edited and submitted again by its department.
+    static final Set<RequisitionStatus> EDITABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.RETURNED);
+    static final Set<RequisitionStatus> SUBMITTABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.RETURNED);
+
     private final RecruitmentRequisitionRepository requisitions;
+    private final RequisitionListRepository listing;
     private final PositionRepository positions;
     private final DepartmentRepository departments;
     private final AccountRepository accounts;
@@ -61,16 +67,26 @@ public class RequisitionService {
     private final PermissionService permissions;
     private final SalaryBandService salaryBands;
     private final HeadcountQuota headcountQuota;
+    private final ApprovalChainSelector approvalChains;
+    private final RequisitionApprovalRepository approvals;
+    private final ApprovalParticipants participants;
+    private final ApproverDirectory approverDirectory;
+    private final RecruiterAssignmentAccess assignments;
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
 
-    public RequisitionService(RecruitmentRequisitionRepository requisitions, PositionRepository positions,
-                              DepartmentRepository departments, AccountRepository accounts,
-                              AuthSessionRepository sessions, AuthService auth, PermissionService permissions,
-                              SalaryBandService salaryBands, HeadcountQuota headcountQuota, Validator validator,
-                              BusinessCalendar calendar, Clock clock) {
+    public RequisitionService(RecruitmentRequisitionRepository requisitions, RequisitionListRepository listing,
+                              PositionRepository positions, DepartmentRepository departments,
+                              AccountRepository accounts, AuthSessionRepository sessions, AuthService auth,
+                              PermissionService permissions,
+                              SalaryBandService salaryBands, HeadcountQuota headcountQuota,
+                              ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
+                              ApprovalParticipants participants, ApproverDirectory approverDirectory,
+                              RecruiterAssignmentAccess assignments, Validator validator, BusinessCalendar calendar,
+                              Clock clock) {
         this.requisitions = requisitions;
+        this.listing = listing;
         this.positions = positions;
         this.departments = departments;
         this.accounts = accounts;
@@ -79,6 +95,11 @@ public class RequisitionService {
         this.permissions = permissions;
         this.salaryBands = salaryBands;
         this.headcountQuota = headcountQuota;
+        this.approvalChains = approvalChains;
+        this.approvals = approvals;
+        this.participants = participants;
+        this.approverDirectory = approverDirectory;
+        this.assignments = assignments;
         this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
@@ -118,9 +139,9 @@ public class RequisitionService {
      * and department, department scope, standard band, headcount plan), so a copy can never be a draft that create
      * would refuse. headcountOverrideReason plays the same role as in the create body.
      * Checks in order: write access (401/403), read access to requisitions at all (403), the source exists (404),
-     * the source's department is in the read scope (403), then the checks of create. The read permission comes before
-     * the lookup, so a caller who may only write cannot learn which ids exist. The source is only read, never locked
-     * or changed.
+     * the source's department is in the read scope (403; being assigned or an approval participant does not count,
+     * tasks 262/285), then the checks of create. The read permission comes before the lookup, so a caller who may only
+     * write cannot learn which ids exist. The source is only read, never locked or changed.
      * <p>
      * Task 279: the copy starts its own life as a draft. Only the content listed above is taken; everything about
      * the source's life is not: its status (any status may be copied, the copy is always DRAFT), its creator and
@@ -143,6 +164,7 @@ public class RequisitionService {
                 source.getHeadcount(), source.getReason().name(), source.getProposedSalaryMin(),
                 source.getProposedSalaryMax(), source.getSalaryJustification(), neededByForCopy(source, today),
                 source.getJobDescription(), source.getCandidateRequirements(), headcountOverrideReason);
+        // Task 257: the approval status and history are never copied: the copy is a DRAFT without events.
         requireValidCopy(request);
         return createDraft(jwt, writer, request, today);
     }
@@ -188,39 +210,50 @@ public class RequisitionService {
         return RequisitionView.from(requisition);
     }
 
-    // Task 245: one page of the requisitions the caller may see, newest first. status = null means every status.
-    // REPEATABLE_READ: the managed departments, the count and the page all come from the same snapshot.
+    // Task 245: one page of the requisitions the caller may see, newest first. Task 297: filtered by status, department,
+    // primary recruiter and needed-by dates, each only narrowing the scope. Task 298: items add daysOpen,
+    // daysUntilNeededBy and overdue against one business today per page. REPEATABLE_READ: the managed departments, the
+    // assignments, the count, the ids and the requisitions all come from one snapshot.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public RequisitionPage list(Jwt jwt, RequisitionStatus status, int page, int size) {
+    public RequisitionPage list(Jwt jwt, RequisitionListFilter filter, int page, int size) {
         Caller caller = requireReadAccess(jwt);
-        // Spring Data JPA turns page * size into an int OFFSET and fails with a 500 above Integer.MAX_VALUE,
-        // so such a page is rejected here as a normal 400. The long multiplication itself cannot overflow.
+        // Kept from task 245: page × size above Integer.MAX_VALUE is the API's limit (a normal 400). The long
+        // multiplication itself cannot overflow.
         if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                     "Trang hoặc số lượng yêu cầu tuyển dụng không hợp lệ.");
         }
-        List<RequisitionStatus> statuses = status == null ? List.of(RequisitionStatus.values()) : List.of(status);
-        var pageable = PageRequest.of(page, size, NEWEST_FIRST);
-        Page<RecruitmentRequisition> result;
-        if (caller.scope() == AccessScope.ALL) {
-            result = requisitions.findByStatusIn(statuses, pageable);
-        } else {
-            // SCOPED: the department filter is part of the SQL query, so other departments never leave the database.
-            Set<UUID> managed = departments.findManagedDepartmentIds(caller.id());
-            if (managed.isEmpty()) {
-                return new RequisitionPage(List.of(), page, size, 0, 0);
-            }
-            result = requisitions.findByStatusInAndDepartmentIdIn(statuses, managed, pageable);
+        if (!filter.neededByRangeValid()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Khoảng ngày cần người không hợp lệ.");
         }
-        return new RequisitionPage(result.getContent().stream().map(RequisitionView::from).toList(),
-                page, size, result.getTotalElements(), result.getTotalPages());
+        // SCOPED: the managed departments and (task 285) the requisitions the caller is assigned to are part of the SQL
+        // query, so other requisitions never leave the database.
+        var found = listing.search(filter, listScope(caller), page, size);
+        Map<UUID, RecruitmentRequisition> byId = requisitions.findAllById(found.ids()).stream()
+                .collect(Collectors.toMap(RecruitmentRequisition::getId, requisition -> requisition));
+        LocalDate today = calendar.today();
+        var items = found.ids().stream().map(id -> RequisitionListItemView.from(
+                Objects.requireNonNull(byId.get(id), "same snapshot"), calendar, today)).toList();
+        return new RequisitionPage(items, page, size, found.total(), (found.total() + size - 1) / size);
     }
 
+    // Task 297: null for READ_ALL. Task 285: otherwise the departments the caller manages (with their sub-departments,
+    // task 249; possibly none) and the caller's id for the requisitions assigned to them (RecruiterAssignmentAccess).
+    // Approval participants (task 262) still do not widen the list.
+    private RequisitionListRepository.Scope listScope(Caller caller) {
+        return caller.scope() == AccessScope.ALL ? null
+                : new RequisitionListRepository.Scope(departments.findManagedDepartmentIds(caller.id()), caller.id());
+    }
+
+    // Task 262: also open to the people of the requisition's approval (ApprovalParticipants), so that an approver who
+    // manages none of its departments can read what they decide. Task 285: also open to its current primary and
+    // supporting recruiters (RecruiterAssignmentAccess). GET /assignment, /assignment-history and /approvals use this
+    // too.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionView get(Jwt jwt, UUID id) {
-        Caller caller = requireReadAccess(jwt);
+        Reader reader = requireReader(jwt);
         var requisition = requisitions.findById(id).orElseThrow(RequisitionService::notFound);
-        requireInScope(caller, requisition.getDepartmentId());
+        requireReadable(reader, requisition);
         return RequisitionView.from(requisition);
     }
 
@@ -241,7 +274,7 @@ public class RequisitionService {
         var requisition = locked.orElseThrow(RequisitionService::notFound);
         // The scope is checked after this lock, so a department manager change made while we waited is respected.
         requireInScope(caller, requisition.getDepartmentId());
-        requireDraft(requisition);
+        requireEditable(requisition);
         requireValidSalaryRange(request);
         requireNeededByNotInPast(request, calendar.today());
         requireActivePositionAndDepartment(request);
@@ -260,8 +293,54 @@ public class RequisitionService {
         return RequisitionView.from(requisition);
     }
 
-    // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same access as
-    // GET /requisitions/{id}; only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
+    /**
+     * Task 257: sends a requisition for approval (S3-01, S3-02). Only a complete requisition is sent: both proposed
+     * salaries, the needed-by date (today or later), the job description and the candidate requirements, an active
+     * position and department, and a justification when the proposal is outside the current standard band. The
+     * approval levels come from the department's current flow version and the proposed maximum salary (task 256) and
+     * are recorded as the snapshot of the round: a later change of the configuration does not change this round.
+     * <p>
+     * Checks in order: write access (401/403), read access to requisitions at all (403 before the lookup, like copy:
+     * the answer shows the whole requisition, and WRITE never implies READ), the requisition exists (404), it is in the
+     * caller's write and read scope (403), its status allows submitting (409), it is complete (400 listing every
+     * missing field), the date, position, department and justification checks of a save (400), then the approval
+     * chain (409). The headcount plan is not checked again: the requisition already counts and asks for nothing new.
+     * <p>
+     * Lock order like update: account, session, requisition, then position and department FOR SHARE. The department
+     * lock also makes a new flow version of that department wait until this commits (its writer locks the department
+     * FOR UPDATE), so the snapshot is never taken from a version being published. The caller is checked again after
+     * each lock. updatedAt (the last content edit) does not change.
+     */
+    @Transactional
+    public RequisitionView submit(Jwt jwt, UUID id, String comment) {
+        Writer writer = lockWriter(jwt);
+        requireStillWriter(jwt, writer);
+        var locked = requisitions.findByIdForUpdate(id);
+        Caller caller = requireStillWriter(jwt, writer);
+        asReader(caller);
+        var requisition = locked.orElseThrow(RequisitionService::notFound);
+        requireInWriteAndReadScope(caller, requisition.getDepartmentId());
+        requireSubmittable(requisition);
+        requireComplete(requisition);
+        RequisitionRequest content = contentOf(requisition);
+        requireNeededByNotInPast(content, calendar.today());
+        requireActivePositionAndDepartment(content);
+        caller = requireStillWriter(jwt, writer);
+        requireInWriteAndReadScope(caller, requisition.getDepartmentId());
+        requireJustificationOutsideStandardBand(content);
+        long salaryBasis = requisition.getProposedSalaryMax();
+        SelectedChain chain = approvalChains.select(requisition.getDepartmentId(), salaryBasis,
+                requisition.getCreatedBy(), caller.id());
+        RequisitionStatus before = requisition.getStatus();
+        approvals.appendSubmitted(id, approvals.nextRound(id), before, chain, salaryBasis, caller.id(), now(), comment);
+        requisition.moveTo(before, RequisitionStatus.PENDING_APPROVAL);
+        requisitions.flush();
+        return RequisitionView.from(requisition);
+    }
+
+    // Task 275: the HR exceptions to the headcount plan recorded for this requisition, newest first. Same permission
+    // as GET /requisitions/{id} but only its department scope: approval participants and assigned recruiters (task
+    // 285) are not admitted. Only callers who may read the plans (HEADCOUNT_PLANS_READ_ALL) see the salary amounts.
     // An exception keeps the department of the plan it went over, and the requisition may have moved since: a SCOPED
     // caller only sees the exceptions of departments they manage, never the plan numbers of another department.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -280,12 +359,35 @@ public class RequisitionService {
     }
 
     private Caller requireReadAccess(Jwt jwt) {
+        return requireReader(jwt).caller();
+    }
+
+    // A reader and the account it was read from.
+    private record Reader(Caller caller, Account account) { }
+
+    private Reader requireReader(Jwt jwt) {
         requireUnexpiredToken(jwt, clock.instant());
         Account actor = auth.requireActiveAccount(jwt);
         // NONE throws AccessDeniedException, which the security layer turns into the standard 403 FORBIDDEN.
         Set<String> granted = permissions.forUser(actor.getId());
         AccessScope scope = AccessScope.read(granted, PermissionModule.REQUISITIONS).orDeny();
-        return new Caller(actor.getId(), scope, granted);
+        return new Reader(new Caller(actor.getId(), scope, granted), actor);
+    }
+
+    // Who may read one requisition (GET /requisitions/{id} and the reads built on it): READ_ALL; a SCOPED reader who
+    // manages its department (task 245); its current primary or supporting recruiter (task 285); a participant of its
+    // approval (task 262). Cheapest first: the approval history is loaded only when nothing else answers. Out of all of
+    // them is the standard 403. Reads only: writes keep the department rule (requireInScope, requireInReadScope), and a
+    // decision keeps ApprovalParticipants.readable, which must not count the assignment.
+    private void requireReadable(Reader reader, RecruitmentRequisition requisition) {
+        Caller caller = reader.caller();
+        var candidate = approverDirectory.candidate(reader.account(), caller.permissions());
+        if (ApprovalParticipants.byDepartment(candidate, caller.scope(), requisition)
+                || assignments.isAssigned(requisition.getId(), caller.id())
+                || participants.isParticipant(candidate, requisition, approvals.findEvents(requisition.getId()))) {
+            return;
+        }
+        throw new AccessDeniedException("The requisition is outside the caller's scope, assignment and approval");
     }
 
     // The caller of a write after lockWriter: the account id and the session row this transaction has locked.
@@ -339,9 +441,11 @@ public class RequisitionService {
         return new Caller(writer.id(), readScope, writer.permissions());
     }
 
-    // Task 284: the department rule of GET /requisitions/{id} for the recruiter writes, which answer with the team and
-    // so must be allowed to read the requisition (RequisitionRecruiterService.lockRequisition). One rule for both keeps
-    // them in step when the scope rules change. readScope is the caller's READ scope of REQUISITIONS, ALL or SCOPED.
+    // Task 284: the department rule of GET /requisitions/{id}, without the approval participants and the assigned
+    // recruiters (task 285), for the HR writes, which answer with the requisition or its team and so must be allowed
+    // to read it (RequisitionRecruiterService.lockRequisition, RequisitionStatusService.change). One rule for them
+    // keeps them in step when the department rule changes. readScope is the caller's READ scope of REQUISITIONS, ALL or
+    // SCOPED.
     void requireInReadScope(UUID actorId, AccessScope readScope, UUID departmentId) {
         requireInScope(new Caller(actorId, readScope, Set.of()), departmentId);
     }
@@ -373,13 +477,69 @@ public class RequisitionService {
         requireInScope(caller, request.departmentId());
     }
 
-    // Only a draft can be edited. V13 only allows DRAFT today, so this guard matters once the approval workflow
-    // adds new statuses: a submitted requisition then changes only through that workflow.
-    private static void requireDraft(RecruitmentRequisition requisition) {
-        if (requisition.getStatus() != RequisitionStatus.DRAFT) {
+    // Only a requisition in EDITABLE_STATUSES can be edited. A submitted requisition changes only through the
+    // approval workflow (task 257), and an approved or rejected one not at all.
+    private static void requireEditable(RecruitmentRequisition requisition) {
+        if (!EDITABLE_STATUSES.contains(requisition.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_DRAFT",
-                    "Chỉ sửa được yêu cầu tuyển dụng đang ở trạng thái nháp.");
+                    "Chỉ sửa được yêu cầu tuyển dụng đang ở trạng thái nháp hoặc cần bổ sung.");
         }
+    }
+
+    // Task 257: a write that answers with the whole requisition needs both scopes. They differ only for unusual grants
+    // such as WRITE_SCOPED with READ_ALL; asReader has already refused a caller without any READ permission.
+    private void requireInWriteAndReadScope(Caller writer, UUID departmentId) {
+        requireInScope(writer, departmentId);
+        Caller reader = asReader(writer);
+        if (reader.scope() != writer.scope()) {
+            requireInScope(reader, departmentId);
+        }
+    }
+
+    // Task 257: a submitted requisition waits for its approvers; it is sent again only after they ask for more
+    // information (task 264). A second click on "gửi duyệt" ends here too.
+    private static void requireSubmittable(RecruitmentRequisition requisition) {
+        if (!SUBMITTABLE_STATUSES.contains(requisition.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_SUBMITTABLE",
+                    "Chỉ gửi duyệt được yêu cầu tuyển dụng đang ở trạng thái nháp hoặc cần bổ sung.");
+        }
+    }
+
+    // Task 257: a draft may leave these empty (task 246), a requisition sent for approval may not. Every missing field
+    // is reported at once, like a form.
+    private static void requireComplete(RecruitmentRequisition requisition) {
+        Map<String, String> missing = new LinkedHashMap<>();
+        if (requisition.getProposedSalaryMin() == null) {
+            missing.put("proposedSalaryMin", "Vui lòng nhập lương đề xuất tối thiểu trước khi gửi duyệt.");
+        }
+        if (requisition.getProposedSalaryMax() == null) {
+            missing.put("proposedSalaryMax", "Vui lòng nhập lương đề xuất tối đa trước khi gửi duyệt.");
+        }
+        if (requisition.getNeededBy() == null) {
+            missing.put("neededBy", "Vui lòng chọn ngày cần người trước khi gửi duyệt.");
+        }
+        if (isBlank(requisition.getJobDescription())) {
+            missing.put("jobDescription", "Vui lòng nhập mô tả công việc trước khi gửi duyệt.");
+        }
+        if (isBlank(requisition.getCandidateRequirements())) {
+            missing.put("candidateRequirements", "Vui lòng nhập yêu cầu ứng viên trước khi gửi duyệt.");
+        }
+        if (!missing.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "REQUISITION_INCOMPLETE",
+                    "Yêu cầu tuyển dụng chưa đủ thông tin để gửi duyệt.", missing);
+        }
+    }
+
+    private static boolean isBlank(String text) {
+        return text == null || text.isBlank();
+    }
+
+    // Task 257: the saved content in the shape of a save, so that submit runs the same checks as PUT.
+    private static RequisitionRequest contentOf(RecruitmentRequisition requisition) {
+        return new RequisitionRequest(requisition.getPositionId(), requisition.getDepartmentId(),
+                requisition.getHeadcount(), requisition.getReason().name(), requisition.getProposedSalaryMin(),
+                requisition.getProposedSalaryMax(), requisition.getSalaryJustification(), requisition.getNeededBy(),
+                requisition.getJobDescription(), requisition.getCandidateRequirements(), null);
     }
 
     // RequisitionRequest has already checked each salary on its own. A draft may leave one or both ends empty;

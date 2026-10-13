@@ -38,10 +38,14 @@ import java.util.stream.Collectors;
  */
 @Service
 public class RequisitionRecruiterService {
-    // Statuses in which the recruiters may still change; reading is allowed in every status. Only DRAFT exists today.
-    // RequisitionStatus asks every new status to be classified here; RequisitionRecruiterStatusTest does not compile
-    // until it is.
-    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+    // Statuses in which the recruiters may still change; reading is allowed in every status. RequisitionStatus asks
+    // every new status to be classified here; RequisitionRecruiterStatusTest does not compile until it is. Task 257:
+    // recruiters may be prepared while the requisition waits for approval or is returned, and are needed once it is
+    // approved (job postings, S3-09); a rejected requisition is finished. Task 293: a paused requisition may hand over
+    // its recruiters; a filled or cancelled one is finished.
+    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED, RequisitionStatus.APPROVED,
+            RequisitionStatus.PAUSED);
 
     private static final String WRITE_ALL = "REQUISITIONS_WRITE_ALL";
 
@@ -69,8 +73,9 @@ public class RequisitionRecruiterService {
         this.clock = clock;
     }
 
-    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), and a SCOPED
-    // reader manages its department (403). Reusing it keeps the two in step when the scope rules change.
+    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), then
+    // department, current recruiters (task 285) or approval participants (403). Reusing it keeps the two in step when
+    // the scope rules change.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionAssignmentView assignment(Jwt jwt, UUID id) {
         requisitionService.get(jwt, id);
