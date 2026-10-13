@@ -165,7 +165,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/profile/avatar", permission(SELF_PROFILE_WRITE), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/profile/avatar", permission(SELF_PROFILE_WRITE), null, 204),
             endpoint("GET", "/api/v1/accounts/{id}/avatar", permission(SELF_PROFILE_READ), null, 404),
-            endpoint("GET", "/api/v1/accounts/import/template", adminWith(USER_ADMIN_WRITE_ALL), null, 200));
+            endpoint("GET", "/api/v1/accounts/import/template", adminWith(USER_ADMIN_WRITE_ALL), null, 200),
+            // The JSON sample carries no file part, so an allowed call stops at IMPORT_FILE_REQUIRED.
+            endpoint("POST", "/api/v1/accounts/import/preview", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",

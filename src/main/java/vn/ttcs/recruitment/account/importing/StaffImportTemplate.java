@@ -32,10 +32,10 @@ public class StaffImportTemplate {
             MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     public static final String DATA_SHEET = "Nhân sự";
     public static final String GUIDE_SHEET = "Hướng dẫn";
-    // The guide promises these limits to administrators; the upload step must enforce the same values.
+    // The guide promises these limits to administrators. StaffImportReader enforces the row limit and
+    // StaffImportService the file size.
     public static final int MAX_DATA_ROWS = 500;
-    // Spring Boot rejects multipart files above 1 MB by default (spring.servlet.multipart.max-file-size), so the
-    // upload step must also raise that setting and max-request-size to at least this size.
+    // Keep spring.servlet.multipart.max-file-size in application.properties equal to this size.
     public static final int MAX_FILE_SIZE_MB = 2;
 
     public byte[] write(List<RoleOption> roles) {
