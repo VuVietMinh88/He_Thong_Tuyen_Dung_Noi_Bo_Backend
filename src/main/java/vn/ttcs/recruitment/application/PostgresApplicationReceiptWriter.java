@@ -32,6 +32,7 @@ public class PostgresApplicationReceiptWriter implements ApplicationReceiptWrite
         // A caller's transaction must not let an uncommitted receipt escape.
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        transaction.setTimeout(5);
     }
 
     @Override public boolean ready() { return settings.ready(); }
@@ -43,6 +44,9 @@ public class PostgresApplicationReceiptWriter implements ApplicationReceiptWrite
             String code=Base64.getUrlEncoder().withoutPadding().encodeToString(token);
             byte[] hash=MessageDigest.getInstance("SHA-256").digest(token);
             return Objects.requireNonNull(transaction.execute(status -> {
+                // These limits apply only to this receipt transaction, including storage and enqueue.
+                jdbc.execute("SET LOCAL lock_timeout='2s'");
+                jdbc.execute("SET LOCAL statement_timeout='3s'");
                 var stored=storage.store(postingId,submission,cv,hash);
                 String title=jdbc.queryForObject("SELECT posting_title FROM job_applications WHERE id=?",String.class,stored.id());
                 var receipt=new ApplicationReceipt(stored.id(),stored.receivedAt(),code,settings.trackingUrl(code));

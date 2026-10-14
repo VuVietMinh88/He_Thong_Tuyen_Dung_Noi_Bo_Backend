@@ -2,9 +2,12 @@ package vn.ttcs.recruitment.application;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.common.PDStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -112,8 +115,12 @@ class ApplicationConfirmationIntegrationTest {
     private void makeDue(){jdbc.update("UPDATE application_email_outbox SET next_attempt_at=clock_timestamp()-INTERVAL '1 second'");}
     private void expireLease(){jdbc.update("UPDATE application_email_outbox SET lease_until=clock_timestamp()-INTERVAL '1 second'");}
     private HttpResponse<String> submit(String email) throws Exception {
+        return submit(email,null);
+    }
+    private HttpResponse<String> submit(String email,UUID sourceId) throws Exception {
         var bytes=new ByteArrayOutputStream();
         for(var entry:Map.of("fullName","Nguyễn Văn A","email",email,"phone","0123456789").entrySet())bytes.write(("--ack-test\r\nContent-Disposition: form-data; name=\""+entry.getKey()+"\"\r\n\r\n"+entry.getValue()+"\r\n").getBytes(StandardCharsets.UTF_8));
+        if(sourceId!=null)bytes.write(("--ack-test\r\nContent-Disposition: form-data; name=\"sourceId\"\r\n\r\n"+sourceId+"\r\n").getBytes(StandardCharsets.UTF_8));
         bytes.write("--ack-test\r\nContent-Disposition: form-data; name=\"cv\"; filename=\"cv.pdf\"\r\n\r\n".getBytes(StandardCharsets.UTF_8));
         bytes.write(pdf);bytes.write("\r\n--ack-test--\r\n".getBytes(StandardCharsets.UTF_8));
         var request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+environment.getRequiredProperty("local.server.port")+
@@ -183,6 +190,111 @@ class ApplicationConfirmationIntegrationTest {
             assertThat(submit("candidate@example.test").statusCode()).isEqualTo(503);
             assertThat(count("job_applications")).isZero();assertThat(count("application_email_outbox")).isZero();assertThat(SMTP.messages()).isEmpty();
         } finally {jdbc.execute("DROP TRIGGER fail_ack_cv_test ON application_cvs");jdbc.execute("DROP FUNCTION fail_ack_cv_test()");}
+    }
+    private void assertTimedOutReceipt(HttpResponse<String> response) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(503);
+        assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(response.body()).contains("APPLICATION_SUBMISSION_UNAVAILABLE")
+                .doesNotContain("candidate@example.test","trackingCode","trackingUrl","canceling","lock_timeout","pg_sleep");
+        assertThat(count("job_applications")).isZero();assertThat(count("application_cvs")).isZero();
+        assertThat(count("application_email_outbox")).isZero();assertThat(count("application_ip_attempts")).isEqualTo(1);
+        assertThat(SMTP.messages()).isEmpty();
+    }
+    private void assertSameEmailCanRetry() throws Exception {
+        assertThat(worker.processNext()).isFalse();
+        assertThat(submit("candidate@example.test").statusCode()).isEqualTo(201);
+        assertThat(count("job_applications")).isEqualTo(1);assertThat(count("application_cvs")).isEqualTo(1);
+        assertThat(count("application_email_outbox")).isEqualTo(1);assertThat(count("application_ip_attempts")).isEqualTo(2);
+        assertThat(SMTP.messages()).isEmpty();
+    }
+    @ParameterizedTest
+    @ValueSource(strings={"requisition","posting","source"})
+    void lockedStorageDependenciesTimeOutWithoutLeavingAReceipt(String target) throws Exception {
+        UUID sourceId="source".equals(target)?catalog("CANDIDATE_SOURCE"):null;
+        String table=switch(target){case "requisition" -> "recruitment_requisitions";case "posting" -> "job_postings";
+            case "source" -> "recruitment_catalog_items";default -> throw new IllegalArgumentException();};
+        UUID id=switch(target){case "requisition" -> jdbc.queryForObject("SELECT requisition_id FROM job_postings WHERE id=?",UUID.class,posting);
+            case "posting" -> posting;case "source" -> sourceId;default -> throw new IllegalArgumentException();};
+        try(var connection=dataSource.getConnection();var lock=connection.prepareStatement("SELECT id FROM "+table+" WHERE id=? FOR UPDATE")) {
+            connection.setAutoCommit(false);lock.setObject(1,id);lock.executeQuery().close();
+            try {
+                long started=System.nanoTime();var response=submit("candidate@example.test",sourceId);
+                assertThat(Duration.ofNanos(System.nanoTime()-started)).isLessThan(Duration.ofSeconds(5));
+                assertTimedOutReceipt(response);
+            } finally {connection.rollback();}
+        }
+        assertSameEmailCanRetry();
+    }
+    @Test void lockedOutboxInsertRollsBackAlreadyWrittenApplicationAndCv() throws Exception {
+        try(var connection=dataSource.getConnection();var lock=connection.createStatement()) {
+            connection.setAutoCommit(false);lock.execute("LOCK TABLE application_email_outbox IN SHARE MODE");
+            try {
+                long started=System.nanoTime();var response=submit("candidate@example.test");
+                assertThat(Duration.ofNanos(System.nanoTime()-started)).isLessThan(Duration.ofSeconds(5));
+                // The failure is at enqueue, after storage has inserted the application and CV.
+                assertTimedOutReceipt(response);
+            } finally {connection.rollback();}
+        }
+        assertSameEmailCanRetry();
+    }
+    @Test void slowOutboxStatementIsCancelledAndRollsBackTheWholeReceipt() throws Exception {
+        jdbc.execute("CREATE FUNCTION slow_receipt_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(6);RETURN NEW;END $$");
+        jdbc.execute("CREATE TRIGGER slow_receipt_test BEFORE INSERT ON application_email_outbox FOR EACH ROW EXECUTE FUNCTION slow_receipt_test()");
+        try {
+            long started=System.nanoTime();var response=submit("candidate@example.test");
+            assertThat(Duration.ofNanos(System.nanoTime()-started)).isLessThan(Duration.ofSeconds(5));
+            assertTimedOutReceipt(response);
+        } finally {jdbc.execute("DROP TRIGGER slow_receipt_test ON application_email_outbox");jdbc.execute("DROP FUNCTION slow_receipt_test()");}
+        assertSameEmailCanRetry();
+    }
+    @Test void cumulativeSqlWorkCannotOutliveTheReceiptTransactionBudget() throws Exception {
+        var tables=List.of("job_applications","application_cvs","application_email_outbox");
+        jdbc.execute("CREATE FUNCTION receipt_budget_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(2);RETURN NEW;END $$");
+        try {
+            for(String table:tables)jdbc.execute("CREATE TRIGGER receipt_budget_test BEFORE INSERT ON "+table+" FOR EACH ROW EXECUTE FUNCTION receipt_budget_test()");
+            // Each statement takes less than its own limit, but the three together exceed the transaction budget.
+            long started=System.nanoTime();var response=submit("candidate@example.test");
+            assertThat(Duration.ofNanos(System.nanoTime()-started)).isLessThan(Duration.ofSeconds(7));
+            assertTimedOutReceipt(response);
+        } finally {
+            for(String table:tables)jdbc.execute("DROP TRIGGER IF EXISTS receipt_budget_test ON "+table);
+            jdbc.execute("DROP FUNCTION receipt_budget_test()");
+        }
+        assertSameEmailCanRetry();
+    }
+    @Test void receiptTimeoutSettingsDoNotChangeTheCallersTransaction() {
+        var outer=new TransactionTemplate(manager);
+        outer.executeWithoutResult(status -> {
+            jdbc.execute("SET LOCAL lock_timeout='4s'");jdbc.execute("SET LOCAL statement_timeout='7s'");
+            writer.accept(posting,new ApplicationSubmission("Candidate","direct@example.test","0123456789",null,null),
+                    validator.validate("cv.pdf",new java.io.ByteArrayInputStream(pdf)));
+            assertThat(jdbc.queryForObject("SHOW lock_timeout",String.class)).isEqualTo("4s");
+            assertThat(jdbc.queryForObject("SHOW statement_timeout",String.class)).isEqualTo("7s");
+        });
+        assertThat(count("job_applications")).isEqualTo(1);assertThat(count("application_cvs")).isEqualTo(1);
+        assertThat(count("application_email_outbox")).isEqualTo(1);assertThat(SMTP.messages()).isEmpty();
+    }
+    private byte[] pdfWithPayload(int payload) throws IOException {
+        try(var document=new PDDocument();var bytes=new ByteArrayOutputStream()) {
+            var page=new PDPage();document.addPage(page);var content=new PDStream(document);page.setContents(content);
+            try(var stream=content.createOutputStream()) {
+                byte[] spaces=new byte[8192];java.util.Arrays.fill(spaces,(byte)' ');
+                for(int left=payload;left>0;left-=Math.min(left,spaces.length))stream.write(spaces,0,Math.min(left,spaces.length));
+            }
+            document.save(bytes);return bytes.toByteArray();
+        }
+    }
+    @Test void maximumSizeCvStillCommitsWithReceiptTimeouts() throws Exception {
+        int payload=CvValidator.MAX_BYTES-1000;byte[] boundary=pdfWithPayload(payload);
+        for(int attempt=0;boundary.length!=CvValidator.MAX_BYTES && attempt<5;attempt++) {
+            payload+=CvValidator.MAX_BYTES-boundary.length;boundary=pdfWithPayload(payload);
+        }
+        assertThat(boundary).hasSize(CvValidator.MAX_BYTES);pdf=boundary;
+        var response=submit("candidate@example.test");assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        assertThat(count("job_applications")).isEqualTo(1);assertThat(count("application_email_outbox")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT size_bytes FROM application_cvs",Integer.class)).isEqualTo(CvValidator.MAX_BYTES);
+        assertThat(jdbc.queryForObject("SELECT content FROM application_cvs",byte[].class)).isEqualTo(boundary);
+        assertThat(status()).isEqualTo("PENDING");assertThat(SMTP.messages()).isEmpty();
     }
     @Test void everyApplicationReceivesItsOwnRandomCodeAndExactlyOneOutbox() throws Exception {
         var codes=new java.util.HashSet<String>();

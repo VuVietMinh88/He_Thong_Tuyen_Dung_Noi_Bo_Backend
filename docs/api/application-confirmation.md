@@ -50,6 +50,15 @@ Enqueue không mở giao dịch riêng. Writer chỉ trả receipt sau commit th
 ngăn caller nhận receipt chưa commit rồi rollback giao dịch bên ngoài. SMTP chưa chạy ở bước này.
 Lỗi ghi/commit ngoài lỗi nghiệp vụ được API che bằng 503.
 
+Giao dịch receipt đặt timeout Spring 5 giây, `SET LOCAL lock_timeout='2s'` và
+`SET LOCAL statement_timeout='3s'` trước khi gọi storage. Giới hạn SQL áp dụng cả các
+khóa requisition/posting/source, ghi hồ sơ/CV và enqueue; timeout SQL trước COMMIT làm rollback
+toàn bộ receipt, không trả mã và không gửi SMTP. Quota đã commit độc lập vẫn tính,
+nhưng email không bị giữ chỗ nên ứng viên có thể thử lại khi còn lượt.
+`SET LOCAL` chỉ có hiệu lực trong giao dịch này, không đổi cấu hình connection cho
+luồng khác. Timeout Spring được áp dụng khi thực hiện JDBC; đây không phải hard
+deadline cho đọc upload, kiểm CV, chờ connection, I/O khi COMMIT hoặc toàn bộ HTTP request.
+
 Duplicate trả 409, không tạo thêm CV/outbox; lỗi outbox/CV rollback không giữ chỗ email.
 Quota đã commit độc lập vẫn tính. V28 thêm bảng mới, không backfill email cho hồ sơ cũ.
 
@@ -142,6 +151,9 @@ tamper/AAD swapping/wrongkey, redaction, receipt/size validation.
 rollback, quota, plain UTF-8, giờ Việt Nam, alias người gửi, Message-ID và xóa payload SENT;
 SMTP ngoài transaction, retry tối đa 6 lần, 550/connect/restart, worker đồng thời và lease;
 lỗi DB, tamper, commit visibility, khả năng gửi trùng và migration V27→V28.
+Kiểm thêm timeout khi khóa requisition/posting/source, khóa enqueue sau khi lưu CV,
+SQL chậm và tổng nhiều SQL vượt ngân sách; giữ quota, rollback sạch, nộp lại cùng email,
+không đổi timeout của transaction caller và vẫn nhận CV đúng giới hạn 10 MiB.
 Tests intake OFF/thiếu key và các luồng kích hoạt/reset/import được hồi quy.
 
 Database/schema và SMTP fixture riêng; container test fsync off không chứng minh độ bền sau crash.
