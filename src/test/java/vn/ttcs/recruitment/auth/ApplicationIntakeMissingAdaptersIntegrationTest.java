@@ -18,11 +18,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
 class ApplicationIntakeMissingAdaptersIntegrationTest {
     @Autowired Environment environment;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired vn.ttcs.recruitment.application.PostgresApplicationAttemptQuota quota;
     @Test void enablingOnlyTheFlagCannotOpenAnIncompleteProductionFlow() throws Exception {
         var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+
                 environment.getRequiredProperty("local.server.port")+"/api/v1/public/job-postings/"+UUID.randomUUID()+"/applications"))
                 .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString("invalid-form"))
                 .build(),HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(503);assertThat(response.body()).contains("APPLICATION_INTAKE_UNAVAILABLE");
+        assertThat(quota).isNotNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_ip_attempts",Integer.class)).isZero();
     }
 }

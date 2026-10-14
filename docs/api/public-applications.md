@@ -2,22 +2,23 @@
 
 Backend của S4-03, [ATSNB-95](https://luoplayer.atlassian.net/browse/ATSNB-95).
 API đã có hợp đồng, validation, [chống trùng email/requisition](application-duplicates.md)
-và điểm nối lưu trữ. **Nộp hồ sơ tắt mặc định**; chưa nghiệm thu toàn bộ story và
-chưa dùng cho ứng viên thật trước khi nối 328/329.
+và [quota IP production](application-ip-quota.md). **Nộp hồ sơ tắt mặc định**;
+chưa nghiệm thu toàn bộ story và chưa dùng cho ứng viên thật trước khi hoàn thành 329.
 
 ## Cấu hình và điều kiện bật
 
 `APPLICATION_INTAKE_ENABLED=false`, `APPLICATION_INTAKE_MAX_CONCURRENT=2` (1..8).
 Flag true chỉ nhận hồ sơ khi Spring có cả `ApplicationAttemptQuota` và
-`ApplicationReceiptWriter` thật. Hiện không có implementation production của hai interface;
-bật riêng flag vẫn trả 503 `APPLICATION_INTAKE_UNAVAILABLE` trước đọc body.
+`ApplicationReceiptWriter` thật. Quota production đã có; receipt/outbox production còn thiếu.
+Bật riêng flag vẫn trả 503 `APPLICATION_INTAKE_UNAVAILABLE` trước ghi quota hoặc đọc body.
 Adapter trong `src/test` chỉ chứng minh HTTP/storage, không đóng vào JAR, không gửi mail.
 
 `ApplicationAttemptQuota.checkAndRecord(request)` là điểm nối 328: ghi nhận mỗi POST
 trước kiểm UUID, media type, kích thước, dữ liệu, tin hay tình trạng bận. Không gọi cho CORS
 preflight hoặc khi API chưa được bật đủ. Adapter phải tính 5 lần/IP trong cửa sổ 60 phút,
 kể cả lỗi/trùng, lấy IP qua proxy tin cậy và commit lượt riêng với transaction hồ sơ.
-429 do adapter trả qua `ApiException`; hỏng adapter chặn nhận hồ sơ bằng 503.
+Provider PostgreSQL của 328 đã nối: 429 kèm Retry-After; hỏng quota trả 503
+APPLICATION_QUOTA_UNAVAILABLE. Xem [quy tắc IP, proxy và giao dịch](application-ip-quota.md).
 
 `ApplicationReceiptWriter.accept(...)` là điểm nối 329, nhận dữ liệu/CV đã kiểm tra.
 Implementation phải tạo mã ngẫu nhiên, hash 32 byte, gọi `ApplicationStorageService.store`
@@ -96,8 +97,10 @@ JSON chung `{code,message,fieldErrors}`, không echo PII, tên file hay lỗi SQ
 | 409 | APPLICATION_ALREADY_SUBMITTED: email chuẩn hóa đã nộp cho requisition, fieldErrors.email |
 | 413 | APPLICATION_CV_TOO_LARGE: file >10 MiB/request >11 MiB |
 | 415 | APPLICATION_FORM_TYPE_UNSUPPORTED, APPLICATION_CV_TYPE_UNSUPPORTED |
-| 429 | Do quota adapter 328 trả |
-| 503 | APPLICATION_INTAKE_UNAVAILABLE: tắt/thiếu/hỏng quota adapter |
+| 400 | APPLICATION_CLIENT_IP_INVALID: peer proxy tin cậy gửi header IP thiếu/sai |
+| 429 | APPLICATION_RATE_LIMIT_EXCEEDED, kèm Retry-After |
+| 503 | APPLICATION_QUOTA_UNAVAILABLE: lỗi kiểm tra/ghi quota |
+| 503 | APPLICATION_INTAKE_UNAVAILABLE: tắt hoặc thiếu adapter cần thiết |
 | 503 | APPLICATION_INTAKE_BUSY: hết budget concurrent, Retry-After: 1 |
 | 503 | APPLICATION_SUBMISSION_UNAVAILABLE: lỗi writer/commit, giữ kín chi tiết |
 

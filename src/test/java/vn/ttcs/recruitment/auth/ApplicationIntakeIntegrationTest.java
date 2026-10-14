@@ -451,7 +451,7 @@ class ApplicationIntakeIntegrationTest {
     // These adapters exercise the HTTP/storage boundary only. They implement neither IP windows nor mail
     // delivery and live exclusively in src/test: production must never accept without the real adapters.
     @TestConfiguration(proxyBeanMethods=false) static class Adapters {
-        @Bean TestQuota quota(){return new TestQuota();}
+        @Bean @org.springframework.context.annotation.Primary TestQuota quota(){return new TestQuota();}
         @Bean TestWriter writer(ApplicationStorageService storage, PlatformTransactionManager manager){return new TestWriter(storage, manager);}
     }
     static class TestQuota implements ApplicationAttemptQuota {

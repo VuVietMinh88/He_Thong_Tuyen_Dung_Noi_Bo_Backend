@@ -30,5 +30,6 @@ class ApplicationIntakeDisabledIntegrationTest {
         assertThat(response.body()).contains("APPLICATION_INTAKE_UNAVAILABLE").doesNotContain("INVALID_MULTIPART");
         assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM job_applications",Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_ip_attempts",Integer.class)).isZero();
     }
 }

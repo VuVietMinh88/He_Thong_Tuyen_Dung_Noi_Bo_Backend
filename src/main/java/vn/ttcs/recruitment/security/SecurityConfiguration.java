@@ -61,7 +61,7 @@ public class SecurityConfiguration {
         configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization"));
         // Browsers hide this header from cross-origin scripts unless it is exposed; the frontend reads the
         // file name of downloads such as the staff import template from it.
-        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setExposedHeaders(List.of("Content-Disposition", "Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration legacyHealth = new CorsConfiguration();

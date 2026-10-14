@@ -77,6 +77,9 @@ public class ApplicationIntakeFilter extends OncePerRequestFilter {
     }
 
     private void write(HttpServletResponse response, ApiException exception) throws IOException {
+        if (exception instanceof ApplicationRateLimitException limited) {
+            response.setHeader("Retry-After", Long.toString(limited.getRetryAfterSeconds()));
+        }
         response.setStatus(exception.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
