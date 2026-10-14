@@ -15,6 +15,9 @@ public enum JobPostingEventType {
     // match V25 valid_job_posting_event_type.
     CLOSED,
     // Task 355: the recruiter or HR took the published posting down, with a reason. Must match V26
-    // valid_job_posting_event_type.
-    UNPUBLISHED
+    // valid_job_posting_event_type. Task 356: also an expired one (V27).
+    UNPUBLISHED,
+    // Task 356: the daily task moved the published posting to EXPIRED once its deadline had passed. The only step
+    // without an actor (no person does it) and never with a comment. Must match V27 valid_job_posting_event_type.
+    EXPIRED
 }

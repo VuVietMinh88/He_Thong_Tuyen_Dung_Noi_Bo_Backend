@@ -127,7 +127,8 @@ public class JobPostingApprovalService {
      * The PUBLISHED event records the caller from the token and the server time, never anything from the body.
      * Candidates see the posting from task 309 on. Task 310: the posting keeps the same publisher and time
      * (publishedById, publishedAt in every internal view). Task 355: "published" means published once, so a posting
-     * taken down (UNPUBLISHED) is answered JOB_POSTING_ALREADY_PUBLISHED too and is never published again.
+     * taken down (UNPUBLISHED) is answered JOB_POSTING_ALREADY_PUBLISHED too and is never published again. Task 356:
+     * so is an expired one (EXPIRED).
      */
     @Transactional
     public JobPostingView publish(Jwt jwt, UUID id, JobPostingPublishRequest request) {

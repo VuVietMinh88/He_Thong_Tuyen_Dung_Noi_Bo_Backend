@@ -52,6 +52,8 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // Task 321: the application gate (JobPostingApplicationGate, for the apply API of task 326) gives the same answers:
 // it passes exactly the open postings, refuses the expired ones with 409 JOB_POSTING_EXPIRED and every other one with
 // the 404 of an id that does not exist.
+// Task 356: a posting the daily task moved to EXPIRED answers like an expired published posting, whatever its date,
+// so candidates see nothing change when the task runs.
 // The postings are written with SQL, each with its own requisition and department. The clock is 00:30 on 11 Oct 2026
 // in Vietnam, when the date in UTC is still 10 Oct, so a date read in the wrong zone gives other answers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
@@ -125,9 +127,10 @@ class JobPostingPortalRuleIntegrationTest {
             }
         }
         assertThat(fixtures).hasSize(2 * JobPostingStatus.values().length * 3);
-        // Each answer is reached: open on and before the deadline day, expired after it, hidden otherwise.
+        // Each answer is reached: open on and before the deadline day, expired after it (task 356: and in the status
+        // EXPIRED whatever the date), hidden otherwise.
         assertThat(fixtures.stream().filter(fixture -> fixture.expected() == Expected.OPEN)).hasSize(2);
-        assertThat(fixtures.stream().filter(fixture -> fixture.expected() == Expected.EXPIRED)).hasSize(1);
+        assertThat(fixtures.stream().filter(fixture -> fixture.expected() == Expected.EXPIRED)).hasSize(4);
 
         // The list, its count and the filter values hold exactly the open postings.
         JsonNode list = ok(postings.publicList(0, 100));
@@ -172,7 +175,7 @@ class JobPostingPortalRuleIntegrationTest {
                     .isEqualTo(fixture.deadline().plusDays(1).atStartOfDay(VIETNAM).toInstant().toString())
                     .isEqualTo(fixture.deadline() + "T17:00:00Z");
         }
-        assertThat(answers).containsEntry(Expected.NOT_PUBLIC, fixtures.size() - 3);
+        assertThat(answers).containsEntry(Expected.NOT_PUBLIC, fixtures.size() - 6);
 
         // Task 321: an application to each posting, checked the way the apply API will check it.
         var applications = new TransactionTemplate(transactions);
@@ -218,8 +221,8 @@ class JobPostingPortalRuleIntegrationTest {
     }
 
     // The answer candidates should get, written out without the code's sets. A posting is public only while its
-    // requisition is approved; a published posting is open on and before its deadline day and expired after it; no
-    // other status is ever public.
+    // requisition is approved; a published posting is open on and before its deadline day and expired after it; an
+    // expired one (task 356) is expired whatever its date; no other status is ever public.
     private static Expected expected(JobPostingStatus status, RequisitionStatus requisition, LocalDate deadline) {
         boolean requisitionApproved = switch (requisition) {
             case APPROVED -> true;
@@ -230,6 +233,7 @@ class JobPostingPortalRuleIntegrationTest {
         }
         return switch (status) {
             case PUBLISHED -> TODAY.isAfter(deadline) ? Expected.EXPIRED : Expected.OPEN;
+            case EXPIRED -> Expected.EXPIRED;
             // Task 355: a posting taken down is never public again.
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> Expected.NOT_PUBLIC;
         };
@@ -237,10 +241,10 @@ class JobPostingPortalRuleIntegrationTest {
 
     // Whether a posting in this status went through the publication, so it names who published it and when (V23).
     // A posting may also be closed before its publication; here every closed one was published first. A posting taken
-    // down (task 355) always was (V26).
+    // down (task 355) always was (V26), and so was an expired one (task 356, V27).
     private static boolean published(JobPostingStatus status) {
         return switch (status) {
-            case PUBLISHED, CLOSED, UNPUBLISHED -> true;
+            case PUBLISHED, CLOSED, UNPUBLISHED, EXPIRED -> true;
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED -> false;
         };
     }

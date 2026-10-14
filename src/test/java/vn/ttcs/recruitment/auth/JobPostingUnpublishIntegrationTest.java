@@ -25,6 +25,7 @@ import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.jobposting.JobPostingApplicationGate;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -77,6 +78,7 @@ class JobPostingUnpublishIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingExpiry expiry;
     @Autowired private JobPostingApplicationGate gate;
 
     private RequisitionStatusTestSupport status;
@@ -223,7 +225,8 @@ class JobPostingUnpublishIntegrationTest {
 
     // "Bất cứ lúc nào": the requisition's status and the deadline are not checked. A paused requisition's posting is
     // taken down and stays down once the requisition is resumed; a posting whose deadline has passed (its detail shows
-    // the closed notice, task 320) is taken down too, and its detail then answers 404.
+    // the closed notice, task 320) is taken down too, and its detail then answers 404. Task 356: a paused requisition's
+    // posting expires too, and is then taken down like any expired one.
     @Test
     void aPostingIsTakenDownWhileItsRequisitionIsPausedOrAfterItsDeadline() throws Exception {
         UUID paused = requisition(department);
@@ -241,6 +244,9 @@ class JobPostingUnpublishIntegrationTest {
         assertThat(postings.row(hidden).get("status")).isEqualTo("UNPUBLISHED");
 
         UUID expired = publishedPosting(requisition(department));
+        UUID pausedAgain = requisition(department);
+        UUID expiredWhilePaused = publishedPosting(pausedAgain);
+        status.ok(status.change(pausedAgain, "PAUSED", "Chờ ngân sách quý 4", 0, hrToken));
         // 10:00 on 1 Dec 2026 in Vietnam: the deadline (30 Nov) has passed; the tokens of October have expired.
         clock.set(Instant.parse("2026-12-01T03:00:00Z"));
         String lateRecruiter = api.token("recruiter@example.test");
@@ -251,6 +257,16 @@ class JobPostingUnpublishIntegrationTest {
         assertThat(ok(postings.unpublish(expired, 4, REASON, lateRecruiter)).path("status").asText())
                 .isEqualTo("UNPUBLISHED");
         postings.error(postings.publicDetail(expired), 404, "JOB_POSTING_NOT_FOUND");
+
+        // The daily task expires the paused requisition's posting (revision 5); it is still taken down.
+        assertThat(expiry.expire(expiredWhilePaused)).isTrue();
+        JsonNode expiredView = ok(postings.get(expiredWhilePaused, lateRecruiter));
+        assertThat(expiredView.path("status").asText()).isEqualTo("EXPIRED");
+        assertThat(expiredView.path("actions").path("canUnpublish").asBoolean()).isTrue();
+        assertThat(expiredView.path("actions").path("canEdit").asBoolean()).isFalse();
+        assertThat(ok(postings.unpublish(expiredWhilePaused, 5, REASON, lateRecruiter)).path("status").asText())
+                .isEqualTo("UNPUBLISHED");
+        assertThat(postings.row(expiredWhilePaused).get("status")).isEqualTo("UNPUBLISHED");
     }
 
     // The body: expectedRevision is required, the reason is required and limited like a requisition's reason, and
@@ -333,8 +349,8 @@ class JobPostingUnpublishIntegrationTest {
         assertThat(ok(postings.publicDetail(posting)).path("id").asText()).isEqualTo(posting.toString());
     }
 
-    // Only a published posting is taken down. A closed one is told so first (the message names taking down), one
-    // taken down already is told so, and one never published is told it is not published.
+    // Only a published posting is taken down (task 356: or an expired one). A closed one is told so first (the message
+    // names taking down), one taken down already is told so, and one never published is told it is not published.
     @ParameterizedTest
     @EnumSource(JobPostingStatus.class)
     void onlyAPublishedPostingIsTakenDown(JobPostingStatus postingStatus) throws Exception {
@@ -345,7 +361,8 @@ class JobPostingUnpublishIntegrationTest {
         var response = postings.unpublish(posting, postings.revision(posting), REASON, hrToken);
 
         String refusal = switch (postingStatus) {
-            case PUBLISHED -> null;
+            // Task 356: an expired posting is taken down like a published one.
+            case PUBLISHED, EXPIRED -> null;
             case UNPUBLISHED -> "JOB_POSTING_ALREADY_UNPUBLISHED";
             case CLOSED -> "JOB_POSTING_CLOSED";
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED -> "JOB_POSTING_NOT_PUBLISHED";
@@ -428,7 +445,8 @@ class JobPostingUnpublishIntegrationTest {
 
     // A posting of its own requisition brought to the status through the API: HR writes and sends it (1, 2), ADMIN asks
     // for changes or approves it (3), HR publishes it (4); a closed posting is published, then HR fills its requisition
-    // (task 290); a posting taken down is published, then the recruiter takes it down.
+    // (task 290); a posting taken down is published, then the recruiter takes it down; an expired posting is
+    // published, then the daily task (task 356) expires it (5) at 00:00 after its deadline, and the clock goes back.
     private UUID postingIn(JobPostingStatus postingStatus) throws Exception {
         UUID requisition = requisition(department);
         UUID id = UUID.fromString(postings.created(postings.body(requisition, workLocation, employmentType), hrToken)
@@ -440,11 +458,12 @@ class JobPostingUnpublishIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, adminToken));
         }
         if (postingStatus == JobPostingStatus.APPROVED || postingStatus == JobPostingStatus.PUBLISHED
-                || postingStatus == JobPostingStatus.CLOSED || postingStatus == JobPostingStatus.UNPUBLISHED) {
+                || postingStatus == JobPostingStatus.CLOSED || postingStatus == JobPostingStatus.UNPUBLISHED
+                || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.decide(id, "APPROVE", null, 2, adminToken));
         }
         if (postingStatus == JobPostingStatus.PUBLISHED || postingStatus == JobPostingStatus.CLOSED
-                || postingStatus == JobPostingStatus.UNPUBLISHED) {
+                || postingStatus == JobPostingStatus.UNPUBLISHED || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (postingStatus == JobPostingStatus.CLOSED) {
@@ -452,6 +471,12 @@ class JobPostingUnpublishIntegrationTest {
         }
         if (postingStatus == JobPostingStatus.UNPUBLISHED) {
             ok(postings.unpublish(id, 4, REASON, recruiterToken));
+        }
+        if (postingStatus == JobPostingStatus.EXPIRED) {
+            Instant now = clock.instant();
+            clock.set(Instant.parse(JobPostingTestSupport.CLOSES_AT));
+            assertThat(expiry.expire(id)).isTrue();
+            clock.set(now);
         }
         assertThat(postings.row(id).get("status")).isEqualTo(postingStatus.name());
         return id;

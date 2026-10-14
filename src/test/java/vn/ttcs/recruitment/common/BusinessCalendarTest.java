@@ -57,12 +57,14 @@ class BusinessCalendarTest {
         assertThat(calendar.dateOf(calendar.startOf(date).minusNanos(1))).isEqualTo(date.minusDays(1));
     }
 
-    // The zone comes from the property app.business-zone; an offset such as +07:00 is accepted too.
+    // The zone comes from the property app.business-zone; an offset such as +07:00 is accepted too. Task 356: zone()
+    // gives the same zone to the daily job posting expiry.
     @Test
     void theZoneIsReadFromTheApplicationProperty() {
         contextWith("+07:00").run(context -> {
             assertThat(context).hasNotFailed();
             assertThat(context.getBean(BusinessCalendar.class).today()).isEqualTo(LocalDate.of(2026, 10, 7));
+            assertThat(context.getBean(BusinessCalendar.class).zone()).isEqualTo(ZoneId.of("+07:00"));
         });
     }
 

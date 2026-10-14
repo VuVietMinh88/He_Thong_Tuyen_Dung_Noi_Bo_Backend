@@ -28,10 +28,11 @@ public class JobPostingRequisitionSync implements RequisitionStatusListener {
             EnumSet.of(RequisitionStatus.FILLED, RequisitionStatus.CANCELLED);
 
     // JobPostingStatus asks every new status to be classified here; JobPostingClosingStatusTest does not compile until
-    // it is. Task 355: a posting taken down is closed too, so it never belongs to a closed requisition.
+    // it is. Task 355: a posting taken down is closed too, so it never belongs to a closed requisition. Task 356: an
+    // expired one too.
     static final Set<JobPostingStatus> CLOSABLE_STATUSES = EnumSet.of(JobPostingStatus.DRAFT,
             JobPostingStatus.PENDING_APPROVAL, JobPostingStatus.REVISION_REQUESTED, JobPostingStatus.APPROVED,
-            JobPostingStatus.PUBLISHED, JobPostingStatus.UNPUBLISHED);
+            JobPostingStatus.PUBLISHED, JobPostingStatus.UNPUBLISHED, JobPostingStatus.EXPIRED);
 
     private final JobPostingRepository postings;
     private final JobPostingEventRepository events;

@@ -98,7 +98,7 @@ Từ thư mục gốc repo Backend:
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC'
 ```
 
-Thời điểm (`createdAt`, hạn token...) luôn tính theo UTC. Các quy tắc theo **ngày** nghiệp vụ, ví dụ ngày cần người của [yêu cầu tuyển dụng](api/requisitions.md) không được trước hôm nay, dùng múi giờ `app.business-zone` trong `src/main/resources/application.properties` (mặc định `Asia/Ho_Chi_Minh`), không phụ thuộc múi giờ của JVM hay máy chủ.
+Thời điểm (`createdAt`, hạn token...) luôn tính theo UTC. Các quy tắc theo **ngày** nghiệp vụ, ví dụ ngày cần người của [yêu cầu tuyển dụng](api/requisitions.md) không được trước hôm nay, dùng múi giờ `app.business-zone` trong `src/main/resources/application.properties` (mặc định `Asia/Ho_Chi_Minh`), không phụ thuộc múi giờ của JVM hay máy chủ. Tác vụ hằng ngày chuyển tin tuyển dụng quá hạn nộp sang hết hạn (task 356) cũng chạy theo múi giờ này, lúc 00:05; biến tùy chọn `JOB_POSTING_EXPIRY_CRON` đổi lịch, `-` tắt tác vụ ([chi tiết](api/job-posting-publication.md#tự-hết-hạn-hằng-ngày-task-356)).
 
 Khi khởi động xong:
 

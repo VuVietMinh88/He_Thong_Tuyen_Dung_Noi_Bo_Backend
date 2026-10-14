@@ -61,7 +61,8 @@ public class JobPostingApplicationGate {
      * the caller's transaction ends. Otherwise throws, in the words of the public detail:
      * <ul>
      *   <li>409 JOB_POSTING_EXPIRED when its detail shows the closed notice (published, requisition still approved,
-     *   deadline passed in the business zone): the page that was opened before 00:00 shows the notice;</li>
+     *   deadline passed in the business zone; task 356: or expired by the daily task): the page that was opened before
+     *   00:00 shows the notice;</li>
      *   <li>404 JOB_POSTING_NOT_FOUND, the body of an unknown id, when the posting is not public (not published,
      *   closed, or its requisition is no longer approved, for example paused) or does not exist.</li>
      * </ul>

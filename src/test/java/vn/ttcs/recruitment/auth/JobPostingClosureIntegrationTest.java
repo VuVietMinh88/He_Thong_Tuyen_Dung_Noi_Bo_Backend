@@ -21,6 +21,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -71,6 +72,7 @@ class JobPostingClosureIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingExpiry expiry;
 
     private RequisitionStatusTestSupport status;
     private JobPostingTestSupport postings;
@@ -178,7 +180,7 @@ class JobPostingClosureIntegrationTest {
     }
 
     // Every posting that is not closed yet is closed, whatever its step; a closed one stays as it is, because its
-    // requisition can no longer change. Task 355: a posting taken down is closed too.
+    // requisition can no longer change. Task 355: a posting taken down is closed too. Task 356: an expired one too.
     @ParameterizedTest
     @EnumSource(JobPostingStatus.class)
     void closingClosesAPostingInEveryOpenStatus(JobPostingStatus postingStatus) throws Exception {
@@ -193,7 +195,7 @@ class JobPostingClosureIntegrationTest {
                 closerToken);
 
         boolean open = switch (postingStatus) {
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED, UNPUBLISHED -> true;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED, UNPUBLISHED, EXPIRED -> true;
             case CLOSED -> false;
         };
         if (open) {
@@ -455,7 +457,8 @@ class JobPostingClosureIntegrationTest {
     // A posting of the requisition brought to the status through the API: the recruiter writes and sends it (1, 2), HR
     // asks for changes or approves it (3) and publishes it (4). The draft never got its portal details, so closing it
     // relies on V25's exemption. A closed posting is published, then HR fills its requisition (task 290). Task 355: a
-    // posting taken down is published, then the recruiter takes it down (5).
+    // posting taken down is published, then the recruiter takes it down (5). Task 356: an expired posting is
+    // published, then the daily task expires it (5) at 00:00 after its deadline; the clock then goes back.
     private UUID postingIn(UUID requisition, JobPostingStatus postingStatus) throws Exception {
         if (postingStatus == JobPostingStatus.DRAFT) {
             return id(postings.created(Map.of("requisitionId", requisition), recruiterToken));
@@ -466,11 +469,12 @@ class JobPostingClosureIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (postingStatus == JobPostingStatus.APPROVED || postingStatus == JobPostingStatus.PUBLISHED
-                || postingStatus == JobPostingStatus.CLOSED || postingStatus == JobPostingStatus.UNPUBLISHED) {
+                || postingStatus == JobPostingStatus.CLOSED || postingStatus == JobPostingStatus.UNPUBLISHED
+                || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
         if (postingStatus == JobPostingStatus.PUBLISHED || postingStatus == JobPostingStatus.CLOSED
-                || postingStatus == JobPostingStatus.UNPUBLISHED) {
+                || postingStatus == JobPostingStatus.UNPUBLISHED || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (postingStatus == JobPostingStatus.CLOSED) {
@@ -478,6 +482,12 @@ class JobPostingClosureIntegrationTest {
         }
         if (postingStatus == JobPostingStatus.UNPUBLISHED) {
             ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", recruiterToken));
+        }
+        if (postingStatus == JobPostingStatus.EXPIRED) {
+            Instant now = clock.instant();
+            clock.set(Instant.parse(JobPostingTestSupport.CLOSES_AT));
+            assertThat(expiry.expire(id)).isTrue();
+            clock.set(now);
         }
         assertThat(postings.row(id).get("status")).isEqualTo(postingStatus.name());
         return id;

@@ -774,7 +774,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "PATCH /api/v1/job-requisitions/" + UNKNOWN_ID + "/status",
                 "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count",
                 // Task 292: a posting is closed only with its requisition; there is no route to close one by hand.
-                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close")) {
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close",
+                // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

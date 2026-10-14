@@ -68,13 +68,17 @@ public class JobPostingService {
     // requisition is in SOURCE_STATUSES: open to applications while the posting is in PUBLIC_STATUSES and its deadline
     // has not passed, otherwise shown with a notice instead of the apply form (JobPostingApplicability). Holds every
     // status of PUBLIC_STATUSES. JobPostingStatus asks every new status to be classified here; JobPostingStatusTest
-    // does not compile until it is.
-    static final Set<JobPostingStatus> PORTAL_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+    // does not compile until it is. Task 356: a posting the daily task expired keeps showing that notice, so the
+    // detail is the same before and after the task ran.
+    static final Set<JobPostingStatus> PORTAL_STATUSES =
+            EnumSet.of(JobPostingStatus.PUBLISHED, JobPostingStatus.EXPIRED);
 
     // Task 355 (story S4-08): the statuses from which the recruiter or HR may take a posting down (unpublish), at any
     // time: whatever its deadline and whatever the status of its requisition (a paused one too). JobPostingStatus asks
-    // every new status to be classified here; JobPostingStatusTest does not compile until it is.
-    static final Set<JobPostingStatus> UNPUBLISHABLE_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
+    // every new status to be classified here; JobPostingStatusTest does not compile until it is. Task 356: an expired
+    // posting too, so its detail and notice can be removed from the portal.
+    static final Set<JobPostingStatus> UNPUBLISHABLE_STATUSES =
+            EnumSet.of(JobPostingStatus.PUBLISHED, JobPostingStatus.EXPIRED);
 
     private static final String UNPUBLISH_REASON_REQUIRED = "Vui lòng nhập lý do gỡ tin tuyển dụng.";
 
@@ -230,16 +234,19 @@ public class JobPostingService {
 
     /**
      * Task 355 (story S4-08): "Xây dựng API gỡ tin tuyển dụng ngay lập tức". The recruiter of the requisition or HR
-     * takes a published posting down at any time, with a reason. It moves to UNPUBLISHED with a new revision, keeps
-     * who published it and when (and updatedAt), and an UNPUBLISHED event records who took it down, when and why. The
-     * portal shows only postings in PUBLIC_STATUSES, read at each request and never cached (no-store), so the list,
-     * the detail, the filter values and the application gate (task 321) stop showing it as soon as this commits.
+     * takes a published posting (task 356: or an expired one) down at any time, with a reason. It moves to
+     * UNPUBLISHED with a new revision, keeps who published it and when (and updatedAt), and an UNPUBLISHED event
+     * records who took it down, when and why. The portal shows only postings in PUBLIC_STATUSES (and the detail of
+     * those in PORTAL_STATUSES), read at each request and never cached (no-store), so the list, the detail, the filter
+     * values and the application gate (task 321) stop showing it as soon as this commits.
      * Checks in order: the reason (400 JOB_POSTING_UNPUBLISH_REASON_REQUIRED, before any lock or lookup, like a
      * decision's comment), write and read access (401/403, before any lookup), the posting exists (404), it is in the
      * caller's scope (403), it is not closed (409, task 292), it is not taken down yet (409
      * JOB_POSTING_ALREADY_UNPUBLISHED), it is in UNPUBLISHABLE_STATUSES (409 JOB_POSTING_NOT_PUBLISHED), the caller saw
      * its latest revision (409). Lock order and re-checks like submit. Deliberately neither the requisition's status
      * nor the deadline is checked: a paused requisition's posting, or one past its deadline, can be taken down too.
+     * Task 356: the daily expiry takes the same locks and makes a new revision, so a take-down sent on the view from
+     * before the expiry is refused with 409 JOB_POSTING_CHANGED, and one sent on the new revision succeeds.
      */
     @Transactional
     public JobPostingView unpublish(Jwt jwt, UUID id, JobPostingUnpublishRequest request) {
@@ -327,8 +334,9 @@ public class JobPostingService {
      * <ul>
      *   <li>OPEN (in PUBLIC_STATUSES, deadline today or later, requisition in SOURCE_STATUSES): the posting with
      *   applicationOpen true;</li>
-     *   <li>EXPIRED (in PORTAL_STATUSES, requisition in SOURCE_STATUSES, deadline passed): the same content with
-     *   applicationOpen false, so the page shows a notice instead of the apply form; the list no longer has it;</li>
+     *   <li>EXPIRED (in PORTAL_STATUSES, requisition in SOURCE_STATUSES, deadline passed; task 356: or moved to the
+     *   status EXPIRED by the daily task, which follows the date): the same content with applicationOpen false, so the
+     *   page shows a notice instead of the apply form; the list no longer has it;</li>
      *   <li>NOT_PUBLIC (any other status, or a requisition no longer in SOURCE_STATUSES, for example paused): 404
      *   exactly like an id that does not exist, so the portal tells nothing about drafts or postings under review.</li>
      * </ul>

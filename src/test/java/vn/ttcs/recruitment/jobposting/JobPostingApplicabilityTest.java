@@ -54,12 +54,17 @@ class JobPostingApplicabilityTest {
         // A posting past its deadline whose requisition is paused shows nothing, not an expired notice.
         assertThat(JobPostingApplicability.of(JobPostingStatus.PUBLISHED, RequisitionStatus.PAUSED, TODAY,
                 TODAY.plusDays(1))).isEqualTo(NOT_PUBLIC);
+        // Task 356: the daily task changes nothing candidates see: expired by its date before, by its status after.
+        assertThat(JobPostingApplicability.of(JobPostingStatus.EXPIRED, RequisitionStatus.APPROVED, TODAY,
+                TODAY.plusDays(1))).isEqualTo(EXPIRED);
+        assertThat(JobPostingApplicability.of(JobPostingStatus.EXPIRED, RequisitionStatus.PAUSED, TODAY,
+                TODAY.plusDays(1))).isEqualTo(NOT_PUBLIC);
     }
 
     // The answer candidates should get. A posting is public only while its requisition is approved (task 290 hides
     // the postings of a paused one); a published posting is open on and before its deadline day and expired after it;
-    // no other status is ever public. A missing deadline (only drafts and postings sent back have none) is never
-    // public.
+    // a posting the daily task expired (task 356) is expired whatever the date; no other status is ever public. A
+    // missing deadline (only drafts and postings sent back have none) is never public.
     private static JobPostingApplicability expected(JobPostingStatus status, RequisitionStatus requisition,
                                                     LocalDate deadline, LocalDate today) {
         boolean requisitionApproved = switch (requisition) {
@@ -71,6 +76,8 @@ class JobPostingApplicabilityTest {
         }
         return switch (status) {
             case PUBLISHED -> today.isAfter(deadline) ? EXPIRED : OPEN;
+            // Task 356: the status EXPIRED (the case label) shows the closed notice (the answer EXPIRED).
+            case EXPIRED -> EXPIRED;
             // Task 355: a posting taken down is never public again.
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> NOT_PUBLIC;
         };
