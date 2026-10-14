@@ -56,8 +56,8 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // closes as filled or cancels a requisition with POST /requisitions/{id}/status-changes; task 293 records each change
 // in the history. Task 292's JobPostingRequisitionSync is the only RequisitionStatusListener in this context; what it
 // does to postings is tested in JobPostingClosureIntegrationTest. Task 291: this context has the production
-// RequisitionPipelineSource, which knows of no candidate (no candidate module yet), so every closure here goes through
-// without confirmation; RequisitionActivePipelineIntegrationTest replaces the source to test the confirmation.
+// RequisitionPipelineSource. These fixtures create no applications, so closure needs no confirmation;
+// ApplicationStorageIntegrationTest exercises the real data, and RequisitionActivePipelineIntegrationTest probes confirmation.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",

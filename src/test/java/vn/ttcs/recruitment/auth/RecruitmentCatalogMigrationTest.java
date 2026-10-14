@@ -177,15 +177,17 @@ class RecruitmentCatalogMigrationTest {
             // The delete API relies on PostgreSQL refusing to delete a value that is still referenced (task 229).
             // ON DELETE CASCADE / SET NULL / SET DEFAULT would silently delete or blank the referencing rows
             // instead, and a DEFERRABLE key could fail only at commit. V21 job_postings references WORK_LOCATION and
-            // EMPLOYMENT_TYPE values with RESTRICT keys; this guard fails as soon as a migration adds an unsafe one.
+            // EMPLOYMENT_TYPE values; V26 adds the application's CANDIDATE_SOURCE. All use RESTRICT keys.
+            // This guard fails as soon as a migration adds an unsafe one.
             assertThat(unsafeCatalogReferences(jdbc)).isEmpty();
-            // Both keys of V21 exist, so the empty list above really covers them.
+            // All three known keys exist, so the empty list above really covers them.
             assertThat(jdbc.queryForList("""
                     SELECT conname FROM pg_constraint
                     WHERE contype = 'f' AND confrelid = 'recruitment_catalog_items'::regclass
                     ORDER BY conname
                     """, String.class))
-                    .containsExactly("job_postings_employment_type_id_fkey", "job_postings_work_location_id_fkey");
+                    .containsExactly("job_applications_source_id_fkey", "job_postings_employment_type_id_fkey",
+                            "job_postings_work_location_id_fkey");
 
             // The guard really finds those keys, and accepts the default NO ACTION and RESTRICT.
             jdbc.execute("CREATE TABLE cascading_usage (item_id UUID REFERENCES recruitment_catalog_items (id) "

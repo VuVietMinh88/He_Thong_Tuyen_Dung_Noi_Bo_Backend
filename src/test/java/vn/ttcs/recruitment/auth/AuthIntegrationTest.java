@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -695,17 +696,22 @@ class AuthIntegrationTest {
     }
 
     @TestConfiguration(proxyBeanMethods = false)
+    @PropertySource("classpath:isolated-mail-test.properties")
     static class DatabaseConfiguration {
 
         @Bean(destroyMethod = "close")
+        @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("'${test.database.url:}' == ''")
         EmbeddedPostgres embeddedPostgres() throws IOException {
             return EmbeddedPostgres.builder().setPort(0)
                     .setServerConfig("listen_addresses", "127.0.0.1").start();
         }
 
         @Bean
-        DataSource dataSource(EmbeddedPostgres postgres) {
-            return postgres.getPostgresDatabase();
+        DataSource dataSource(org.springframework.beans.factory.ObjectProvider<EmbeddedPostgres> postgres,
+                              org.springframework.core.env.Environment environment) throws java.sql.SQLException {
+            String dockerUrl = environment.getProperty("test.database.url");
+            return dockerUrl == null || dockerUrl.isBlank() ? postgres.getObject().getPostgresDatabase()
+                    : DockerTestDataSource.create(dockerUrl);
         }
 
         @Bean

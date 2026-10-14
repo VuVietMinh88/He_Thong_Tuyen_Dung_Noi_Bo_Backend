@@ -16,7 +16,7 @@ import java.util.UUID;
  *   (FOR KEY SHARE does not conflict with the status change) in the order account, session, requisition, then its own
  *   rows, and refuse a FILLED or CANCELLED requisition, as posting writers do; otherwise an application added after the
  *   count was read could slip past the check.
- * Exactly one bean: the candidate module replaces NoCandidateModulePipelineSource (delete it).
+ * Exactly one production bean: ApplicationPipelineSource (task 325) reads stored applications.
  */
 public interface RequisitionPipelineSource {
     ActivePipeline activePipeline(UUID requisitionId);

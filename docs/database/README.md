@@ -1,5 +1,9 @@
 # Dữ liệu tài khoản và phòng ban
 
+Task 325 thêm V26: `job_applications` (hồ sơ, unique email chuẩn hóa/requisition, hash mã)
+và `application_cvs` (CV BYTEA riêng tư, kiểm dung lượng/hash). Composite FK giữ đúng
+tin–requisition; pipeline đọc hồ sơ thật. Xem [application-storage](../api/application-storage.md).
+
 SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/` trong backend JAR, nên JAR chạy migration được trên máy khác. Không có bản SQL thứ hai trong `src/main/resources`.
 
 `database/seeds/` dành cho script tạo dữ liệu mẫu theo cấu trúc chung của nhóm; hiện chỉ có `.gitkeep` để giữ thư mục trong Git. Khi bổ sung seed, cần hướng dẫn chạy riêng. Flyway hiện chỉ nạp các migration được Maven đóng gói từ `database/migrations/`.

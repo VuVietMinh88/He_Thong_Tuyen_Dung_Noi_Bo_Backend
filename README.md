@@ -35,6 +35,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [account-import](docs/api/account-import.md)
 - [account-locking](docs/api/account-locking.md)
 - [account-roles](docs/api/account-roles.md)
+- [application-storage — task 325](docs/api/application-storage.md)
 - [approval-flows](docs/api/approval-flows.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
