@@ -41,7 +41,7 @@ public class ApplicationIntakeService {
         } catch (ApiException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            // Exact duplicate mapping is a separate integration step. Never leak SQL, email or a parser stack.
+            // Storage exposes duplicates as ApiException. Other failures must not leak SQL, email or a parser stack.
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "APPLICATION_SUBMISSION_UNAVAILABLE",
                     "Chưa thể nhận hồ sơ lúc này. Vui lòng thử lại sau.");
         }

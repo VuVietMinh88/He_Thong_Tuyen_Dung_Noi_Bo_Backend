@@ -24,7 +24,8 @@ không query byte CV khi count pipeline. Quyền đọc CV về sau thuộc S4-0
 
 `ApplicationStorageService.store(postingId,submission,validatedCv,trackingHash)` là Spring
 transaction READ_COMMITTED; gọi qua bean/proxy. Reception service tương lai cần transaction
-READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, không trả SQL/PII.
+READ_COMMITTED chung với outbox. [Chống trùng 327](application-duplicates.md) đã nối vào
+repository: trùng email/requisition ném ApiException409, không trả SQL/PII.
 
 - Kiểm tra CV ngoài transaction, không parser khi giữ khóa.
 - Validate input dù không qua controller; khóa requisition FOR SHARE → tin FOR SHARE →

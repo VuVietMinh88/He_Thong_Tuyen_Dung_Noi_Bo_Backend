@@ -1,8 +1,9 @@
 # 326 — Xây dựng API nhận hồ sơ ứng tuyển công khai
 
 Backend của S4-03, [ATSNB-95](https://luoplayer.atlassian.net/browse/ATSNB-95).
-API đã có hợp đồng, validation và điểm nối lưu trữ. **Nộp hồ sơ tắt mặc định**;
-chưa nghiệm thu toàn bộ story và chưa dùng cho ứng viên thật trước khi nối 327/328/329.
+API đã có hợp đồng, validation, [chống trùng email/requisition](application-duplicates.md)
+và điểm nối lưu trữ. **Nộp hồ sơ tắt mặc định**; chưa nghiệm thu toàn bộ story và
+chưa dùng cho ứng viên thật trước khi nối 328/329.
 
 ## Cấu hình và điều kiện bật
 
@@ -92,6 +93,7 @@ JSON chung `{code,message,fieldErrors}`, không echo PII, tên file hay lỗi SQ
 |---|---|
 | 400 | VALIDATION_ERROR, INVALID_MULTIPART, CV hỏng/rỗng/mã hóa |
 | 404 | JOB_POSTING_NOT_FOUND: tin/requisition không nhận hoặc hết hạn |
+| 409 | APPLICATION_ALREADY_SUBMITTED: email chuẩn hóa đã nộp cho requisition, fieldErrors.email |
 | 413 | APPLICATION_CV_TOO_LARGE: file >10 MiB/request >11 MiB |
 | 415 | APPLICATION_FORM_TYPE_UNSUPPORTED, APPLICATION_CV_TYPE_UNSUPPORTED |
 | 429 | Do quota adapter 328 trả |
@@ -99,9 +101,11 @@ JSON chung `{code,message,fieldErrors}`, không echo PII, tên file hay lỗi SQ
 | 503 | APPLICATION_INTAKE_BUSY: hết budget concurrent, Retry-After: 1 |
 | 503 | APPLICATION_SUBMISSION_UNAVAILABLE: lỗi writer/commit, giữ kín chi tiết |
 
-Unique email/requisition và tracking hash của 325 vẫn giữ. Mapping trùng thành thông báo
-công khai rõ ràng thuộc 327: trước khi nối, lỗi unique từ writer được che bằng 503,
-không có hồ sơ/CV thứ hai. Khi nối 327 cần trả `ApiException` 409 và kiểm concurrency.
+Unique email/requisition và tracking hash của 325 vẫn giữ. Repository xử lý chính xác
+`job_applications_requisition_email_key` bằng INSERT ON CONFLICT DO NOTHING, ném
+`DuplicateApplicationException` 409 trước ghi CV nếu trùng. Bản gốc không bị sửa.
+Xung đột tracking hash và lỗi database khác không được chuyển thành lỗi email; API che
+bằng 503. Writer phải để exception thoát transaction để hoàn tác các thao tác liên quan.
 
 ## Kiểm thử
 

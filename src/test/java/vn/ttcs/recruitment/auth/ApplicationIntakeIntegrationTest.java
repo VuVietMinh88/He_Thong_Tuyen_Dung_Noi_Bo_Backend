@@ -42,6 +42,7 @@ import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -231,12 +232,136 @@ class ApplicationIntakeIntegrationTest {
 
     @Test void receiptFailureRollsBackApplicationAndCvAndReturnsNoSqlDetails() throws Exception {
         writer.failAfterStore=true; assertError(submit(valid(),false),503,"APPLICATION_SUBMISSION_UNAVAILABLE"); assertEmpty();
+        writer.failAfterStore=false;
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        assertThat(count()).isEqualTo(1);
     }
 
-    @Test void duplicateStorageFailureDoesNotLeakSqlUntilDuplicateMappingIsConnected() throws Exception {
+    @Test void duplicateSubmissionReturnsAConflictWithoutLeakingPersonalDataOrChangingTheOriginal() throws Exception {
         assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
-        assertError(submit(valid(),false),503,"APPLICATION_SUBMISSION_UNAVAILABLE"); assertThat(count()).isEqualTo(1);
+        var original = jdbc.queryForMap("SELECT id,tracking_code_hash,received_at FROM job_applications");
+        var parts = valid();
+        parts.set(0, field("fullName", "Different candidate name"));
+        parts.set(2, field("phone", "0987654321"));
+        parts.set(3, file("changed.pdf", pdf(128)));
+        var duplicate = submit(parts,false);
+        assertError(duplicate,409,"APPLICATION_ALREADY_SUBMITTED"); assertThat(count()).isEqualTo(1);
+        assertThat(json.readTree(duplicate.body()).get("fieldErrors").get("email").asString())
+                .isEqualTo("Email này đã nộp hồ sơ cho vị trí tuyển dụng này.");
+        assertThat(json.readTree(duplicate.body()).properties()).hasSize(3);
+        assertThat(duplicate.body()).doesNotContain("applicationId", "trackingCode", "trackingUrl", "tracking_code_hash");
+        var after = jdbc.queryForMap("SELECT id,tracking_code_hash,received_at FROM job_applications");
+        assertThat(after.get("id")).isEqualTo(original.get("id"));
+        assertThat((byte[]) after.get("tracking_code_hash")).isEqualTo((byte[]) original.get("tracking_code_hash"));
+        assertThat(after.get("received_at")).isEqualTo(original.get("received_at"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT content FROM application_cvs", byte[].class)).isEqualTo(pdf);
+        assertThat(jdbc.queryForObject("SELECT full_name FROM job_applications", String.class)).isEqualTo("Nguyễn Văn A");
+        assertThat(jdbc.queryForObject("SELECT phone FROM job_applications", String.class)).isEqualTo("+84123456789");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings={" A@EXAMPLE.TEST ", "\u00a0A@example.test\u00a0", "\u200bA@example.test\u200b", "\tA@example.test\r\n"})
+    void normalizedEmailVariantsReturnTheSameConflict(String email) throws Exception {
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        assertError(submit(withEmail(email),false),409,"APPLICATION_ALREADY_SUBMITTED");
+        assertThat(count()).isEqualTo(1);
+        assertThat(quota.calls.get()).isEqualTo(2);
+    }
+
+    @ParameterizedTest @EnumSource(ApplicationStage.class)
+    void applicationsCannotBeResubmittedInAnyStage(ApplicationStage stage) throws Exception {
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        jdbc.update("UPDATE job_applications SET stage=?",stage.name());
+        assertError(submit(valid(),false),409,"APPLICATION_ALREADY_SUBMITTED");
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT stage FROM job_applications",String.class)).isEqualTo(stage.name());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(1);
+    }
+
+    @Test void lowercaseUsesRootLocaleAndDoesNotCollapseDotsOrPlusTags() throws Exception {
+        Locale original=Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            assertThat(submit(withEmail("i@example.test"),false).statusCode()).isEqualTo(201);
+            assertError(submit(withEmail(" I@EXAMPLE.TEST "),false),409,"APPLICATION_ALREADY_SUBMITTED");
+            assertThat(submit(withEmail("i+tag@example.test"),false).statusCode()).isEqualTo(201);
+            assertThat(submit(withEmail("i.tag@example.test"),false).statusCode()).isEqualTo(201);
+            assertThat(count()).isEqualTo(3);
+        } finally { Locale.setDefault(original); }
+    }
+
+    @Test void theSameEmailCanApplyToAnotherRequisitionForTheSamePosition() throws Exception {
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        UUID otherRequisition=UUID.randomUUID(), otherPosting=UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO recruitment_requisitions(id,position_id,department_id,headcount,reason,status,created_by,created_at,updated_at)
+                SELECT ?,position_id,department_id,headcount,reason,status,created_by,created_at,updated_at
+                FROM recruitment_requisitions WHERE id=?
+                """,otherRequisition,requisition);
+        jdbc.update("""
+                INSERT INTO job_postings(id,requisition_id,status,revision,title,job_description,candidate_requirements,
+                  work_location_id,employment_type_id,application_deadline,show_salary,created_by,created_at,updated_at,published_by,published_at)
+                SELECT ?,?,status,revision,title,job_description,candidate_requirements,work_location_id,employment_type_id,
+                  application_deadline,show_salary,created_by,created_at,updated_at,published_by,published_at FROM job_postings WHERE id=?
+                """,otherPosting,otherRequisition,posting);
+        var response=send("POST","/api/v1/public/job-postings/"+otherPosting+"/applications",multipart(valid()),
+                "multipart/form-data; boundary="+BOUNDARY,false,Map.of());
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(count()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(2);
+    }
+
+    @Test void changingThePostingTitleDoesNotReleaseAnExistingEmail() throws Exception {
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        jdbc.update("UPDATE job_postings SET title='Renamed posting' WHERE id=?",posting);
+        assertError(submit(valid(),false),409,"APPLICATION_ALREADY_SUBMITTED");
+        assertThat(jdbc.queryForObject("SELECT posting_title FROM job_applications",String.class)).isEqualTo("Hiring developer");
+    }
+
+    @Test void trackingHashCollisionForAnotherEmailRemainsAGenericStorageFailure() throws Exception {
+        writer.tokenOverride=new byte[32];
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        assertError(submit(withEmail("b@example.test"),false),503,"APPLICATION_SUBMISSION_UNAVAILABLE");
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(1);
+    }
+
+    @Test void aCvDatabaseConstraintFailureIsNotAnEmailConflictAndReleasesTheReservation() throws Exception {
+        jdbc.execute("CREATE FUNCTION invalidate_cv_size() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.size_bytes:=1; RETURN NEW; END $$");
+        jdbc.execute("CREATE TRIGGER invalidate_cv_size BEFORE INSERT ON application_cvs FOR EACH ROW EXECUTE FUNCTION invalidate_cv_size()");
+        try {
+            assertError(submit(valid(),false),503,"APPLICATION_SUBMISSION_UNAVAILABLE");
+            assertEmpty();
+        } finally {
+            jdbc.execute("DROP TRIGGER invalidate_cv_size ON application_cvs");
+            jdbc.execute("DROP FUNCTION invalidate_cv_size()");
+        }
+        assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(1);
+    }
+
+    @Test void twoConcurrentNormalizedDuplicatesReturnOneReceiptAndOneConflict() throws Exception {
+        writer.entered=new CountDownLatch(2); writer.release=new CountDownLatch(1);
+        try(var executor=Executors.newFixedThreadPool(2)) {
+            try {
+                var first=executor.submit(()->submit(withEmail("a@example.test"),false));
+                var second=executor.submit(()->submit(withEmail(" A@EXAMPLE.TEST "),false));
+                assertThat(writer.entered.await(10,TimeUnit.SECONDS)).isTrue();
+                writer.release.countDown();
+                var responses=List.of(first.get(20,TimeUnit.SECONDS),second.get(20,TimeUnit.SECONDS));
+                assertThat(responses).extracting(HttpResponse::statusCode).containsExactlyInAnyOrder(201,409);
+                var conflict=responses.stream().filter(response->response.statusCode()==409).findFirst().orElseThrow();
+                assertError(conflict,409,"APPLICATION_ALREADY_SUBMITTED");
+                var accepted=responses.stream().filter(response->response.statusCode()==201).findFirst().orElseThrow();
+                assertThat(jdbc.queryForObject("SELECT id FROM job_applications",UUID.class))
+                        .isEqualTo(UUID.fromString(json.readTree(accepted.body()).get("applicationId").asString()));
+                assertThat(count()).isEqualTo(1);
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isEqualTo(1);
+                assertThat(quota.calls.get()).isEqualTo(2);
+            } finally { writer.release.countDown(); }
+        }
     }
 
     @Test void closureAfterPreflightIsRecheckedByLockedStorage() throws Exception {
@@ -336,19 +461,21 @@ class ApplicationIntakeIntegrationTest {
     static class TestWriter implements ApplicationReceiptWriter {
         final ApplicationStorageService storage; final TransactionTemplate transaction; volatile boolean failAfterStore;
         volatile RuntimeException failure;
+        volatile byte[] tokenOverride;
         volatile CountDownLatch entered,release;
         TestWriter(ApplicationStorageService storage, PlatformTransactionManager manager){
             this.storage=storage; this.transaction=new TransactionTemplate(manager);
             this.transaction.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
         }
-        void reset(){failAfterStore=false;failure=null;entered=null;release=null;}
+        void reset(){failAfterStore=false;failure=null;tokenOverride=null;entered=null;release=null;}
         @Override
         public ApplicationReceipt accept(UUID id,ApplicationSubmission submission,ValidatedCv cv) {
             return transaction.execute(status -> {
             try{
                 if(failure!=null)throw failure;
                 if(entered!=null)entered.countDown();if(release!=null&&!release.await(15,TimeUnit.SECONDS))throw new IllegalStateException("Test gate timed out");
-                byte[] token=new byte[32];new SecureRandom().nextBytes(token);
+                byte[] token=tokenOverride==null?new byte[32]:tokenOverride.clone();
+                if(tokenOverride==null)new SecureRandom().nextBytes(token);
                 var saved=storage.store(id,submission,cv,MessageDigest.getInstance("SHA-256").digest(token));
                 if(failAfterStore)throw new IllegalStateException("private SQL detail");
                 String code=Base64.getUrlEncoder().withoutPadding().encodeToString(token);

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -19,6 +20,7 @@ import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.application.ApplicationStorageService;
 import vn.ttcs.recruitment.application.ApplicationSubmission;
 import vn.ttcs.recruitment.application.CvValidator;
+import vn.ttcs.recruitment.application.DuplicateApplicationException;
 import vn.ttcs.recruitment.application.ValidatedCv;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
@@ -39,6 +41,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -130,11 +133,76 @@ class ApplicationStorageIntegrationTest {
         var saved = storage.store(posting, submission("A+tag@example.test"), cv, hash());
         jdbc.update("UPDATE job_applications SET stage='WITHDRAWN' WHERE id=?", saved.id());
         assertThatThrownBy(() -> storage.store(posting, submission(" a+tag@EXAMPLE.test "), cv, hash()))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(DuplicateApplicationException.class);
         UUID other = createRequisition();
         storage.store(createPosting(other), submission("A+tag@example.test"), cv, hash());
         assertThat(count()).isEqualTo(2);
         assertThat(pipeline.activePipeline(requisition).count()).isZero();
+    }
+
+    @ParameterizedTest
+    @EnumSource(ApplicationStage.class)
+    void everyStageKeepsTheEmailReservation(ApplicationStage stage) {
+        var saved = storage.store(posting, submission("a@example.test"), cv, hash());
+        jdbc.update("UPDATE job_applications SET stage=? WHERE id=?", stage.name(), saved.id());
+        assertThatThrownBy(() -> storage.store(posting, submission(" A@EXAMPLE.test "), cv, hash()))
+                .isInstanceOf(DuplicateApplicationException.class);
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT stage FROM job_applications WHERE id=?", String.class, saved.id()))
+                .isEqualTo(stage.name());
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void trackingHashUniquenessIsNotTranslatedIntoAnEmailDuplicate() {
+        byte[] trackingHash = hash();
+        storage.store(posting, submission("a@example.test"), cv, trackingHash);
+        assertThatThrownBy(() -> storage.store(posting, submission("b@example.test"), cv, trackingHash))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("job_applications_tracking_hash_key");
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs", Integer.class)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aConcurrentDuplicateWaitsForTheFirstTransactionOutcome(boolean rollbackFirst) throws Exception {
+        var inserted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var blockerPid = new AtomicInteger();
+        var transaction = new TransactionTemplate(transactions);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> transaction.execute(status -> {
+                var saved = storage.store(posting, submission("a@example.test"), cv, hash());
+                blockerPid.set(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+                inserted.countDown();
+                try {
+                    if (!release.await(15, TimeUnit.SECONDS)) throw new IllegalStateException("Test gate timed out");
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(exception);
+                }
+                if (rollbackFirst) status.setRollbackOnly();
+                return saved.id();
+            }));
+            try {
+                assertThat(inserted.await(10, TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> storage.store(posting, submission(" A@EXAMPLE.test "), cv, hash()));
+                awaitBlockedBy(blockerPid.get());
+                release.countDown();
+                UUID firstId = first.get(20, TimeUnit.SECONDS);
+                if (rollbackFirst) {
+                    var accepted = second.get(20, TimeUnit.SECONDS);
+                    assertThat(accepted.id()).isNotEqualTo(firstId);
+                    assertThat(jdbc.queryForObject("SELECT id FROM job_applications", UUID.class)).isEqualTo(accepted.id());
+                } else {
+                    assertThatThrownBy(() -> second.get(20, TimeUnit.SECONDS)).hasCauseInstanceOf(DuplicateApplicationException.class);
+                    assertThat(jdbc.queryForObject("SELECT id FROM job_applications", UUID.class)).isEqualTo(firstId);
+                }
+            } finally { release.countDown(); }
+        }
+        assertThat(count()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_cvs", Integer.class)).isEqualTo(1);
     }
 
     @Test
@@ -161,6 +229,8 @@ class ApplicationStorageIntegrationTest {
             jdbc.execute("DROP TRIGGER fail_cv ON application_cvs");
             jdbc.execute("DROP FUNCTION fail_cv_insert()");
         }
+        storage.store(posting, submission("a@example.test"), cv, hash());
+        assertThat(count()).isEqualTo(1);
     }
 
     @ParameterizedTest
@@ -324,7 +394,7 @@ class ApplicationStorageIntegrationTest {
     private boolean concurrentStore(CyclicBarrier barrier) throws Exception {
         barrier.await();
         try { storage.store(posting, submission("a@example.test"), cv, hash()); return true; }
-        catch (DataIntegrityViolationException duplicate) { return false; }
+        catch (DuplicateApplicationException duplicate) { return false; }
     }
 
     private ApplicationSubmission submission(String email) { return new ApplicationSubmission("Candidate A", email, "0123456789", source, "Hi\nThere"); }
@@ -359,6 +429,10 @@ class ApplicationStorageIntegrationTest {
     private void awaitWaiter(Connection blocker) throws Exception {
         int pid;
         try (var query=blocker.createStatement(); var row=query.executeQuery("SELECT pg_backend_pid()")) { row.next();pid=row.getInt(1); }
+        awaitBlockedBy(pid);
+    }
+
+    private void awaitBlockedBy(int pid) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (System.nanoTime() < deadline) {
             if (jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))", Integer.class,pid)>0) return;
