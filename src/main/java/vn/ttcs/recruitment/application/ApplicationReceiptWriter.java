@@ -6,5 +6,6 @@ import java.util.UUID;
 // must atomically save application, CV and outbox under READ_COMMITTED, then return only after commit.
 // There is deliberately no fallback writer that saves an application without its acknowledgement.
 public interface ApplicationReceiptWriter {
+    default boolean ready() { return true; }
     ApplicationReceipt accept(UUID postingId, ApplicationSubmission submission, ValidatedCv cv);
 }

@@ -39,6 +39,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [public-applications](docs/api/public-applications.md)
 - [application-duplicates](docs/api/application-duplicates.md)
 - [application-ip-quota](docs/api/application-ip-quota.md)
+- [application-confirmation](docs/api/application-confirmation.md)
 - [approval-flows](docs/api/approval-flows.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)

@@ -2,15 +2,15 @@
 
 Backend của S4-03, [ATSNB-95](https://luoplayer.atlassian.net/browse/ATSNB-95).
 API đã có hợp đồng, validation, [chống trùng email/requisition](application-duplicates.md)
-và [quota IP production](application-ip-quota.md). **Nộp hồ sơ tắt mặc định**;
-chưa nghiệm thu toàn bộ story và chưa dùng cho ứng viên thật trước khi hoàn thành 329.
+và [quota IP production](application-ip-quota.md), [receipt/outbox production](application-confirmation.md).
+**Nộp hồ sơ tắt mặc định**; trước sử dụng thật cần khóa, URL tra cứu hoạt động và cấu hình proxy.
 
 ## Cấu hình và điều kiện bật
 
 `APPLICATION_INTAKE_ENABLED=false`, `APPLICATION_INTAKE_MAX_CONCURRENT=2` (1..8).
 Flag true chỉ nhận hồ sơ khi Spring có cả `ApplicationAttemptQuota` và
-`ApplicationReceiptWriter` thật. Quota production đã có; receipt/outbox production còn thiếu.
-Bật riêng flag vẫn trả 503 `APPLICATION_INTAKE_UNAVAILABLE` trước ghi quota hoặc đọc body.
+`ApplicationReceiptWriter` sẵn sàng. Quota và receipt/outbox production đã có; writer chưa
+ready khi khóa rỗng. Bật riêng flag vẫn503 trước quota/body nếu thiếu khóa mã hóa.
 Adapter trong `src/test` chỉ chứng minh HTTP/storage, không đóng vào JAR, không gửi mail.
 
 `ApplicationAttemptQuota.checkAndRecord(request)` là điểm nối 328: ghi nhận mỗi POST
@@ -25,7 +25,8 @@ Implementation phải tạo mã ngẫu nhiên, hash 32 byte, gọi `ApplicationS
 qua Spring proxy và ghi outbox cùng transaction READ_COMMITTED; tạo receipt hợp lệ trước
 commit và chỉ trả receipt sau khi commit. Không gửi SMTP đồng bộ trong transaction.
 Không lấy host/link từ header ứng viên. Mail xác nhận bắt buộc, giữ hồ sơ khi gửi mail lỗi,
-thử lại tối đa 5 lần ngoài lần gửi đầu. Những hành vi outbox/mail này chưa được triển khai ở 326.
+thử lại tối đa5lần ngoài lần gửi đầu. Outbox/mail đã được triển khai ở
+[329](application-confirmation.md), dùng chungSMTP và cấu hình người gửi hiện có.
 
 ## Nộp hồ sơ
 

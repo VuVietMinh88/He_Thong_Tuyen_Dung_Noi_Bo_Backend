@@ -347,7 +347,7 @@ class ApplicationIpQuotaIntegrationTest {
         headers.forEach(builder::header);return http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
     }
     @TestConfiguration(proxyBeanMethods=false) static class WriterConfiguration {
-        @Bean ApplicationIntakeIntegrationTest.TestWriter writer(ApplicationStorageService storage,PlatformTransactionManager manager) {
+        @Bean @org.springframework.context.annotation.Primary ApplicationIntakeIntegrationTest.TestWriter writer(ApplicationStorageService storage,PlatformTransactionManager manager) {
             return new ApplicationIntakeIntegrationTest.TestWriter(storage,manager);
         }
     }

@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // A loopback-only SMTP fixture verifies actual MIME delivery without an external mailbox.
-final class LocalSmtpServer implements AutoCloseable {
+public final class LocalSmtpServer implements AutoCloseable {
 
     private final ServerSocket server;
     private final ExecutorService listener = Executors.newSingleThreadExecutor();
@@ -34,7 +34,7 @@ final class LocalSmtpServer implements AutoCloseable {
     private volatile CountDownLatch receiptGate = new CountDownLatch(0);
     private volatile CountDownLatch dataReceived = new CountDownLatch(1);
 
-    LocalSmtpServer() throws IOException {
+    public LocalSmtpServer() throws IOException {
         server = new ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"));
         listener.submit(() -> {
             while (!server.isClosed()) {
@@ -49,21 +49,21 @@ final class LocalSmtpServer implements AutoCloseable {
         });
     }
 
-    int port() { return server.getLocalPort(); }
-    List<MimeMessage> messages() { return List.copyOf(messages); }
-    void rejectDelivery(boolean value) { reject = value; }
+    public int port() { return server.getLocalPort(); }
+    public List<MimeMessage> messages() { return List.copyOf(messages); }
+    public void rejectDelivery(boolean value) { reject = value; }
     // Accepts this many messages, then answers every later one with a temporary failure, as a mail server that
     // stops working in the middle of a run.
     void rejectDeliveryAfter(int acceptedMessages) { acceptLimit = acceptedMessages; }
     // How many messages were handed over (DATA commands), accepted or not.
-    int deliveryAttempts() { return deliveryAttempts.get(); }
+    public int deliveryAttempts() { return deliveryAttempts.get(); }
     // Refuses this one address at RCPT TO, as a mail server does for a mailbox it does not accept; null accepts all.
-    void rejectRecipient(String address) { rejectedRecipient = address; }
-    void pauseReceipt() { receiptGate = new CountDownLatch(1); }
-    void releaseReceipt() { receiptGate.countDown(); }
-    boolean awaitData() throws InterruptedException { return dataReceived.await(5, TimeUnit.SECONDS); }
+    public void rejectRecipient(String address) { rejectedRecipient = address; }
+    public void pauseReceipt() { receiptGate = new CountDownLatch(1); }
+    public void releaseReceipt() { receiptGate.countDown(); }
+    public boolean awaitData() throws InterruptedException { return dataReceived.await(5, TimeUnit.SECONDS); }
 
-    void reset() {
+    public void reset() {
         messages.clear();
         reject = false;
         acceptLimit = Integer.MAX_VALUE;

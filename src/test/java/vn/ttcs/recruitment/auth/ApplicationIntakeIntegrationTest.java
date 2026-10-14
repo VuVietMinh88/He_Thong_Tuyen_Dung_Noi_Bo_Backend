@@ -452,7 +452,7 @@ class ApplicationIntakeIntegrationTest {
     // delivery and live exclusively in src/test: production must never accept without the real adapters.
     @TestConfiguration(proxyBeanMethods=false) static class Adapters {
         @Bean @org.springframework.context.annotation.Primary TestQuota quota(){return new TestQuota();}
-        @Bean TestWriter writer(ApplicationStorageService storage, PlatformTransactionManager manager){return new TestWriter(storage, manager);}
+        @Bean @org.springframework.context.annotation.Primary TestWriter writer(ApplicationStorageService storage, PlatformTransactionManager manager){return new TestWriter(storage, manager);}
     }
     static class TestQuota implements ApplicationAttemptQuota {
         final AtomicInteger calls=new AtomicInteger(); volatile RuntimeException failure;

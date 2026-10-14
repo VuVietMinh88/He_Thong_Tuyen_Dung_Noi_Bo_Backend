@@ -1,7 +1,8 @@
 # 328 — Giới hạn lượt gửi hồ sơ theo IP trong một giờ
 
 `PostgresApplicationAttemptQuota` là provider production của `ApplicationAttemptQuota`.
-**API vẫn tắt mặc định và thiếu receipt/outbox production của 329**; thêm quota không tự mở API.
+**API vẫn tắt mặc định**; [receipt/outbox production](application-confirmation.md) đã có ở329,
+nhưng vẫn cần khóa và cấu hình triển khai phù hợp. Thêm quota không tự mở API.
 
 ## Quy tắc
 
@@ -127,4 +128,4 @@ số liệu hồ sơ, email, mã/hash/link hoặc SQL trong lỗi.
 
 Dùng Docker PostgreSQL riêng và schema riêng mỗi context như [storage](application-storage.md).
 Không dùng database recruitment. Tests không xác minh durability khi crash nếu fsync off.
-329 vẫn là task tiếp theo: không có outbox/email production và chưa nghiệm thu toàn S4-03.
+329 đã bổ sung outbox/email production; tra cứu/frontend và bật môi trường thật vẫn riêng.

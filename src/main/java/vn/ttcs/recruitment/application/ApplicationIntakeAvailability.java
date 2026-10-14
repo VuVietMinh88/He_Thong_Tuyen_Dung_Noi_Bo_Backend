@@ -20,7 +20,9 @@ public class ApplicationIntakeAvailability {
     }
 
     public void requireReady() {
-        if (!enabled || quotas.getIfAvailable() == null || writers.getIfAvailable() == null) throw unavailable();
+        if (!enabled || quotas.getIfAvailable() == null) throw unavailable();
+        var writer = writers.getIfAvailable();
+        if (writer == null || !writer.ready()) throw unavailable();
     }
 
     ApplicationAttemptQuota quota() { requireReady(); return quotas.getObject(); }

@@ -63,7 +63,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class AuthIntegrationTest {
+public class AuthIntegrationTest {
 
     private static final String EMAIL = "admin@example.test";
     private static final String PASSWORD = "TestingOnly123!";
@@ -697,7 +697,7 @@ class AuthIntegrationTest {
 
     @TestConfiguration(proxyBeanMethods = false)
     @PropertySource("classpath:isolated-mail-test.properties")
-    static class DatabaseConfiguration {
+    public static class DatabaseConfiguration {
 
         @Bean(destroyMethod = "close")
         @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("'${test.database.url:}' == ''")
