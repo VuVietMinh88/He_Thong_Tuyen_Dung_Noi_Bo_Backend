@@ -59,7 +59,7 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
  * GET /api/v1/auth/permissions, but hiding a menu item never replaces these server-side checks.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.config.import=", "app.bootstrap.enabled=true",
+        "spring.config.import=", "app.bootstrap.enabled=true", "app.application-intake.enabled=false",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
         "logging.level.io.zonky.test.db.postgres.embedded=warn"
 })
@@ -230,6 +230,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/job-postings/{id}/preview", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             endpoint("GET", "/api/v1/public/job-postings", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/public/job-postings/{id}", PUBLIC, null, 404),
+            // Anonymous application intake is declared publicly but remains disabled until quota/receipt
+            // integrations are complete. Admission refuses before JSON/multipart parsing for every role.
+            endpoint("POST", "/api/v1/public/job-postings/{id}/applications", PUBLIC, INVALID_BODY, 503),
+            endpoint("GET", "/api/v1/public/application-sources", PUBLIC, null, 200),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 

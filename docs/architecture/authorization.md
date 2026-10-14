@@ -1,5 +1,12 @@
 # Phân quyền theo vai trò
 
+API [nhận hồ sơ công khai](../api/public-applications.md) chỉ mở matcher POST
+`/api/v1/public/job-postings/*/applications` và GET `/api/v1/public/application-sources`.
+Hai route này bỏ qua Bearer token cũ; mọi route/phương thức khác giữ xác thực hiện tại.
+POST có guard trong Security sau CORS, trước bearer/body parse: flag mặc định false và
+bắt buộc đủ adapter quota + receipt/outbox. Thiếu adapter, bật riêng flag vẫn bị chặn 503.
+Không tạo tài khoản/vai trò nội bộ cho ứng viên.
+
 Nguồn ban đầu: bảng `2. User Roles` của đặc tả `HỆ THỐNG TUYỂN DỤNG NỘI BỘ` và Jira TKNHTTDNB1-14, 119–127. Đây là ma trận khởi tạo; BA/PO cần xác nhận nếu nghiệp vụ thay đổi. Danh sách vai trò, mã quyền và các câu hỏi chờ BA/PO nằm ở [ma trận vai trò và quyền](role-permission-matrix.md). Bảy vai trò nghiệp vụ gồm sáu vai trò nội bộ `ADMIN`, `HR_MANAGER`, `RECRUITER`, `HIRING_MANAGER`, `INTERVIEWER`, `APPROVER` và `CANDIDATE` bên ngoài. Ứng viên không có `user_accounts`/phiên đăng nhập nội bộ; luồng ứng viên công khai sẽ có cơ chế riêng khi được xây dựng.
 
 Flyway V3 bổ sung bảng `roles`, `permissions`, `role_permissions` và khóa ngoại từ `user_roles.role`. Bảng `user_roles` V1 cùng dữ liệu tài khoản sẵn có được giữ lại. Vai trò Candidate có `internal=false` và không thể đưa vào `user_roles` vì ràng buộc sáu vai trò nội bộ hiện có. Không sửa nội dung V1/V2 đã áp dụng.

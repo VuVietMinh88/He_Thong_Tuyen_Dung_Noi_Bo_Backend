@@ -62,9 +62,9 @@ concurrency/body/proxy. Bytes được giữ nguyên. Nguồn:
 `ApplicationPipelineSource` thay stub: NEW/SCREENING/INTERVIEW/OFFER active;
 HIRED/REJECTED/WITHDRAWN final. Không thêm khóa/read CV, xếp stage theo enum.
 Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW, chưa chốt
-ánh xạ trạng thái công khai stage khác. Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
-CV; 326 cần nâng và giữ limit riêng avatar/media/import. Outbox/IP/mã/link/tra cứu/rút/UI
-chưa có trong 325.
+ánh xạ trạng thái công khai stage khác. Multipart Servlet vẫn 5 MiB/6 MiB cho upload cũ;
+[API nhận hồ sơ](public-applications.md) đọc multipart streaming riêng, CV 10 MiB/request 11 MiB.
+Outbox/IP/mã/link/tra cứu/rút/UI chưa có trong 325.
 
 ## Kiểm thử
 
