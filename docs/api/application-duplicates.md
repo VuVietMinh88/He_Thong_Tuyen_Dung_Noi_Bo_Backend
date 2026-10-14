@@ -1,8 +1,7 @@
 # 327 — Chặn hồ sơ trùng email trong cùng vị trí
 
-Backend S4-03, [ATSNB-96](https://luoplayer.atlassian.net/browse/ATSNB-96).
 Áp dụng cho [API nộp hồ sơ](public-applications.md) và lời gọi nội bộ tới storage.
-Quota production đã có ở 328; API vẫn tắt mặc định cho tới khi có receipt/outbox production của 329.
+API vẫn tắt mặc định cho tới khi có quota và receipt/outbox production của 328/329.
 
 ## Quy tắc nghiệp vụ
 
@@ -70,8 +69,7 @@ chức danh, hash collision, chờ transaction commit/rollback, CV rollback và 
 `ApplicationIntakeIntegrationTest`: HTTP409/fieldErrors/no-store/privacy, Unicode trim,
 case normalization độc lập locale Thổ Nhĩ Kỳ, giữ dots/+tag, mỗi stage, cùng chức danh
 khác requisition, đổi tên tin, giữ snapshot/CV, race201+409, hash collision503 và lỗi CV503
-không giữ chỗ email. Suite này dùng quota/receipt adapter test; quota production đã có
-ở [328](application-ip-quota.md), receipt/outbox production 329 vẫn chưa có.
+không giữ chỗ email. Providers vẫn chỉ là adapter test, không triển khai 328/329.
 
 Docker opt-in và timezone như [storage](application-storage.md). Thử nghiệm dùng schema
 riêng; không kiểm chứng độ bền sau crash khi PostgreSQL test chạy fsync off.

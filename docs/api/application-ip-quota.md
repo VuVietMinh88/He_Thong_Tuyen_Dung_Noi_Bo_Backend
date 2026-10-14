@@ -1,6 +1,5 @@
 # 328 — Giới hạn lượt gửi hồ sơ theo IP trong một giờ
 
-Backend của S4-03, [ATSNB-97](https://luoplayer.atlassian.net/browse/ATSNB-97).
 `PostgresApplicationAttemptQuota` là provider production của `ApplicationAttemptQuota`.
 **API vẫn tắt mặc định và thiếu receipt/outbox production của 329**; thêm quota không tự mở API.
 

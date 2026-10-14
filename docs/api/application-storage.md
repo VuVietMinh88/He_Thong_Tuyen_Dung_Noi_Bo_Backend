@@ -1,6 +1,5 @@
 # 325 — Lưu hồ sơ ứng tuyển và tệp CV
 
-Backend S4-03, [ATSNB-94](https://luoplayer.atlassian.net/browse/ATSNB-94), mã nguồn TKNHTTDNB1-325.
 Task này cung cấp lớp lưu trữ nội bộ, **chưa có endpoint nhận hồ sơ hoặc tải CV**.
 API công khai, quota IP, mã/email xác nhận còn thuộc 326–329.
 
@@ -24,8 +23,7 @@ không query byte CV khi count pipeline. Quyền đọc CV về sau thuộc S4-0
 
 `ApplicationStorageService.store(postingId,submission,validatedCv,trackingHash)` là Spring
 transaction READ_COMMITTED; gọi qua bean/proxy. Reception service tương lai cần transaction
-READ_COMMITTED chung với outbox. [Chống trùng 327](application-duplicates.md) đã nối vào
-repository: trùng email/requisition ném ApiException409, không trả SQL/PII.
+READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, không trả SQL/PII.
 
 - Kiểm tra CV ngoài transaction, không parser khi giữ khóa.
 - Validate input dù không qua controller; khóa requisition FOR SHARE → tin FOR SHARE →
@@ -63,9 +61,9 @@ concurrency/body/proxy. Bytes được giữ nguyên. Nguồn:
 `ApplicationPipelineSource` thay stub: NEW/SCREENING/INTERVIEW/OFFER active;
 HIRED/REJECTED/WITHDRAWN final. Không thêm khóa/read CV, xếp stage theo enum.
 Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW, chưa chốt
-ánh xạ trạng thái công khai stage khác. Multipart Servlet vẫn 5 MiB/6 MiB cho upload cũ;
-[API nhận hồ sơ](public-applications.md) đọc multipart streaming riêng, CV 10 MiB/request 11 MiB.
-Outbox/IP/mã/link/tra cứu/rút/UI chưa có trong 325.
+ánh xạ trạng thái công khai stage khác. Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
+CV; 326 cần nâng và giữ limit riêng avatar/media/import. Outbox/IP/mã/link/tra cứu/rút/UI
+chưa có trong 325.
 
 ## Kiểm thử
 
@@ -81,4 +79,4 @@ pool tối đa 10 connection, đóng cùng context. Không dùng recruitment/cre
 Không có property thì vẫn PostgreSQL nhúng.
 Docker trên máy này dùng `-Duser.timezone=UTC`, BusinessCalendar vẫn giờ Việt Nam.
 Container test dùng fsync/synchronous_commit off để tăng tốc, không kiểm chứng durability
-sau crash của production.
+sau crash của production. Nhật ký: [task325-journal](../reviews/2026-10-14/task325-journal.md).
