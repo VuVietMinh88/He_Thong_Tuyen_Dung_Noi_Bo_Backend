@@ -106,6 +106,15 @@ public class RecruitmentRequisition {
         this.updatedAt = updatedAt;
     }
 
+    // Task 257: a step of the approval workflow. The caller holds the requisition row lock and has checked that the
+    // requisition is in expected. updatedAt is the time of the last content edit and does not change here.
+    void moveTo(RequisitionStatus expected, RequisitionStatus next) {
+        if (status != expected) {
+            throw new IllegalStateException("Requisition " + id + " is " + status + ", not " + expected);
+        }
+        this.status = next;
+    }
+
     public UUID getId() { return id; }
     public UUID getPositionId() { return positionId; }
     public UUID getDepartmentId() { return departmentId; }
