@@ -123,6 +123,7 @@ Mỗi lần nhóm recruiter **thực sự** thay đổi, backend ghi thêm một
 - `revision` là số thứ tự 1, 2, 3… của mỗi yêu cầu, theo đúng thứ tự các thay đổi xảy ra. Danh sách xếp theo `revision`, không theo thời gian, vì hai thay đổi có thể cùng thời điểm. Áp lần lượt các dòng từ `revision` 1 sẽ ra đúng nhóm hiện tại.
 - Tên người được đọc lúc trả, nên tài khoản đổi tên thì hiện tên mới.
 - Phân công được lưu trước khi có V17 (nếu task 284 được phát hành trước) được V17 ghi bổ sung mỗi người một dòng, recruiter chính trước, không có người tiền nhiệm và ghi chú.
+- [Bàn giao công việc của một tài khoản](account-handover.md#post-accountsidhandover) (góp ý số 10, `POST /accounts/{id}/handover`) đổi nhóm theo đúng các quy tắc ở đây và ghi vào cùng lịch sử này: `PRIMARY_HANDED_OVER` khi tài khoản là recruiter chính, `SUPPORTING_REMOVED` (rồi `SUPPORTING_ADDED` nếu người nhận chưa ở trong nhóm) khi tài khoản là recruiter hỗ trợ. Mỗi dòng mang ghi chú chung của request bàn giao, và người thực hiện là Admin gọi API.
 
 ## Recruiter xem yêu cầu được phân công (task 285)
 
@@ -170,6 +171,7 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 - Mọi lần đổi nhóm đều khóa dòng yêu cầu tuyển dụng trước khi đọc nhóm hiện tại. Vì vậy hai HR thao tác cùng lúc chạy lần lượt, và lệnh sau áp lên kết quả của lệnh trước. Ví dụ: hai HR cùng thêm hai recruiter hỗ trợ khác nhau thì cả hai đều được giữ.
 - Tài khoản người được giao bị khóa cùng tài khoản người gọi, theo cùng thứ tự với quản trị tài khoản. Nếu Admin gỡ vai trò RECRUITER hoặc khóa người đó trong lúc lệnh đang chờ, lệnh sẽ thấy thay đổi và trả 400.
 - Database có lớp chặn cuối: mỗi yêu cầu tối đa một recruiter chính (`requisition_recruiters_one_primary_idx`), mỗi người tối đa một dòng.
+- Bàn giao công việc của một tài khoản khóa tài khoản, phiên rồi các dòng yêu cầu (theo thứ tự id), cùng thứ tự như ở đây, nên chạy lần lượt với `/assign` và `/unassign` của cùng yêu cầu mà không deadlock.
 - Từ task 285, nhóm quyết định ai xem được yêu cầu: một lần đổi nhóm đã commit có hiệu lực từ request đọc tiếp theo. Lệnh đọc không chờ khóa dòng yêu cầu, nên không thêm chờ đợi hay deadlock nào.
 
 ## Lỗi

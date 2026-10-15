@@ -123,6 +123,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Feedback item 10: the work an account still holds, for the lock dialog; the unknown id stops a permitted
             // call at 404 ACCOUNT_NOT_FOUND.
             endpoint("GET", "/api/v1/accounts/{id}/handover-items", adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL), null, 404),
+            // The handover itself also needs REQUISITIONS_WRITE_ALL; the empty body stops a permitted call at 400 before
+            // any lock.
+            endpoint("POST", "/api/v1/accounts/{id}/handover", adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL, REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/departments", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/tree", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
@@ -549,6 +552,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.APPROVER, "DELETE", "/api/v1/accounts/" + admin + "/roles/ADMIN", null),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter + "/lock", Map.of("reason", "Không được phép")),
                 new Attack(Identity.HR_MANAGER, "DELETE", "/api/v1/accounts/" + locked + "/lock", null),
+                // Feedback item 10: HR_MANAGER assigns recruiters (REQUISITIONS_WRITE_ALL) but may not hand over the
+                // work of an account; one that slipped through would replace RECRUITER as primary of "requisition".
+                new Attack(Identity.HR_MANAGER, "POST", "/api/v1/accounts/" + recruiter + "/handover",
+                        Map.of("note", "Bàn giao thay", "requisitions",
+                                List.of(Map.of("requisitionId", requisition, "toUserId", backup)))),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter,
                         Map.of("fullName", "Renamed by HR", "departmentId", department)),
                 new Attack(Identity.NO_ROLE, "GET", "/api/v1/accounts", null),
