@@ -94,9 +94,10 @@ def extract(pdf, image=IMAGE, deadline=100):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pdf")
+    parser.add_argument("--image", default=IMAGE, help="Trusted operator image; the worker requires an immutable ID/digest")
     args = parser.parse_args()
     try:
-        print(json.dumps(extract(args.pdf), ensure_ascii=False))
+        print(json.dumps(extract(args.pdf, image=args.image), ensure_ascii=False))
     except (OSError, ValueError):
         print(json.dumps(failure("INPUT_INVALID")))
         sys.exit(1)
