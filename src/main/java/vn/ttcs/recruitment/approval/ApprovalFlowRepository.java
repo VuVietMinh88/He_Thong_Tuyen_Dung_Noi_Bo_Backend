@@ -85,4 +85,28 @@ public class ApprovalFlowRepository {
         return new ApprovalFlowView.Summary(r.getObject("id", UUID.class), r.getObject("department_id", UUID.class),
                 r.getInt("version"), r.getString("name"), r.getObject("created_by", UUID.class), r.getTimestamp("created_at").toInstant());
     }
+
+    // A step of the current version of a flow that names the account being handed over as its approver (feedback
+    // item 10).
+    public record NamedApprovalStep(UUID flowId, UUID departmentId, String departmentName, String flowName, int version,
+                                    int position) { }
+
+    // Only the current version of a flow of an active department counts: it is the one later submissions use.
+    // Older versions only serve the rounds submitted with them (RequisitionHandover lists those still waiting for the
+    // account), and an inactive department takes no submission and its flow cannot be saved again. Versions are
+    // sealed (V18), so the step can only be changed by saving a new version, which applies to later submissions
+    // only. Steps that name a role do not name anyone.
+    public List<NamedApprovalStep> findCurrentStepsNaming(UUID userId) {
+        return jdbc.query("""
+                SELECT f.id, f.department_id, d.name AS department_name, v.name AS flow_name, v.version, s.position
+                FROM approval_flows f
+                JOIN approval_flow_versions v ON v.flow_id = f.id AND v.version = f.current_version AND v.sealed
+                JOIN approval_flow_steps s ON s.flow_id = f.id AND s.version = f.current_version
+                JOIN departments d ON d.id = f.department_id AND d.active
+                WHERE s.approver_user_id = ?
+                ORDER BY d.name, f.id, s.position
+                """, (r, n) -> new NamedApprovalStep(r.getObject("id", UUID.class),
+                        r.getObject("department_id", UUID.class), r.getString("department_name"),
+                        r.getString("flow_name"), r.getInt("version"), r.getInt("position")), userId);
+    }
 }

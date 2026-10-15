@@ -106,6 +106,14 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*").access(AuthorizationManagers.allOf(
                                 AuthorityAuthorizationManager.hasRole("ADMIN"),
                                 AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        // Feedback item 10: the work an account still holds, shown by the lock dialog. Like the lock,
+                        // plus REQUISITIONS_READ_ALL because it lists requisitions of every department;
+                        // AccountHandoverService checks all three again.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts/*/handover-items")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts", "/api/v1/accounts/*")
                                 .hasAuthority("PERM_USER_ADMIN_READ_ALL")
                         .requestMatchers(HttpMethod.GET, "/api/v1/departments", "/api/v1/departments/*")

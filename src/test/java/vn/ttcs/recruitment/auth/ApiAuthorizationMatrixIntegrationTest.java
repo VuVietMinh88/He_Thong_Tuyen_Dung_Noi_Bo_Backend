@@ -120,6 +120,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("DELETE", "/api/v1/accounts/{id}/roles/{role}", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
             endpoint("PUT", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
+            // Feedback item 10: the work an account still holds, for the lock dialog; the unknown id stops a permitted
+            // call at 404 ACCOUNT_NOT_FOUND.
+            endpoint("GET", "/api/v1/accounts/{id}/handover-items", adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL), null, 404),
             endpoint("GET", "/api/v1/departments", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/tree", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
@@ -805,11 +808,15 @@ class ApiAuthorizationMatrixIntegrationTest {
         assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("HR_MANAGER"), readOnly)).isFalse();
         assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("ADMIN"), readOnly)).isTrue();
         assertThat(adminWith(ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readWrite)).isTrue();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("HR_MANAGER"), readWrite)).isFalse();
         assertThat(List.of(PUBLIC, permission(ORGANIZATION_READ_ALL), allOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL),
-                anyOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), adminWith(USER_ADMIN_WRITE_ALL)))
+                anyOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), adminWith(USER_ADMIN_WRITE_ALL),
+                adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL)))
                 .extracting(Rule::toString).containsExactly("PUBLIC", "ORGANIZATION_READ_ALL",
                         "ORGANIZATION_READ_ALL + ORGANIZATION_WRITE_ALL", "ORGANIZATION_READ_ALL | ORGANIZATION_WRITE_ALL",
-                        "ROLE_ADMIN + USER_ADMIN_WRITE_ALL");
+                        "ROLE_ADMIN + USER_ADMIN_WRITE_ALL", "ROLE_ADMIN + USER_ADMIN_WRITE_ALL + REQUISITIONS_READ_ALL");
     }
 
     private static Map<String, Object> positionBody(String code, String name) {
@@ -941,6 +948,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Rule anyOf(String... codes) { return new Rule(List.of(codes), true, false); }
 
     private static Rule adminWith(String code) { return new Rule(List.of(code), false, true); }
+
+    private static Rule adminWithAll(String... codes) { return new Rule(List.of(codes), false, true); }
 
     // PUBLIC has no codes. Otherwise the caller needs every code (any one with anyOf), plus ROLE_ADMIN when required.
     private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {
