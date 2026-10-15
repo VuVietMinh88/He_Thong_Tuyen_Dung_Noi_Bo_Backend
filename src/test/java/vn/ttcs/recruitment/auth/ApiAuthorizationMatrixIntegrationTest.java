@@ -118,6 +118,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/accounts/{id}", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/accounts/{id}/roles/{role}", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
             endpoint("DELETE", "/api/v1/accounts/{id}/roles/{role}", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
+            // Feedback item 8: the complete role set in one request; "{}" has neither roles nor expectedRoles, so it
+            // stops at validation.
+            endpoint("PUT", "/api/v1/accounts/{id}/roles", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
             endpoint("GET", "/api/v1/departments", permission(ORGANIZATION_READ_ALL), null, 200),
@@ -544,6 +547,8 @@ class ApiAuthorizationMatrixIntegrationTest {
                         Map.of("code", "TARGET", "name", "Taken over", "managerUserId", hiringManager, "active", false)),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + hrManager + "/roles/ADMIN", null),
                 new Attack(Identity.APPROVER, "DELETE", "/api/v1/accounts/" + admin + "/roles/ADMIN", null),
+                new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + hrManager + "/roles",
+                        Map.of("roles", List.of("ADMIN", "HR_MANAGER"), "expectedRoles", List.of("HR_MANAGER"))),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter + "/lock", Map.of("reason", "Không được phép")),
                 new Attack(Identity.HR_MANAGER, "DELETE", "/api/v1/accounts/" + locked + "/lock", null),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter,
@@ -776,7 +781,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 292: a posting is closed only with its requisition; there is no route to close one by hand.
                 "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close",
                 // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
-                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire")) {
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
+                // Feedback item 8: the role set is only replaced, never wiped, patched or added to as a whole.
+                "DELETE /api/v1/accounts/" + UNKNOWN_ID + "/roles",
+                "PATCH /api/v1/accounts/" + UNKNOWN_ID + "/roles",
+                "POST /api/v1/accounts/" + UNKNOWN_ID + "/roles")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

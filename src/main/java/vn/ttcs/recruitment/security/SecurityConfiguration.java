@@ -106,6 +106,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*").access(AuthorizationManagers.allOf(
                                 AuthorityAuthorizationManager.hasRole("ADMIN"),
                                 AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*/roles").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts", "/api/v1/accounts/*")
                                 .hasAuthority("PERM_USER_ADMIN_READ_ALL")
                         .requestMatchers(HttpMethod.GET, "/api/v1/departments", "/api/v1/departments/*")
