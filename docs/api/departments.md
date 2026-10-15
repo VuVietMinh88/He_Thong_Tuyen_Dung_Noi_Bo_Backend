@@ -47,6 +47,8 @@ UUID trong ví dụ chỉ minh họa; managerUserId phải là tài khoản có 
 
 Khi tạo, đổi người phụ trách hoặc bật lại một phòng ban, người được chọn phải tồn tại, đã bật tài khoản và không bị Admin khóa. Không bắt buộc một vai trò riêng cho người phụ trách. Có thể giữ người phụ trách hiện tại đã bị khóa khi sửa tên/mã/phòng cha hoặc ngừng áp dụng; bật lại phải chọn người đủ điều kiện.
 
+Admin cũng đổi được người phụ trách khi [bàn giao công việc của một tài khoản](account-handover.md#kết-quả-của-từng-phòng-ban) (`departments` của `POST /accounts/{id}/handover`, góp ý số 10), với cùng quy tắc chọn người, cùng advisory lock của cây và cùng khóa dòng phòng ban như `PUT`. Lệnh đó chỉ đổi `managerUserId`, không đổi trường nào khác.
+
 Parent phải tồn tại, không được là chính phòng ban hoặc hậu duệ của nó. Phòng cha có thể đã ngừng áp dụng. Hai người đổi quan hệ cha đồng thời vẫn phải giữ cây không có chu trình.
 
 ## Danh sách

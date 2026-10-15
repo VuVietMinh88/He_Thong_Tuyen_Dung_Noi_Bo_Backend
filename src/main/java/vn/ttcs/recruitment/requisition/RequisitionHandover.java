@@ -152,8 +152,9 @@ public class RequisitionHandover {
      * transaction (MANDATORY) back with every change made before it.
      * <p>
      * Lock order: the caller has already locked its own account, the account handed over and every recipient in id
-     * order (lockedAccounts, read under those locks), then its session. This locks the requisition rows next, in id
-     * order and in one statement: the order of RequisitionRecruiterService.assign (accounts, session, requisition), so
+     * order (lockedAccounts, read under those locks), then its session, then the department tree when it also hands
+     * departments over (DepartmentManagerHandover). This locks the requisition rows next, in id order and in one
+     * statement: the order of RequisitionRecruiterService.assign (accounts, session, requisition), so
      * an assignment and a handover cannot deadlock, and two handovers that share requisitions cannot either. Taking a
      * row may wait for another write of that requisition, so callerCheck runs once all of them are held, and throws to
      * refuse the caller. Nothing waits after that: the writes only check foreign keys of rows this transaction holds.

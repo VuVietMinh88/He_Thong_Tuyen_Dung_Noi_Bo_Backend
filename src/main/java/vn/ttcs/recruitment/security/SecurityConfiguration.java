@@ -114,9 +114,10 @@ public class SecurityConfiguration {
                                         AuthorityAuthorizationManager.hasRole("ADMIN"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
-                        // Feedback item 10: hands the requisitions of an account over to other recruiters. Like the
-                        // list above, plus REQUISITIONS_WRITE_ALL, the permission of assigning recruiters;
-                        // AccountHandoverService checks all four again after its locks.
+                        // Feedback item 10: hands the requisitions of an account over to other recruiters, and its
+                        // departments to other managers. Like the list above, plus REQUISITIONS_WRITE_ALL, the
+                        // permission of assigning recruiters; AccountHandoverService checks all four again after its
+                        // locks, and ORGANIZATION_WRITE_ALL too when the body has departments.
                         .requestMatchers(HttpMethod.POST, "/api/v1/accounts/*/handover")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasRole("ADMIN"),

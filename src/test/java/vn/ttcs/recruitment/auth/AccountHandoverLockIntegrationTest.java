@@ -45,9 +45,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Feedback item 10: what a handover of an account's requisitions does when it has to wait for a lock, and when it runs
-// at the same time as an assignment, a lock of the recipient or another handover. Same patterns as
-// RequisitionRecruiterLockIntegrationTest.
+// Feedback item 10: what a handover of an account's requisitions and departments does when it has to wait for a lock,
+// and when it runs at the same time as an assignment, a lock of the recipient, a department write or another handover.
+// Same patterns as RequisitionRecruiterLockIntegrationTest and DepartmentManagementIntegrationTest.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -59,6 +59,8 @@ class AccountHandoverLockIntegrationTest {
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-16T03:00:00Z");
     private static final String NOTE = "Nghỉ việc";
+    // DepartmentRepository.TREE_WRITE_LOCK_KEY, the advisory lock of every department write.
+    private static final long TREE_LOCK = 195196;
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -77,6 +79,8 @@ class AccountHandoverLockIntegrationTest {
     private String hrToken;
     private UUID targetId;
     private UUID departmentId;
+    // A department the account manages.
+    private UUID salesId;
     private UUID positionId;
     private UUID requisitionId;
     private final List<UUID> r = new ArrayList<>();
@@ -119,6 +123,9 @@ class AccountHandoverLockIntegrationTest {
         departmentId = UUID.randomUUID();
         jdbc.update("INSERT INTO departments (id, code, name, manager_user_id, active, created_at) VALUES (?, 'IT', 'IT', ?, TRUE, ?)",
                 departmentId, hrId, Timestamp.from(START));
+        salesId = UUID.randomUUID();
+        jdbc.update("INSERT INTO departments (id, code, name, manager_user_id, active, created_at) VALUES (?, 'SALES', 'Sales', ?, TRUE, ?)",
+                salesId, targetId, Timestamp.from(START));
         positionId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO positions (id, code, name, level, salary_min, salary_max, active, created_at, updated_at)
@@ -296,11 +303,14 @@ class AccountHandoverLockIntegrationTest {
             }
             lock(connection, "SELECT pg_backend_pid() FROM recruitment_requisitions WHERE id = ? FOR UPDATE",
                     requisitionId);
-            try (var executor = Executors.newFixedThreadPool(2)) {
+            lockTree(connection);
+            lock(connection, "SELECT pg_backend_pid() FROM departments WHERE id = ? FOR UPDATE", salesId);
+            try (var executor = Executors.newFixedThreadPool(3)) {
                 var self = executor.submit(() -> handOver(targetId, requisitionId, targetId, adminToken));
                 var empty = executor.submit(() -> request("POST", "/api/v1/accounts/" + targetId + "/handover", "{}",
                         adminToken));
-                for (Future<HttpResponse<String>> response : List.of(self, empty)) {
+                var selfDepartment = executor.submit(() -> handOverDepartment(targetId, salesId, targetId, adminToken));
+                for (Future<HttpResponse<String>> response : List.of(self, empty, selfDepartment)) {
                     var result = response.get(5, TimeUnit.SECONDS);
                     assertThat(result.statusCode()).as(result.body()).isEqualTo(400);
                     assertThat(json.readTree(result.body()).path("code").asText()).isEqualTo("VALIDATION_ERROR");
@@ -309,6 +319,113 @@ class AccountHandoverLockIntegrationTest {
             connection.rollback();
         }
         assertThat(team(requisitionId)).containsExactly(targetId + ":PRIMARY");
+        assertThat(manager(salesId)).isEqualTo(targetId);
+    }
+
+    // A handover of departments takes the tree lock of the department writes before any row, then the department rows.
+    // It may wait for either: a POST, PUT or DELETE of /departments holds the tree, a requisition save or an account
+    // assignment of the department holds its row FOR SHARE. Whatever changed meanwhile is checked once the row is held.
+    @ParameterizedTest(name = "{0} held, then {1}")
+    @CsvSource({
+            "tree, nothing, 200", "tree, token-expired, 401", "tree, permission-lost, 403",
+            "department, nothing, 200", "department, token-expired, 401", "department, permission-lost, 403"
+    })
+    void aDepartmentHandoverChecksTheCallerAgainAfterWaitingForTheTreeOrTheDepartment(String held, String change,
+                                                                                      int expected) throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blocker = held.equals("tree") ? lockTree(connection)
+                    : lock(connection, "SELECT pg_backend_pid() FROM departments WHERE id = ? FOR SHARE", salesId);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> handOverDepartment(targetId, salesId, r.get(0), adminToken));
+                awaitWaiters(blocker, 1);
+                switch (change) {
+                    case "token-expired" -> clock.set(START.plus(Duration.ofMinutes(16)));
+                    case "permission-lost" -> jdbc.update("DELETE FROM role_permissions WHERE role_code = 'ADMIN' "
+                            + "AND permission_code = 'ORGANIZATION_WRITE_ALL'");
+                    default -> { }
+                }
+                connection.commit();
+                var result = response.get(15, TimeUnit.SECONDS);
+                assertThat(result.statusCode()).as(result.body()).isEqualTo(expected);
+                if (expected == 401) {
+                    assertThat(json.readTree(result.body()).path("code").asText()).isEqualTo("SESSION_INVALID");
+                }
+            }
+        }
+        assertThat(manager(salesId)).isEqualTo(expected == 200 ? r.get(0) : targetId);
+    }
+
+    // HR gives the department another manager (PUT /departments/{id}) while an administrator hands the account's
+    // departments over. Both take the tree lock first, so they run one after the other, in the order they asked for
+    // it, and the second sees what the first committed: after the PUT the account no longer manages the department
+    // (HANDOVER_ITEM_NOT_HELD); after the handover the PUT replaces the manager the handover gave it.
+    @ParameterizedTest(name = "{0} first")
+    @CsvSource({"put", "handover"})
+    void aDepartmentWriteAndADepartmentHandoverRunOneAfterTheOther(String first) throws Exception {
+        Callable<HttpResponse<String>> put = () -> request("PUT", "/api/v1/departments/" + salesId,
+                json.writeValueAsString(Map.of("code", "SALES", "name", "Kinh doanh", "managerUserId", r.get(1),
+                        "active", true)), hrToken);
+        Callable<HttpResponse<String>> handover = () -> handOverDepartment(targetId, salesId, r.get(0), adminToken);
+        HttpResponse<String> putResult;
+        HttpResponse<String> handoverResult;
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blocker = lockTree(connection);
+            try (var executor = Executors.newFixedThreadPool(2)) {
+                // The second call asks for the tree only once the first one waits for it.
+                Future<HttpResponse<String>> firstResponse = executor.submit(first.equals("put") ? put : handover);
+                awaitWaiters(blocker, 1);
+                Future<HttpResponse<String>> secondResponse = executor.submit(first.equals("put") ? handover : put);
+                awaitWaiters(blocker, 2);
+                connection.commit();
+                var results = List.of(firstResponse.get(20, TimeUnit.SECONDS),
+                        secondResponse.get(20, TimeUnit.SECONDS));
+                putResult = results.get(first.equals("put") ? 0 : 1);
+                handoverResult = results.get(first.equals("put") ? 1 : 0);
+            }
+        }
+        assertThat(putResult.statusCode()).as(putResult.body()).isEqualTo(200);
+        if (first.equals("put")) {
+            assertThat(handoverResult.statusCode()).as(handoverResult.body()).isEqualTo(409);
+            JsonNode error = json.readTree(handoverResult.body());
+            assertThat(error.path("code").asText()).isEqualTo("HANDOVER_ITEM_NOT_HELD");
+            assertThat(error.path("fieldErrors").has("departments[0].departmentId")).isTrue();
+        } else {
+            assertThat(handoverResult.statusCode()).as(handoverResult.body()).isEqualTo(200);
+        }
+        assertThat(manager(salesId)).isEqualTo(r.get(1));
+        assertThat(jdbc.queryForObject("SELECT name FROM departments WHERE id = ?", String.class, salesId))
+                .isEqualTo("Kinh doanh");
+    }
+
+    // A requisition save or an approval decision locks the requisition row, then reads its department FOR SHARE. A
+    // handover of that requisition and that department locks the requisition rows before the department rows, so it
+    // waits at the requisition without holding the department: the save takes the department at once and commits, and
+    // the handover goes on. Locking the department rows first would deadlock here (40P01).
+    @Test
+    void aHandoverOfBothListsWaitsForARequisitionSaveOfTheDepartmentWithoutDeadlock() throws Exception {
+        jdbc.update("UPDATE recruitment_requisitions SET department_id = ? WHERE id = ?", salesId, requisitionId);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blocker = lock(connection,
+                    "SELECT pg_backend_pid() FROM recruitment_requisitions WHERE id = ? FOR UPDATE", requisitionId);
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var response = executor.submit(() -> request("POST", "/api/v1/accounts/" + targetId + "/handover",
+                        json.writeValueAsString(Map.of("note", NOTE,
+                                "requisitions", List.of(Map.of("requisitionId", requisitionId, "toUserId", r.get(0))),
+                                "departments", List.of(Map.of("departmentId", salesId, "toUserId", r.get(1))))),
+                        adminToken));
+                awaitWaiters(blocker, 1);
+                lock(connection, "SELECT pg_backend_pid() FROM departments WHERE id = ? FOR SHARE", salesId);
+                connection.commit();
+                var result = response.get(15, TimeUnit.SECONDS);
+                assertThat(result.statusCode()).as(result.body()).isEqualTo(200);
+                assertThat(json.readTree(result.body()).path("transferred").asInt()).isEqualTo(2);
+            }
+        }
+        assertThat(team(requisitionId)).containsExactly(r.get(0) + ":PRIMARY");
+        assertThat(manager(salesId)).isEqualTo(r.get(1));
     }
 
     // Holds the given rows so every call reaches them, then lets them run one after the other.
@@ -351,6 +468,23 @@ class AccountHandoverLockIntegrationTest {
         var items = requisitions.stream().map(id -> Map.of("requisitionId", id, "toUserId", toUserId)).toList();
         return request("POST", "/api/v1/accounts/" + account + "/handover",
                 json.writeValueAsString(Map.of("note", NOTE, "requisitions", items)), token);
+    }
+
+    private HttpResponse<String> handOverDepartment(UUID account, UUID department, UUID toUserId, String token)
+            throws Exception {
+        return request("POST", "/api/v1/accounts/" + account + "/handover", json.writeValueAsString(Map.of("note", NOTE,
+                "departments", List.of(Map.of("departmentId", department, "toUserId", toUserId)))), token);
+    }
+
+    private UUID manager(UUID department) {
+        return jdbc.queryForObject("SELECT manager_user_id FROM departments WHERE id = ?", UUID.class, department);
+    }
+
+    private int lockTree(Connection connection) throws Exception {
+        try (var statement = connection.prepareStatement("SELECT pg_backend_pid(), pg_advisory_xact_lock(?)")) {
+            statement.setLong(1, TREE_LOCK);
+            try (var row = statement.executeQuery()) { assertThat(row.next()).isTrue(); return row.getInt(1); }
+        }
     }
 
     private UUID requisition() {

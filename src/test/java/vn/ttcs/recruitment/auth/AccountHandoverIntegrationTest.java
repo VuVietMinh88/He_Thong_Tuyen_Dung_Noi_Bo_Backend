@@ -59,6 +59,8 @@ class AccountHandoverIntegrationTest {
     private static final String NOT_HELD = "Công việc này không còn thuộc tài khoản cần bàn giao. Vui lòng tải lại danh sách.";
     private static final String NOT_RECRUITER = "Người được phân công phải là tài khoản tồn tại và có vai trò Recruiter.";
     private static final String INACTIVE = "Tài khoản này đang bị khóa hoặc chưa kích hoạt nên không thể được phân công.";
+    private static final String INVALID_MANAGER =
+            "Người quản lý phải là tài khoản tồn tại và được phép truy cập hệ thống khi được bổ nhiệm.";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -79,6 +81,7 @@ class AccountHandoverIntegrationTest {
     private UUID targetId;
     private UUID otherId;
     private UUID recipientId;
+    private UUID headId;
     private UUID itId;
     private UUID positionId;
 
@@ -106,7 +109,7 @@ class AccountHandoverIntegrationTest {
         targetId = account("target@example.test", "Nguyễn Văn A", Role.RECRUITER);
         otherId = account("other@example.test", "Trần Thị B", Role.RECRUITER);
         recipientId = account("recipient@example.test", "Lê Văn C", Role.RECRUITER);
-        UUID headId = account("head@example.test", "Trưởng phòng IT", Role.HIRING_MANAGER);
+        headId = account("head@example.test", "Trưởng phòng IT", Role.HIRING_MANAGER);
         itId = api.department("IT", headId, null, START);
         positionId = api.position(START);
     }
@@ -380,10 +383,7 @@ class AccountHandoverIntegrationTest {
         assertFieldError(handOver(targetId, body("Ghi chú" + (char) 0, item(requisition, recipientId)), adminToken),
                 "note", "Ghi chú chứa ký tự không hợp lệ.");
 
-        // Departments are not handed over here, the client never chooses a role, and ids are UUIDs.
-        Map<String, Object> departments = new HashMap<>(body(NOTE, item(requisition, recipientId)));
-        departments.put("departments", List.of(Map.of("departmentId", itId, "toUserId", recipientId)));
-        assertInvalidJson(handOver(targetId, json.writeValueAsString(departments), adminToken));
+        // The client never chooses a role, and ids are UUIDs.
         Map<String, Object> withRole = new HashMap<>(item(requisition, recipientId));
         withRole.put("role", "PRIMARY");
         assertInvalidJson(handOver(targetId, json.writeValueAsString(Map.of("requisitions", List.of(withRole))),
@@ -436,7 +436,7 @@ class AccountHandoverIntegrationTest {
         UUID requisition = requisition(RequisitionStatus.APPROVED);
         recruiter(requisition, targetId, "PRIMARY");
         AccountHandoverRequest request = new AccountHandoverRequest(NOTE,
-                List.of(new AccountHandoverRequest.Item(requisition, recipientId)));
+                List.of(new AccountHandoverRequest.Item(requisition, recipientId)), null);
         UUID adminSession = sessionOf(adminId);
         Jwt admin = jwt(adminId, adminSession, START.plus(TokenService.ACCESS_TOKEN_TTL));
 
@@ -506,6 +506,211 @@ class AccountHandoverIntegrationTest {
                 "PRIMARY_HANDED_OVER:" + recipientId + ":" + targetId + ":" + NOTE);
     }
 
+    // Feedback item 10, part 3: the departments the account manages directly get other managers, in the same request
+    // and the same transaction as its requisitions. Only the manager changes; manager changes have no history.
+    @Test
+    void theDepartmentsOfTheAccountGetTheRecipientsAsManagers() throws Exception {
+        UUID newHead = account("newhead@example.test", "Trưởng phòng mới", Role.HIRING_MANAGER);
+        UUID ops = api.department("OPS", targetId, null, START);
+        // Inactive, but with an open requisition of its own: listed, so it is handed over too.
+        UUID sales = api.department("SALES", targetId, itId, START);
+        jdbc.update("UPDATE departments SET active = FALSE WHERE id = ?", sales);
+        requisition(RequisitionStatus.DRAFT, sales);
+        // Not in the request, so still held afterwards.
+        UUID kept = api.department("QA", targetId, null, START);
+        UUID requisition = requisition(RequisitionStatus.APPROVED);
+        recruiter(requisition, targetId, "PRIMARY");
+        Map<String, Object> body = body(NOTE, item(requisition, recipientId));
+        body.put("departments", List.of(departmentItem(ops, newHead), departmentItem(sales, recipientId)));
+
+        var response = handOver(targetId, body, adminToken);
+        JsonNode result = api.expect(response, 200);
+
+        assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        assertThat(result.path("transferred").asInt()).isEqualTo(3);
+        assertThat(result.path("remaining").path("requisitions").isEmpty()).isTrue();
+        assertThat(ids(result.path("remaining").path("managedDepartments"), "departmentId")).containsExactly(kept);
+        assertThat(manager(ops)).isEqualTo(newHead);
+        assertThat(manager(sales)).isEqualTo(recipientId);
+        assertThat(manager(kept)).isEqualTo(targetId);
+        assertThat(jdbc.queryForObject("""
+                SELECT code || ':' || name || ':' || parent_id || ':' || active FROM departments WHERE id = ?
+                """, String.class, sales)).isEqualTo("SALES:Phòng SALES:" + itId + ":false");
+        assertThat(team(requisition)).containsExactly(recipientId + ":PRIMARY");
+        assertThat(history(requisition)).containsExactly(
+                "PRIMARY_HANDED_OVER:" + recipientId + ":" + targetId + ":" + NOTE);
+        JsonNode department = api.expect(api.request("GET", "/api/v1/departments/" + ops, null, adminToken), 200);
+        assertThat(department.path("managerUserId").asText()).isEqualTo(newHead.toString());
+        assertThat(department.path("managerFullName").asText()).isEqualTo("Trưởng phòng mới");
+    }
+
+    // Who manages a department decides who reads its requisitions, and those of every department below it, with a
+    // SCOPED permission (a HIRING_MANAGER): the handover moves that scope as soon as it commits.
+    @Test
+    void theNewManagerTakesOverTheScopeOfTheDepartmentAndOfTheDepartmentsBelowIt() throws Exception {
+        UUID newHead = account("newhead@example.test", "Trưởng phòng mới", Role.HIRING_MANAGER);
+        UUID devHead = account("devhead@example.test", "Trưởng nhóm Dev", Role.HIRING_MANAGER);
+        UUID dev = api.department("IT_DEV", devHead, itId, START);
+        UUID inIt = requisition(RequisitionStatus.APPROVED);
+        UUID inDev = requisition(RequisitionStatus.DRAFT, dev);
+        String headToken = api.token("head@example.test");
+        String newHeadToken = api.token("newhead@example.test");
+        for (UUID requisition : List.of(inIt, inDev)) {
+            api.expect(api.request("GET", "/api/v1/requisitions/" + requisition, null, headToken), 200);
+            api.forbidden(api.request("GET", "/api/v1/requisitions/" + requisition, null, newHeadToken));
+        }
+
+        JsonNode result = api.expect(handOver(headId, departmentBody(null, departmentItem(itId, newHead)), adminToken),
+                200);
+
+        assertThat(result.path("transferred").asInt()).isOne();
+        assertThat(result.path("remaining").path("managedDepartments").isEmpty()).isTrue();
+        for (UUID requisition : List.of(inIt, inDev)) {
+            api.forbidden(api.request("GET", "/api/v1/requisitions/" + requisition, null, headToken));
+            api.expect(api.request("GET", "/api/v1/requisitions/" + requisition, null, newHeadToken), 200);
+        }
+        // The department below keeps its own manager, who still reads its requisitions.
+        assertThat(manager(dev)).isEqualTo(devHead);
+        api.expect(api.request("GET", "/api/v1/requisitions/" + inDev, null, api.token("devhead@example.test")), 200);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_recruiter_changes", Integer.class)).isZero();
+    }
+
+    @Test
+    void aDepartmentTheAccountNoLongerManagesIsAConflict() throws Exception {
+        UUID newHead = account("newhead@example.test", "Trưởng phòng mới", Role.HIRING_MANAGER);
+        // Inactive without open requisitions: not listed, nothing to hand over.
+        UUID closed = api.department("OLD", targetId, null, START);
+        jdbc.update("UPDATE departments SET active = FALSE WHERE id = ?", closed);
+        requisition(RequisitionStatus.FILLED, closed);
+        JsonNode items = api.expect(api.request("GET", "/api/v1/accounts/" + targetId + "/handover-items", null,
+                adminToken), 200);
+        assertThat(items.path("managedDepartments").isEmpty()).isTrue();
+
+        // Managed by someone else (handed over meanwhile), not listed, or no such department.
+        for (UUID department : List.of(itId, closed, UUID.randomUUID())) {
+            var response = handOver(targetId, departmentBody(NOTE, departmentItem(department, newHead)), adminToken);
+            JsonNode error = api.expect(response, 409);
+            assertThat(error.path("code").asText()).isEqualTo("HANDOVER_ITEM_NOT_HELD");
+            assertThat(error.path("message").asText()).isEqualTo(NOT_HELD);
+            assertThat(error.path("fieldErrors").size()).isOne();
+            assertThat(error.path("fieldErrors").path("departments[0].departmentId").asText()).isEqualTo(NOT_HELD);
+            assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        }
+        assertThat(manager(itId)).isEqualTo(headId);
+        assertThat(manager(closed)).isEqualTo(targetId);
+    }
+
+    @Test
+    void onlyAnAccountThatMaySignInBecomesTheManagerAndTheErrorNamesTheItem() throws Exception {
+        UUID ops = api.department("OPS", targetId, null, START);
+        UUID sales = api.department("SALES", targetId, null, START);
+        UUID requisition = requisition(RequisitionStatus.APPROVED);
+        recruiter(requisition, targetId, "PRIMARY");
+        UUID adminLocked = account("locked@example.test", "Bị khóa", Role.HIRING_MANAGER);
+        jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Review', admin_locked_by = ? WHERE id = ?",
+                Timestamp.from(START), adminId, adminLocked);
+        UUID pending = account("pending@example.test", "Chưa kích hoạt", Role.HIRING_MANAGER);
+        jdbc.update("UPDATE user_accounts SET enabled = FALSE WHERE id = ?", pending);
+
+        // The requisition and the first department are valid; the second department names the wrong person.
+        for (UUID person : List.of(UUID.randomUUID(), adminLocked, pending)) {
+            Map<String, Object> body = body(NOTE, item(requisition, recipientId));
+            body.put("departments", List.of(departmentItem(ops, otherId), departmentItem(sales, person)));
+            JsonNode error = api.expect(handOver(targetId, body, adminToken), 400);
+            assertThat(error.path("code").asText()).isEqualTo("INVALID_DEPARTMENT_MANAGER");
+            assertThat(error.path("message").asText()).isEqualTo(INVALID_MANAGER);
+            assertThat(error.path("fieldErrors").size()).isOne();
+            assertThat(error.path("fieldErrors").path("departments[1].toUserId").asText()).isEqualTo(INVALID_MANAGER);
+        }
+        // All or nothing: the requisition and the first department were undone each time.
+        assertThat(team(requisition)).containsExactly(targetId + ":PRIMARY");
+        assertThat(history(requisition)).isEmpty();
+        assertThat(manager(ops)).isEqualTo(targetId);
+        assertThat(manager(sales)).isEqualTo(targetId);
+
+        // Any role, as in the department API; a temporary lockout after wrong passwords ends by itself.
+        UUID interviewer = account("interviewer@example.test", "Người phỏng vấn", Role.INTERVIEWER);
+        UUID tempLocked = account("temp@example.test", "Tạm khóa", Role.RECRUITER);
+        jdbc.update("UPDATE user_accounts SET locked_until = ? WHERE id = ?",
+                Timestamp.from(START.plus(Duration.ofMinutes(10))), tempLocked);
+        api.expect(handOver(targetId, departmentBody(NOTE, departmentItem(ops, interviewer),
+                departmentItem(sales, tempLocked)), adminToken), 200);
+        assertThat(manager(ops)).isEqualTo(interviewer);
+        assertThat(manager(sales)).isEqualTo(tempLocked);
+    }
+
+    // The matcher of POST /handover cannot see the body; the service asks for ORGANIZATION_WRITE_ALL, the permission
+    // of PUT /departments/{id}, only when the request moves departments.
+    @Test
+    void handingDepartmentsOverAlsoNeedsTheOrganizationWritePermission() throws Exception {
+        UUID ops = api.department("OPS", targetId, null, START);
+        UUID requisition = requisition(RequisitionStatus.APPROVED);
+        recruiter(requisition, targetId, "PRIMARY");
+        Map<String, Object> both = body(NOTE, item(requisition, recipientId));
+        both.put("departments", List.of(departmentItem(ops, otherId)));
+        jdbc.update("DELETE FROM role_permissions WHERE role_code = 'ADMIN' AND permission_code = 'ORGANIZATION_WRITE_ALL'");
+
+        api.forbidden(handOver(targetId, both, adminToken));
+        api.forbidden(handOver(targetId, departmentBody(NOTE, departmentItem(ops, otherId)), adminToken));
+        assertThat(team(requisition)).containsExactly(targetId + ":PRIMARY");
+        assertThat(manager(ops)).isEqualTo(targetId);
+        // Without departments it is not needed.
+        api.expect(handOver(targetId, body(NOTE, item(requisition, recipientId)), adminToken), 200);
+        assertThat(team(requisition)).containsExactly(recipientId + ":PRIMARY");
+
+        // HR_MANAGER has ORGANIZATION_WRITE_ALL and REQUISITIONS_WRITE_ALL, but not the role ADMIN.
+        jdbc.update("INSERT INTO role_permissions (role_code, permission_code) VALUES ('ADMIN', 'ORGANIZATION_WRITE_ALL')");
+        api.forbidden(handOver(targetId, departmentBody(NOTE, departmentItem(ops, otherId)), hrToken));
+        assertThat(manager(ops)).isEqualTo(targetId);
+        api.expect(handOver(targetId, departmentBody(NOTE, departmentItem(ops, otherId)), adminToken), 200);
+        assertThat(manager(ops)).isEqualTo(otherId);
+    }
+
+    @Test
+    void theDepartmentsOfTheBodyAreCheckedBeforeAnythingIsChanged() throws Exception {
+        UUID ops = api.department("OPS", targetId, null, START);
+        UUID sales = api.department("SALES", targetId, null, START);
+
+        assertFieldError(handOver(targetId, json.writeValueAsString(Map.of("requisitions", List.of(),
+                "departments", List.of())), adminToken), "requisitions",
+                "Vui lòng chọn ít nhất một công việc để bàn giao.");
+        List<Map<String, Object>> tooMany = new ArrayList<>();
+        for (int index = 0; index < 101; index++) {
+            tooMany.add(departmentItem(UUID.randomUUID(), recipientId));
+        }
+        assertFieldError(handOver(targetId, json.writeValueAsString(Map.of("departments", tooMany)), adminToken),
+                "departments", "Mỗi lần bàn giao tối đa 100 phòng ban.");
+        List<Object> withNull = new ArrayList<>();
+        withNull.add(null);
+        Map<String, Object> nullItem = new HashMap<>();
+        nullItem.put("departments", withNull);
+        assertFieldError(handOver(targetId, json.writeValueAsString(nullItem), adminToken), "departments[0]",
+                "Vui lòng chọn phòng ban và người nhận bàn giao.");
+        assertFieldError(handOver(targetId, json.writeValueAsString(Map.of("departments",
+                List.of(Map.of("departmentId", ops)))), adminToken), "departments[0].toUserId",
+                "Vui lòng chọn người nhận bàn giao.");
+        assertFieldError(handOver(targetId, json.writeValueAsString(Map.of("departments",
+                List.of(Map.of("toUserId", recipientId)))), adminToken), "departments[0].departmentId",
+                "Vui lòng chọn phòng ban cần bàn giao.");
+        // The second time a department is named, and the account itself as the recipient.
+        assertFieldError(handOver(targetId, departmentBody(NOTE, departmentItem(ops, otherId),
+                departmentItem(sales, otherId), departmentItem(ops, recipientId)), adminToken),
+                "departments[2].departmentId", "Mỗi phòng ban chỉ được bàn giao một lần.");
+        assertFieldError(handOver(targetId, departmentBody(NOTE, departmentItem(ops, otherId),
+                departmentItem(sales, targetId)), adminToken), "departments[1].toUserId",
+                "Người nhận phải khác tài khoản đang bàn giao.");
+        // The client never sends anything else about a department, and ids are UUIDs.
+        Map<String, Object> withCode = new HashMap<>(departmentItem(ops, otherId));
+        withCode.put("code", "OPS");
+        assertInvalidJson(handOver(targetId, json.writeValueAsString(Map.of("departments", List.of(withCode))),
+                adminToken));
+        assertInvalidJson(handOver(targetId, json.writeValueAsString(Map.of("departments",
+                List.of(Map.of("departmentId", "OPS", "toUserId", otherId)))), adminToken));
+
+        assertThat(manager(ops)).isEqualTo(targetId);
+        assertThat(manager(sales)).isEqualTo(targetId);
+    }
+
     private HttpResponse<String> handOver(UUID id, Map<String, Object> body, String token) throws Exception {
         return handOver(id, json.writeValueAsString(body), token);
     }
@@ -532,6 +737,25 @@ class AccountHandoverIntegrationTest {
         return Map.of("requisitionId", requisition, "toUserId", toUserId);
     }
 
+    // A body with departments only.
+    @SafeVarargs
+    private static Map<String, Object> departmentBody(String note, Map<String, Object>... departments) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (note != null) {
+            body.put("note", note);
+        }
+        body.put("departments", List.of(departments));
+        return body;
+    }
+
+    private static Map<String, Object> departmentItem(UUID department, UUID toUserId) {
+        return Map.of("departmentId", department, "toUserId", toUserId);
+    }
+
+    private UUID manager(UUID department) {
+        return jdbc.queryForObject("SELECT manager_user_id FROM departments WHERE id = ?", UUID.class, department);
+    }
+
     // Body errors that ApiExceptionHandler sends without a Cache-Control of its own still get no-store, from the
     // default headers of Spring Security.
     private void assertFieldError(HttpResponse<String> response, String field, String message) {
@@ -554,12 +778,16 @@ class AccountHandoverIntegrationTest {
 
     // A requisition of two people needed by 1 Dec 2026, written with SQL so it can be in any status.
     private UUID requisition(RequisitionStatus status) {
+        return requisition(status, itId);
+    }
+
+    private UUID requisition(RequisitionStatus status, UUID department) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO recruitment_requisitions (id, position_id, department_id, headcount, reason, needed_by, status,
                     created_by, created_at, updated_at)
                 VALUES (?, ?, ?, 2, 'NEW_HEADCOUNT', ?, ?, ?, ?, ?)
-                """, id, positionId, itId, LocalDate.of(2026, 12, 1), status.name(), adminId,
+                """, id, positionId, department, LocalDate.of(2026, 12, 1), status.name(), adminId,
                 Timestamp.from(START), Timestamp.from(START));
         return id;
     }
