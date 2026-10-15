@@ -1,8 +1,10 @@
 # Bộ trích thông tin CV PDF
 
-Phạm vi: bộ trích độc lập và runtime kiểm thử/vận hành. Chưa có HTTP API, database job,
-worker scheduler hoặc chức năng xác nhận/cập nhật hồ sơ. Không khởi động Spring, đọc `.env`,
-gửi SMTP hay chạy migration. API nộp hồ sơ giữ nguyên.
+Phạm vi tài liệu này: bộ trích độc lập và runtime kiểm thử/vận hành. Bộ trích không khởi động
+Spring, đọc `.env`, gửi SMTP hay chạy migration. API nộp hồ sơ giữ nguyên.
+
+API/job và worker điều phối mới được mô tả riêng tại [worker.md](worker.md) và
+[hợp đồng API](../../docs/api/cv-suggestions.md). Các lệnh ở đây vẫn chạy riêng bộ trích.
 
 ## Chạy
 

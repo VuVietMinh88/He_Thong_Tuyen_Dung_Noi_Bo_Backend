@@ -319,6 +319,10 @@ public class SecurityConfiguration {
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasRole("ADMIN"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/cv-extractions")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv-extractions/*")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))
