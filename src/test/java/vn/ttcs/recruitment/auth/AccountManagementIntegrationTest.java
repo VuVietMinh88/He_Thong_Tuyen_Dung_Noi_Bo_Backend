@@ -2,12 +2,15 @@ package vn.ttcs.recruitment.auth;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 import vn.ttcs.recruitment.account.Role;
 
 import javax.sql.DataSource;
@@ -52,6 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(OutputCaptureExtension.class)
 class AccountManagementIntegrationTest {
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-05T00:00:00Z");
@@ -396,6 +401,81 @@ class AccountManagementIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT department_id FROM user_accounts WHERE id = ?", UUID.class, target)).isNull();
     }
 
+    @Test
+    void phoneOfAnotherAccountIsRefusedWith409WithoutAPartialUpdate(CapturedOutput output) throws Exception {
+        UUID owner = account("owner@example.test", "Chủ số điện thoại", Set.of(Role.INTERVIEWER));
+        UUID target = account("target@example.test", "Before", Set.of(Role.INTERVIEWER));
+        UUID department = department("PHONE", "Phone department", true);
+        // The owner has not activated the account yet; its number is still taken.
+        jdbc.update("UPDATE user_accounts SET phone = '0912345678', enabled = false WHERE id = ?", owner);
+        jdbc.update("UPDATE user_accounts SET phone = '0987654321', display_title = 'Developer' WHERE id = ?", target);
+        Map<String, Object> before = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target);
+
+        for (String phone : List.of("0912345678", "+84912345678")) {
+            var response = update(target, Map.of("fullName", "Changed", "phone", phone, "displayTitle", "Changed",
+                    "departmentId", department.toString()), adminToken);
+            assertPhoneAlreadyUsed(response);
+            assertThat(response.body()).doesNotContain("owner@example.test", "Chủ số điện thoại", owner.toString());
+        }
+        assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(before);
+        // Refused by the service's check before any write: the unique constraint, whose error Hibernate logs together
+        // with the number, is only for saves that race.
+        assertThat(output.getAll()).doesNotContain(PhoneAlreadyUsedException.CONSTRAINT, "Key (phone)");
+
+        // The target may keep its own number while other fields change.
+        JsonNode kept = ok(update(target, Map.of("fullName", "After", "phone", "0987654321",
+                "departmentId", department.toString()), adminToken));
+        assertThat(kept.path("fullName").asText()).isEqualTo("After");
+        assertThat(kept.path("phone").asText()).isEqualTo("0987654321");
+        assertThat(kept.path("departmentId").asText()).isEqualTo(department.toString());
+    }
+
+    @Test
+    void anUpdateThatPassesThePhoneCheckBeforeAnotherSaveCommitsStillGets409() throws Exception {
+        UUID owner = account("owner@example.test", "Owner", Set.of(Role.INTERVIEWER));
+        UUID target = account("target@example.test", "Before", Set.of(Role.INTERVIEWER));
+        Map<String, Object> before = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            int blockerPid;
+            // Another save of the number, not committed yet, so the check of the PUT below cannot see it.
+            try (var statement = connection.prepareStatement(
+                    "UPDATE user_accounts SET phone = '0912345678' WHERE id = ? RETURNING pg_backend_pid()")) {
+                statement.setObject(1, owner);
+                try (var row = statement.executeQuery()) {
+                    assertThat(row.next()).isTrue();
+                    blockerPid = row.getInt(1);
+                }
+            }
+            try (var executor = Executors.newSingleThreadExecutor()) {
+                var updating = executor.submit(() -> update(target,
+                        Map.of("fullName", "Must not persist", "phone", "0912345678"), adminToken));
+                try {
+                    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+                    boolean waitingAtIndex = false;
+                    while (!waitingAtIndex && System.nanoTime() < deadline) {
+                        waitingAtIndex = Boolean.TRUE.equals(jdbc.queryForObject("""
+                                SELECT EXISTS (
+                                    SELECT 1 FROM pg_stat_activity
+                                    WHERE ? = ANY(pg_blocking_pids(pid)) AND wait_event_type = 'Lock'
+                                      AND query ILIKE '%update user_accounts%'
+                                )
+                                """, Boolean.class, blockerPid));
+                        if (!waitingAtIndex) { Thread.sleep(20); }
+                    }
+                    assertThat(waitingAtIndex).as("PUT must pass the check and wait at the unique index").isTrue();
+                    connection.commit();
+                    // The violation is caught at the service's flush: the 409, not a 500 at commit.
+                    assertPhoneAlreadyUsed(updating.get(20, TimeUnit.SECONDS));
+                } finally {
+                    connection.rollback();
+                }
+            }
+        }
+        assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(before);
+        assertThat(accounts.findById(owner).orElseThrow().getPhone()).isEqualTo("0912345678");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"0912345678", "0351234567", "02412345678", "+842412345678"})
     void acceptsVietnameseMobileAndLandlineNumbers(String phone) throws Exception {
@@ -469,6 +549,16 @@ class AccountManagementIntegrationTest {
                 assertThat(response.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();
             }
         }
+    }
+
+    private void assertPhoneAlreadyUsed(HttpResponse<String> response) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(409);
+        assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        JsonNode error = body(response);
+        assertThat(error.path("code").asText()).isEqualTo("PHONE_ALREADY_EXISTS");
+        assertThat(error.path("message").asText()).isEqualTo("Số điện thoại đã được sử dụng cho một tài khoản khác.");
+        assertThat(error.path("fieldErrors").path("phone").asText())
+                .isEqualTo("Số điện thoại này đã được dùng cho một tài khoản khác. Vui lòng nhập số khác.");
     }
 
     private UUID account(String email, String name, Set<Role> roles) {

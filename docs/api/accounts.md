@@ -70,7 +70,9 @@ Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên p
 
 Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md).
 
-Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
+Số điện thoại không được trùng với tài khoản khác ở bất kỳ trạng thái nào, giống [hồ sơ cá nhân](profile.md): số đã thuộc một tài khoản không phải `{id}` (so sánh sau khi đổi `+84` thành 0) trả **409 `PHONE_ALREADY_EXISTS`** với `fieldErrors.phone`, no-store, và không ghi trường nào (kể cả họ tên, phòng ban). Giữ nguyên số hiện có của tài khoản đích hoặc xóa số luôn hợp lệ. Message không nêu tài khoản đang dùng số đó. Hai lần lưu cùng một số cùng lúc thì một lần nhận 409 này nhờ ràng buộc unique của V38.
+
+Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**, số điện thoại đã được dùng **409**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
 
 ## POST /accounts
 

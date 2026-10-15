@@ -1,9 +1,11 @@
 package vn.ttcs.recruitment.account.importing;
 
 import org.apache.poi.ss.util.CellReference;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 
 import static vn.ttcs.recruitment.account.importing.StaffImportColumn.DEPARTMENT_CODE;
 import static vn.ttcs.recruitment.account.importing.StaffImportColumn.EMAIL;
+import static vn.ttcs.recruitment.account.importing.StaffImportColumn.PHONE;
 
 /**
  * One problem of one row of the staff sheet: a wrong cell value found by {@link StaffImportValidator}, or the
@@ -26,11 +28,20 @@ public record StaffImportRowError(int rowNumber, String column, String cell, Str
 
     // The reasons below explain why a row that was valid when the import checked it still got no account.
     // Codes that also exist elsewhere keep their meaning: EMAIL_ALREADY_EXISTS as in the row check and
-    // POST /accounts, INVALID_DEPARTMENT as in PUT /accounts/{id}, ACCOUNT_EMAIL_UNAVAILABLE as in POST /accounts.
+    // POST /accounts, PHONE_ALREADY_EXISTS as in PUT /profile and PUT /accounts/{id}, INVALID_DEPARTMENT as in
+    // PUT /accounts/{id}, ACCOUNT_EMAIL_UNAVAILABLE as in POST /accounts.
 
     static StaffImportRowError emailTaken(int rowNumber) {
         return of(rowNumber, EMAIL, "EMAIL_ALREADY_EXISTS", "Email vừa được dùng cho một tài khoản khác trong lúc "
                 + "nhập, nên không tạo tài khoản mới cho dòng này.");
+    }
+
+    // The row check does not look at phones yet, so the number may have belonged to another account before the
+    // import as well as been taken during it (by a row above or by someone else). The message fits both and, like
+    // the 409, never says which account has the number.
+    static StaffImportRowError phoneTaken(int rowNumber) {
+        return of(rowNumber, PHONE, PhoneAlreadyUsedException.CODE, "Số điện thoại đã được dùng cho một tài khoản "
+                + "khác, nên không tạo tài khoản mới cho dòng này.");
     }
 
     static StaffImportRowError departmentUnavailable(int rowNumber, String departmentCode) {

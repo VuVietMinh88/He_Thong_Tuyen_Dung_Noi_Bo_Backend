@@ -34,7 +34,8 @@ public class Account {
     @Column(nullable = false)
     private String fullName;
 
-    @Column(length = 20)
+    // Unique since V38 (user_accounts_phone_key); NULL may repeat.
+    @Column(length = 20, unique = true)
     private String phone;
 
     @Column(length = 120)

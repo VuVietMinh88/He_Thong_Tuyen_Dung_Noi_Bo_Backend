@@ -11,6 +11,7 @@ import vn.ttcs.recruitment.account.CreateAccountRequest;
 import vn.ttcs.recruitment.account.DuplicateEmailException;
 import vn.ttcs.recruitment.account.InvalidDepartmentException;
 import vn.ttcs.recruitment.account.NewAccountProfile;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.account.importing.StaffImportReport.CreatedRow;
 import vn.ttcs.recruitment.account.importing.StaffImportReport.SkippedRow;
@@ -94,6 +95,11 @@ public class StaffImportService {
             } catch (DuplicateEmailException exception) {
                 // Since the rows were checked, someone created an account with this email.
                 skipped.add(SkippedRow.of(row, StaffImportRowError.emailTaken(row.rowNumber())));
+            } catch (PhoneAlreadyUsedException exception) {
+                // Another account has this phone number: one that had it before the import (the row check does not
+                // look at phones yet), one created from a row above, or one saved by someone else meanwhile. Only
+                // this row is affected, so the next rows are still tried.
+                skipped.add(SkippedRow.of(row, StaffImportRowError.phoneTaken(row.rowNumber())));
             } catch (InvalidDepartmentException exception) {
                 // Since the rows were checked, someone stopped the department or changed its code.
                 skipped.add(SkippedRow.of(row,

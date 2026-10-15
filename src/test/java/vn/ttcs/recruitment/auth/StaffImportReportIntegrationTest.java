@@ -5,9 +5,12 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -19,6 +22,7 @@ import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 import vn.ttcs.recruitment.account.Role;
 
 import java.io.ByteArrayOutputStream;
@@ -59,6 +63,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(OutputCaptureExtension.class)
 class StaffImportReportIntegrationTest {
     private static final String IMPORT = "/api/v1/accounts/import";
     private static final String PREVIEW = "/api/v1/accounts/import/preview";
@@ -69,6 +74,8 @@ class StaffImportReportIntegrationTest {
     private static final List<String> HEADERS = List.of(
             "Email", "Họ và tên", "Vai trò", "Mã phòng ban", "Số điện thoại", "Chức danh hiển thị");
     private static final LocalSmtpServer SMTP = startSmtp();
+    private static final String PHONE_TAKEN =
+            "Số điện thoại đã được dùng cho một tài khoản khác, nên không tạo tài khoản mới cho dòng này.";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -213,7 +220,8 @@ class StaffImportReportIntegrationTest {
                 row("first@example.com", "First", "RECRUITER"),
                 row("taken@example.com", "Taken", "RECRUITER"),
                 row("moved@example.com", "Moved", "RECRUITER", "IT"),
-                row("last@example.com", "Last", "RECRUITER", "HR"));
+                row("phone@example.com", "Phone", "RECRUITER", null, "+84987654321"),
+                row("last@example.com", "Last", "RECRUITER", "HR", "0912345678"));
         HttpResponse<String> response;
         SMTP.pauseReceipt();
         try (var executor = Executors.newSingleThreadExecutor()) {
@@ -224,6 +232,11 @@ class StaffImportReportIntegrationTest {
                 accounts.saveAndFlush(Account.pendingActivation("taken@example.com", "Someone else",
                         fixturePasswordHash, Set.of(Role.APPROVER), START));
                 jdbc.update("UPDATE departments SET active = FALSE WHERE code = 'IT'");
+                // A pending account of someone else gets the phone number of row 5.
+                Account phoneOwner = Account.pendingActivation("owner@example.com", "Chủ số điện thoại",
+                        fixturePasswordHash, Set.of(Role.INTERVIEWER), START);
+                phoneOwner.updateProfile("Chủ số điện thoại", "0987654321", null);
+                accounts.saveAndFlush(phoneOwner);
             } finally {
                 SMTP.releaseReceipt();
             }
@@ -231,9 +244,9 @@ class StaffImportReportIntegrationTest {
         }
 
         JsonNode report = expectOk(response);
-        assertSummary(report, 4, 2, 2);
-        assertThat(rowNumbers(report, "created")).containsExactly(2, 5);
-        assertThat(rowNumbers(report, "skipped")).containsExactly(3, 4);
+        assertSummary(report, 5, 2, 3);
+        assertThat(rowNumbers(report, "created")).containsExactly(2, 6);
+        assertThat(rowNumbers(report, "skipped")).containsExactly(3, 4, 5);
 
         JsonNode taken = onlyError(skippedRow(report, 3));
         assertThat(taken.path("rowNumber").asInt()).isEqualTo(3);
@@ -247,6 +260,54 @@ class StaffImportReportIntegrationTest {
         assertThat(moved.path("cell").asText()).isEqualTo("D4");
         assertThat(moved.path("code").asText()).isEqualTo("INVALID_DEPARTMENT");
         assertThat(moved.path("message").asText()).contains("\"IT\"");
+
+        // Only row 5 is skipped for its phone; the row after it is still created with its own number.
+        JsonNode phoneTaken = onlyError(skippedRow(report, 5));
+        assertThat(phoneTaken.path("rowNumber").asInt()).isEqualTo(5);
+        assertThat(phoneTaken.path("column").asText()).isEqualTo("phone");
+        assertThat(phoneTaken.path("cell").asText()).isEqualTo("E5");
+        assertThat(phoneTaken.path("code").asText()).isEqualTo("PHONE_ALREADY_EXISTS");
+        assertThat(phoneTaken.path("message").asText()).isEqualTo(PHONE_TAKEN);
+        assertThat(report.toString()).doesNotContain("owner@example.com", "Chủ số điện thoại");
+        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0987654321'", String.class))
+                .containsExactly("owner@example.com");
+        assertThat(jdbc.queryForObject("SELECT phone FROM user_accounts WHERE email = 'last@example.com'",
+                String.class)).isEqualTo("0912345678");
+        assertThat(SMTP.messages()).hasSize(2);
+    }
+
+    @Test
+    void aPhoneRepeatedInTheFileGoesToTheFirstRowAndTheLaterRowIsSkipped(CapturedOutput output) throws Exception {
+        // The row check does not look at phones yet, so both rows are valid when the import checks them. Row 3 gives
+        // the number of row 2 in its +84 form, which is the same number once normalized.
+        byte[] file = staffFile(
+                row("an@example.com", "An", "RECRUITER", null, "0912345678"),
+                row("binh@example.com", "Bình", "RECRUITER", null, "+84912345678"),
+                row("cuong@example.com", "Cường", "RECRUITER", null, "0987654321"));
+
+        JsonNode report = expectOk(upload(IMPORT, adminToken, file));
+
+        assertSummary(report, 3, 2, 1);
+        assertThat(report.path("stoppedAtRow").isNull()).isTrue();
+        assertThat(rowNumbers(report, "created")).containsExactly(2, 4);
+        JsonNode repeated = onlyError(skippedRow(report, 3));
+        assertThat(repeated.path("column").asText()).isEqualTo("phone");
+        assertThat(repeated.path("cell").asText()).isEqualTo("E3");
+        assertThat(repeated.path("code").asText()).isEqualTo("PHONE_ALREADY_EXISTS");
+        assertThat(repeated.path("message").asText()).isEqualTo(PHONE_TAKEN);
+
+        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0912345678'", String.class))
+                .containsExactly("an@example.com");
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com", "cuong@example.com");
+        // One invitation for the repeated number, to the row that got it, and one for the row after.
+        List<String> recipients = new ArrayList<>();
+        for (var message : SMTP.messages()) {
+            recipients.add(message.getAllRecipients()[0].toString());
+        }
+        assertThat(recipients).containsExactlyInAnyOrder("an@example.com", "cuong@example.com");
+        // Row 3 was refused by the check before any write, so the unique constraint (whose error Hibernate logs with
+        // the number) was never reached.
+        assertThat(output.getAll()).doesNotContain(PhoneAlreadyUsedException.CONSTRAINT, "Key (phone)");
     }
 
     @Test

@@ -3,24 +3,33 @@ package vn.ttcs.recruitment.auth;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
+import vn.ttcs.recruitment.account.AccountProvisioningService;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.account.CreateAccountRequest;
+import vn.ttcs.recruitment.account.NewAccountProfile;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 
@@ -43,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
@@ -56,6 +66,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(OutputCaptureExtension.class)
 class AccountProvisioningIntegrationTest {
     private static final String PASSWORD = "TestingOnly123!";
     private static final String EMAIL = "new@example.test";
@@ -69,6 +80,8 @@ class AccountProvisioningIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ResetTokenGenerator generator;
+    @Autowired private AccountProvisioningService provisioning;
+    @Autowired private JwtDecoder jwtDecoder;
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
@@ -196,6 +209,71 @@ class AccountProvisioningIntegrationTest {
         assertThat(SMTP.messages()).hasSize(1);
     }
 
+    // POST /accounts takes no phone; the staff import gives one through the same service, so it is called directly.
+    @Test
+    void aPhoneAlreadyUsedByAnotherAccountCreatesNothingAndSendsNoEmail(CapturedOutput output) throws Exception {
+        jdbc.update("UPDATE user_accounts SET phone = '0912345678' WHERE email = 'admin@example.test'");
+        Jwt admin = jwtDecoder.decode(adminToken);
+
+        assertThatThrownBy(() -> provisioning.create(admin, newAccount(EMAIL), withPhone("0912345678")))
+                .isInstanceOf(PhoneAlreadyUsedException.class);
+        assertThat(accounts.count()).isEqualTo(1);
+        assertThat(SMTP.messages()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM account_activation_tokens", Integer.class)).isZero();
+        // Refused by the check before a password is made and anything is written: the unique constraint, whose error
+        // Hibernate logs together with the number, is only for creations that race.
+        assertThat(output.getAll()).doesNotContain(PhoneAlreadyUsedException.CONSTRAINT, "Key (phone)");
+
+        // A free number is saved with the new account, and accounts without a phone stay possible.
+        var created = provisioning.create(admin, newAccount(EMAIL), withPhone("0987654321"));
+        assertThat(accounts.findById(created.id()).orElseThrow().getPhone()).isEqualTo("0987654321");
+        provisioning.create(admin, newAccount("nophone@example.test"), NewAccountProfile.NONE);
+        assertThat(SMTP.messages()).hasSize(2);
+    }
+
+    @Test
+    void twoAdminsGivingTheSameNumberToNewAccountsGetOneAccountAndOnePhoneConflict() throws Exception {
+        accounts.saveAndFlush(new Account("secondadmin@example.test", "Second admin",
+                passwordEncoder.encode(PASSWORD), Set.of(Role.ADMIN), START));
+        Jwt first = jwtDecoder.decode(adminToken);
+        Jwt second = jwtDecoder.decode(login("secondadmin@example.test", PASSWORD).path("accessToken").asText());
+        SMTP.pauseReceipt();
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var created = executor.submit(() ->
+                    provisioning.create(first, newAccount("first@example.test"), withPhone("0912345678")));
+            // The first account is saved but not committed while its invitation is being delivered.
+            assertThat(SMTP.awaitData()).isTrue();
+            var refused = executor.submit(() ->
+                    provisioning.create(second, newAccount("second@example.test"), withPhone("0912345678")));
+            try {
+                // The second passed the check (the first is not committed) and waits at the unique index.
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                boolean blockedInsert = false;
+                while (System.nanoTime() < deadline) {
+                    blockedInsert = jdbc.queryForObject("""
+                            SELECT count(*) > 0 FROM pg_stat_activity
+                            WHERE wait_event_type = 'Lock' AND query LIKE '%insert into user_accounts%'
+                            """, Boolean.class);
+                    if (blockedInsert) { break; }
+                    Thread.sleep(20);
+                }
+                assertThat(blockedInsert).isTrue();
+            } finally {
+                SMTP.releaseReceipt();
+            }
+            assertThat(created.get(15, TimeUnit.SECONDS).email()).isEqualTo("first@example.test");
+            assertThatThrownBy(() -> refused.get(15, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(PhoneAlreadyUsedException.class);
+        } finally {
+            SMTP.releaseReceipt();
+        }
+        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0912345678'", String.class))
+                .containsExactly("first@example.test");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM user_accounts WHERE email = 'second@example.test'",
+                Integer.class)).isZero();
+        assertThat(SMTP.messages()).hasSize(1);
+    }
+
     @Test
     void smtpFailureRollsBackAndAllowsRetry() throws Exception {
         SMTP.rejectDelivery(true);
@@ -302,6 +380,14 @@ class AccountProvisioningIntegrationTest {
     private HttpResponse<String> create(String email, String token) throws Exception {
         return post("/api/v1/accounts", Map.of("email", email, "fullName", "  Người phỏng vấn mới  ",
                 "roles", List.of("INTERVIEWER", "HIRING_MANAGER")), token);
+    }
+
+    private static CreateAccountRequest newAccount(String email) {
+        return new CreateAccountRequest(email, "Nhân sự mới", Set.of(Role.RECRUITER));
+    }
+
+    private static NewAccountProfile withPhone(String phone) {
+        return new NewAccountProfile(null, phone, null);
     }
 
     private HttpResponse<String> activate(String token, String bearer) throws Exception {
