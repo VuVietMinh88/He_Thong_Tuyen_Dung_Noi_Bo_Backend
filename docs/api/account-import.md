@@ -6,6 +6,8 @@ Nhập hàng loạt cũng là tạo tài khoản, nên cả ba API dùng đúng 
 
 Hiện có API tải tệp mẫu (170), API đọc tệp để xem trước (171), trong đó mỗi dòng được kiểm tra giá trị và báo lỗi theo từng ô (172), API nhập thật: tạo tài khoản cho dòng hợp lệ, bỏ qua dòng lỗi (173), trả báo cáo tổng kết gồm số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua (174), và chỉ người quản trị tài khoản nội bộ mới được xem trước và nhập (175).
 
+Xem trước còn báo trùng thông tin để quản trị viên lọc "Trùng thông tin: email, họ tên, SĐT": email hoặc số điện thoại đã có tài khoản dùng hay lặp lại trong tệp là **lỗi** (dòng không được nhập); họ tên trùng chỉ là **cảnh báo** trong `warnings`, dòng vẫn hợp lệ, vì hai người có thể cùng họ tên (mục [Cảnh báo trùng thông tin](#cảnh-báo-trùng-thông-tin-không-chặn-nhập)).
+
 ## Quyền truy cập
 
 Quyền được kiểm hai lớp, giống các API ghi tài khoản khác:
@@ -117,7 +119,7 @@ Không tự đặt header `Content-Type`: trình duyệt tự thêm `multipart/f
 8. Dòng 1 phải đúng sáu tiêu đề ở A1–F1 theo thứ tự của bảng cột ở trên; từ G1 trở đi phải trống. Server bỏ qua khoảng trắng đầu/cuối và khác biệt cách mã hóa dấu tiếng Việt (Unicode NFC/NFD), nhưng phân biệt chữ hoa/thường. Mã cột (`email`, `fullName`...) không thay được tiêu đề tiếng Việt.
 9. Ô có công thức trong cột A–F (kể cả dòng tiêu đề) làm cả tệp bị từ chối; server không tính công thức. Ô ngoài cột A–F không được đọc.
 10. Dòng có sáu ô A–F đều trống hoặc chỉ có khoảng trắng bị bỏ qua và không được đếm. Phải còn ít nhất 1 và không quá 500 dòng nhân sự.
-11. Kiểm tra giá trị của từng dòng (mục [Kiểm tra từng dòng](#kiểm-tra-từng-dòng)). Dòng sai không làm hỏng cả tệp: response vẫn là 200 và dòng đó được đánh dấu `valid: false`.
+11. Kiểm tra giá trị của từng dòng (mục [Kiểm tra từng dòng](#kiểm-tra-từng-dòng)). Dòng sai không làm hỏng cả tệp: response vẫn là 200 và dòng đó được đánh dấu `valid: false`. Cảnh báo trong `warnings` (họ tên trùng) không bao giờ làm dòng sai.
 
 Bước 1–10 sai thì cả tệp bị từ chối với một mã lỗi ở bảng [Lỗi](#lỗi), không có danh sách dòng.
 
@@ -125,8 +127,8 @@ Bước 1–10 sai thì cả tệp bị từ chối với một mã lỗi ở b�
 
 ```json
 {
-  "totalRows": 3,
-  "validRows": 1,
+  "totalRows": 4,
+  "validRows": 2,
   "invalidRows": 2,
   "rows": [
     {
@@ -138,7 +140,16 @@ Bước 1–10 sai thì cả tệp bị từ chối với một mã lỗi ở b�
       "phone": "0912345678",
       "displayTitle": "Chuyên viên tuyển dụng",
       "valid": true,
-      "errors": []
+      "errors": [],
+      "warnings": [
+        {
+          "rowNumber": 2,
+          "column": "fullName",
+          "cell": "B2",
+          "code": "FULL_NAME_DUPLICATED_IN_FILE",
+          "message": "Họ tên này cũng có ở dòng 6 của tệp. Hãy kiểm tra đó có phải cùng một người không."
+        }
+      ]
     },
     {
       "rowNumber": 4,
@@ -171,7 +182,8 @@ Bước 1–10 sai thì cả tệp bị từ chối với một mã lỗi ở b�
           "code": "DEPARTMENT_INACTIVE",
           "message": "Phòng ban mã \"OLD\" đã ngừng áp dụng, không gán được nhân sự mới."
         }
-      ]
+      ],
+      "warnings": []
     },
     {
       "rowNumber": 5,
@@ -197,18 +209,47 @@ Bước 1–10 sai thì cả tệp bị từ chối với một mã lỗi ở b�
           "code": "PHONE_INVALID",
           "message": "Số điện thoại không đúng định dạng: cần số di động 10 chữ số bắt đầu bằng 03, 05, 07, 08, 09 hoặc số cố định 11 chữ số bắt đầu bằng 02. Nếu Excel làm mất số 0 ở đầu, hãy định dạng ô là Text rồi gõ lại."
         }
+      ],
+      "warnings": [
+        {
+          "rowNumber": 5,
+          "column": "fullName",
+          "cell": "B5",
+          "code": "FULL_NAME_ALREADY_EXISTS",
+          "message": "Đã có tài khoản nội bộ mang họ tên này. Hãy kiểm tra để không tạo trùng một người."
+        }
+      ]
+    },
+    {
+      "rowNumber": 6,
+      "email": "an.nguyen@example.com",
+      "fullName": "nguyễn văn an",
+      "roles": ["INTERVIEWER"],
+      "departmentCode": null,
+      "phone": null,
+      "displayTitle": null,
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        {
+          "rowNumber": 6,
+          "column": "fullName",
+          "cell": "B6",
+          "code": "FULL_NAME_DUPLICATED_IN_FILE",
+          "message": "Họ tên này cũng có ở dòng 2 của tệp. Hãy kiểm tra đó có phải cùng một người không."
+        }
       ]
     }
   ]
 }
 ```
 
-Ví dụ trên có dòng 3 để trống nên bị bỏ qua; tài khoản `le.van.cuong@example.com` đã có sẵn trong hệ thống và phòng ban `OLD` đã ngừng áp dụng. Header `Cache-Control: no-store`.
+Ví dụ trên có dòng 3 để trống nên bị bỏ qua; tài khoản `le.van.cuong@example.com`, họ tên Lê Văn Cường, đã có sẵn trong hệ thống và phòng ban `OLD` đã ngừng áp dụng. Dòng 2 và 6 cùng một họ tên (chỉ khác chữ hoa/thường) nên cả hai có cảnh báo, nhưng vẫn hợp lệ và được tính trong `validRows`. Header `Cache-Control: no-store`.
 
 | Trường | Ý nghĩa và cách chuẩn hóa |
 |---|---|
 |totalRows|Số dòng nhân sự đọc được, bằng số phần tử của `rows` và bằng `validRows + invalidRows`|
-|validRows|Số dòng không có lỗi|
+|validRows|Số dòng không có lỗi. Dòng chỉ có cảnh báo vẫn được tính ở đây|
 |invalidRows|Số dòng có ít nhất một lỗi|
 |rowNumber|Số dòng Excel hiển thị bên trái sheet (dòng tiêu đề là 1), để quản trị viên tìm lại dòng|
 |email|Bỏ khoảng trắng đầu/cuối, đổi về chữ thường, giống `POST /accounts`|
@@ -217,12 +258,15 @@ Ví dụ trên có dòng 3 để trống nên bị bỏ qua; tài khoản `le.va
 |departmentCode|Bỏ khoảng trắng đầu/cuối, giữ nguyên chữ hoa/thường|
 |phone|Bỏ khoảng trắng đầu/cuối; `+84` ở đầu đổi thành `0`, giống hồ sơ cá nhân|
 |displayTitle|Bỏ khoảng trắng đầu/cuối|
-|valid|`true` khi dòng không có lỗi, tức là bước nhập sẽ tạo tài khoản cho dòng này|
+|valid|`true` khi dòng không có lỗi, tức là bước nhập sẽ tạo tài khoản cho dòng này. Cảnh báo không làm đổi giá trị này|
 |errors|Danh sách lỗi theo thứ tự cột A→F, mỗi cột tối đa một lỗi. Dòng hợp lệ có mảng rỗng `[]`, không bao giờ `null`|
+|warnings|Danh sách cảnh báo (mục [Cảnh báo trùng thông tin](#cảnh-báo-trùng-thông-tin-không-chặn-nhập)), cùng cấu trúc với phần tử của `errors`, theo thứ tự cột, mỗi cột tối đa một cảnh báo. Cảnh báo **không chặn nhập** và không làm đổi `valid`, `validRows`, `invalidRows`. Có ở mọi dòng, hợp lệ hay không; không có cảnh báo thì là mảng rỗng `[]`, không bao giờ `null`|
 
 Ô trống trả `null` (riêng `roles` là `[]`). Ô kiểu số, ngày hoặc TRUE/FALSE được đọc theo chữ Excel hiển thị: mã phòng ban gõ dạng số `101` trả `"101"`, không thành `101.0`. Số điện thoại gõ dạng số (ô không ở định dạng Text) đã mất số 0 đầu ngay trong Excel, nên server nhận `912345678` và báo `PHONE_INVALID`.
 
 Giá trị sai vẫn được trả nguyên như đã đọc (sau khi chuẩn hóa) để quản trị viên đối chiếu với lỗi.
+
+API trả **mọi** dòng của tệp (tối đa 500) trong một response: không phân trang, không nhận tham số lọc hay tìm kiếm. Trình duyệt tự lọc (tất cả / hợp lệ / có lỗi / trùng thông tin, theo `valid` và `code` trong `errors`, `warnings`), tìm kiếm và phân trang trên danh sách `rows` này.
 
 ### Kiểm tra từng dòng
 
@@ -243,23 +287,50 @@ Server kiểm tra **mọi** dòng, nên quản trị viên thấy toàn bộ l�
 ||`DEPARTMENT_NOT_FOUND`|Không có phòng ban mang **đúng** mã này; `hr` khác `HR`|
 ||`DEPARTMENT_INACTIVE`|Phòng ban đã ngừng áp dụng (`active = false`); giống `PUT /accounts/{id}`, không gán nhân sự mới vào phòng ban này|
 |E `phone`|`PHONE_INVALID`|Không phải di động 10 chữ số bắt đầu bằng 03, 05, 07, 08, 09 hoặc số cố định 11 chữ số bắt đầu bằng 02 (sau khi đổi `+84` đầu thành `0`). Có khoảng trắng giữa các số cũng sai|
+||`PHONE_ALREADY_EXISTS`|Đã có tài khoản dùng số này, ở bất kỳ trạng thái nào (đang hoạt động, chờ kích hoạt, bị khóa). So sau khi chuẩn hóa, nên `+84912345678` trùng `0912345678`. Cùng mã với lỗi 409 của `PUT /profile` và `PUT /accounts/{id}`; message không nêu tài khoản đang dùng số|
+||`PHONE_DUPLICATED_IN_FILE`|Số (sau khi chuẩn hóa) có ở hơn một dòng của tệp. **Mọi** dòng trùng đều bị đánh dấu, message nêu các dòng còn lại, ví dụ `Số điện thoại này cũng có ở dòng 4, 6 của tệp. Mỗi số điện thoại chỉ dùng cho một người.`|
 |F `displayTitle`|`TOO_LONG`|Dài hơn 120 ký tự|
 
-Các cột D, E, F không bắt buộc: ô trống không có lỗi. Số điện thoại là duy nhất trên mọi tài khoản ([hồ sơ cá nhân](profile.md)), nhưng xem trước chưa báo số đã có tài khoản dùng hoặc số lặp lại trong tệp; khi nhập thật, dòng có số như vậy bị bỏ qua với lý do `PHONE_ALREADY_EXISTS` ở ô cột E (xem [Dòng hợp lệ nhưng thất bại lúc tạo](#dòng-hợp-lệ-nhưng-thất-bại-lúc-tạo)). Độ dài đếm theo cách của Java (`String.length()`), giống `@Size` của API tạo và sửa tài khoản.
+Các cột D, E, F không bắt buộc: ô trống không có lỗi. Số điện thoại là duy nhất trên mọi tài khoản từ V38 ([hồ sơ cá nhân](profile.md)), giống email, nên xem trước báo lỗi cho số đã có tài khoản dùng và cho số lặp lại trong tệp; dòng có lỗi này bị bỏ qua khi nhập thật. Số sai định dạng chỉ có lỗi `PHONE_INVALID`: không được tra trong database và không tính là lặp lại. Số vừa có tài khoản khác dùng **sau** khi server kiểm tra vẫn được bắt lúc tạo dòng (xem [Dòng hợp lệ nhưng thất bại lúc tạo](#dòng-hợp-lệ-nhưng-thất-bại-lúc-tạo)). Độ dài đếm theo cách của Java (`String.length()`), giống `@Size` của API tạo và sửa tài khoản.
 
-Mỗi lỗi trong `errors` có các trường:
+Mỗi lỗi trong `errors` và mỗi cảnh báo trong `warnings` có các trường:
 
 | Trường | Ý nghĩa |
 |---|---|
 |rowNumber|Số dòng Excel, trùng `rowNumber` của dòng chứa lỗi|
 |column|Mã cột ổn định: `email`, `fullName`, `roles`, `departmentCode`, `phone`, `displayTitle`|
 |cell|Địa chỉ ô, ví dụ `A5`; gõ vào ô Name Box của Excel để nhảy tới đúng ô|
-|code|Mã lỗi ổn định trong bảng trên, để frontend lọc hoặc tô màu|
+|code|Mã lỗi ổn định trong bảng trên (hoặc mã cảnh báo ở mục [Cảnh báo trùng thông tin](#cảnh-báo-trùng-thông-tin-không-chặn-nhập)), để frontend lọc hoặc tô màu|
 |message|Câu tiếng Việt hiển thị được ngay. Message không lặp lại số dòng; giao diện có thể ghép thành `Dòng 5, ô A5: Email đã được sử dụng...`|
 
-Email đã có tài khoản và phòng ban được kiểm tra bằng hai truy vấn chỉ đọc cho cả tệp (bảng `user_accounts` và `departments`), không phải một truy vấn mỗi dòng. Kết quả phản ánh database **tại lúc xem trước**: nếu ai đó tạo tài khoản hoặc ngừng áp dụng phòng ban ngay sau đó, xem trước lần sau sẽ báo lỗi mới. Vì vậy bước nhập thật ([`POST /accounts/import`](#post-accountsimport)) đọc và kiểm tra lại tệp, không tin kết quả xem trước cũ.
+Email, số điện thoại và họ tên đã có tài khoản dùng, cùng phòng ban, được kiểm tra bằng **bốn truy vấn chỉ đọc cho cả tệp** (ba truy vấn trên `user_accounts`, một trên `departments`), không phải một truy vấn mỗi dòng; truy vấn nào không có giá trị để tìm (ví dụ tệp không có số điện thoại hợp lệ nào) thì không chạy. Kết quả phản ánh database **tại lúc xem trước**: nếu ai đó tạo tài khoản, lưu số điện thoại hoặc ngừng áp dụng phòng ban ngay sau đó, xem trước lần sau sẽ báo lỗi mới. Vì vậy bước nhập thật ([`POST /accounts/import`](#post-accountsimport)) đọc và kiểm tra lại tệp, không tin kết quả xem trước cũ.
 
-Xem trước cho biết một email đã có tài khoản hay chưa. Chỉ người có vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` gọi được API này; người khác nhận 401/403 trước khi server đọc tệp, nên không dò được email.
+Xem trước cho biết một email, một số điện thoại hay một họ tên đã có tài khoản dùng hay chưa, nhưng không bao giờ nêu tài khoản đó. Chỉ người có vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` gọi được API này; quyền được kiểm trước khi server mở tệp, người khác nhận 401/403 không có `rows` hay `warnings`, nên không dò được email, số điện thoại hay họ tên.
+
+### Cảnh báo trùng thông tin (không chặn nhập)
+
+Hai nhân viên có thể cùng họ tên, nên họ tên trùng không phải lỗi: dòng vẫn hợp lệ, vẫn được tính trong `validRows` và vẫn được tạo khi nhập thật. Server chỉ thêm một cảnh báo vào `warnings` của dòng (ô cột B) để quản trị viên kiểm tra mình không tạo trùng một người:
+
+| Cột | Mã cảnh báo | Khi nào |
+|---|---|---|
+|B `fullName`|`FULL_NAME_ALREADY_EXISTS`|Đã có tài khoản nội bộ mang họ tên này, ở bất kỳ trạng thái nào (đang hoạt động, chờ kích hoạt, bị khóa). Message: `Đã có tài khoản nội bộ mang họ tên này. Hãy kiểm tra để không tạo trùng một người.` Không nêu tài khoản nào|
+||`FULL_NAME_DUPLICATED_IN_FILE`|Họ tên có ở hơn một dòng của tệp. **Mọi** dòng trùng đều có cảnh báo, message nêu các dòng còn lại, ví dụ `Họ tên này cũng có ở dòng 4, 6 của tệp. Hãy kiểm tra đó có phải cùng một người không.`|
+
+Như email, họ tên đã có tài khoản thì chỉ báo `FULL_NAME_ALREADY_EXISTS`, kể cả khi tệp cũng lặp lại họ tên đó. Họ tên có lỗi riêng (`REQUIRED`, `TOO_LONG`) hoặc chỉ gồm khoảng trắng không được so, nên không có cảnh báo.
+
+Cách so họ tên: đưa về Unicode NFC (chữ tiếng Việt gõ dạng dấu tổ hợp vẫn là cùng chữ), gộp mỗi chuỗi khoảng trắng thành một dấu cách, bỏ dấu cách đầu/cuối, rồi **không phân biệt chữ hoa/thường** nhưng **phân biệt dấu**: `  nguyễn   văn  an ` trùng `Nguyễn Văn An`, còn `Nguyen Van An` hay `Nguyễn Văn Anh` là họ tên khác. "Khoảng trắng" ở đây đúng là 25 ký tự Unicode White_Space (`\p{IsWhite_Space}` của Java): tab, xuống dòng, tab dọc, form feed, về đầu dòng (U+0009–U+000D), dấu cách U+0020, U+0085, các dấu cách không ngắt U+00A0, U+2007, U+202F (hay gặp khi dán từ Word hoặc trang web), U+1680, U+2000–U+200A, U+2028, U+2029, U+205F và U+3000. Ký tự khác, kể cả ký tự không nhìn thấy như U+180E hay U+200B, được giữ và so như một chữ.
+
+Vị trí dấu thanh cũng tính: kiểu cũ và kiểu mới là chữ khác nhau, kể cả sau NFC, nên `Hoà`/`Hòa`, `Thuý`/`Thúy`, `Thuỷ`/`Thủy` là các họ tên khác và **không** có cảnh báo. Tệp gộp từ nhiều nguồn có thể ghi một người theo hai kiểu, nên quản trị viên vẫn nên tự rà các họ tên có `oa`, `oe`, `uy`.
+
+Họ tên của tài khoản đã có được chuẩn hóa giống vậy ngay trong câu SQL (`normalize(full_name, NFC)`, `regexp_replace(..., :spaces, ' ', 'g')` với đúng 25 ký tự trên, `btrim`, `lower()` ở cả hai vế), vì database không lưu họ tên ở dạng NFC. Server không dùng `[[:space:]]` của PostgreSQL vì lớp này theo locale của database: glibc (image `postgres:16`) không tính U+0085 và các dấu cách không ngắt, PostgreSQL trên Windows lại tính thêm U+180E; dùng lớp này thì trên image `postgres:16` họ tên đã lưu có dấu cách không ngắt sẽ không khớp họ tên trong tệp. `normalize()` cần database mã hóa `UTF8` (image `postgres:16` và PostgreSQL nhúng của test đều là UTF8); `lower()` phụ thuộc locale của database như [tìm câu hỏi phỏng vấn](interview-questions.md): locale `en_US.utf8` mặc định của image đổi đúng chữ tiếng Việt có dấu, một database tạo với locale `C` chỉ đổi được chữ ASCII. Cột `full_name` không có index nên truy vấn đọc họ tên của mọi tài khoản một lần mỗi lần xem trước, chấp nhận được với số tài khoản nội bộ. `fullName` trong response vẫn là giá trị đã đọc (chỉ bỏ khoảng trắng đầu/cuối), không phải dạng dùng để so.
+
+Ba loại "Trùng thông tin" và mã tương ứng, để frontend lọc theo `code` trong cả `errors` và `warnings`:
+
+| Trùng | Đã có tài khoản dùng | Lặp lại trong tệp | Chặn nhập |
+|---|---|---|---|
+|Email|`EMAIL_ALREADY_EXISTS`|`EMAIL_DUPLICATED_IN_FILE`|Có (trong `errors`)|
+|Số điện thoại|`PHONE_ALREADY_EXISTS`|`PHONE_DUPLICATED_IN_FILE`|Có (trong `errors`)|
+|Họ tên|`FULL_NAME_ALREADY_EXISTS`|`FULL_NAME_DUPLICATED_IN_FILE`|Không (trong `warnings`)|
 
 ### Lỗi
 
@@ -300,9 +371,9 @@ const response = await fetch(`${apiBaseUrl}/api/v1/accounts/import`, {
 
 1. Phiên, vai trò `ADMIN` và quyền `USER_ADMIN_WRITE_ALL` như xem trước, kể cả khi tệp không có dòng hợp lệ nào. Người không có quyền nhận 401/403 trước khi server xem tới tệp.
 2. Đọc tệp đúng như bước 2–10 của [xem trước](#server-kiểm-tra-theo-thứ-tự). Gặp lỗi cấp tệp (bảng [Lỗi](#lỗi)) thì cả tệp bị từ chối và **chưa tạo tài khoản nào**, kể cả cho các dòng đúng.
-3. Kiểm tra lại mọi dòng như bước 11 của xem trước, theo database **lúc nhập**. Từ lúc xem trước, có thể đã có người tạo tài khoản trùng email hoặc ngừng áp dụng một phòng ban.
+3. Kiểm tra lại mọi dòng như bước 11 của xem trước, theo database **lúc nhập**. Từ lúc xem trước, có thể đã có người tạo tài khoản trùng email, lưu số điện thoại trùng hoặc ngừng áp dụng một phòng ban.
 4. Đi lần lượt từng dòng theo thứ tự trong tệp:
-   - Dòng có lỗi: bỏ qua, không ghi gì, không gửi email. Dòng vào danh sách `skipped` của báo cáo cùng đúng các lỗi mà xem trước báo cho dòng đó.
+   - Dòng có lỗi: bỏ qua, không ghi gì, không gửi email. Dòng vào danh sách `skipped` của báo cáo cùng đúng các lỗi mà xem trước báo cho dòng đó. Dòng chỉ có cảnh báo (họ tên trùng) là dòng hợp lệ.
    - Dòng hợp lệ: tạo tài khoản bằng chính `AccountProvisioningService` của `POST /accounts`, trong **transaction riêng của dòng đó**. Transaction khóa và kiểm lại phiên, vai trò, quyền của người nhập; khóa phòng ban theo mã (`SELECT ... FOR SHARE`) và kiểm phòng ban còn áp dụng; kiểm email chưa có tài khoản và số điện thoại (nếu có) chưa thuộc tài khoản nào khác; lưu tài khoản ở trạng thái chờ kích hoạt cùng vai trò, phòng ban, số điện thoại và chức danh; tạo token kích hoạt; cuối cùng gửi email mời giống `POST /accounts`. Dòng xong thì được commit ngay, trước khi sang dòng sau, và vào danh sách `created`.
 5. Trả [báo cáo tổng kết](#response-200-báo-cáo-tổng-kết): số dòng thành công, số dòng bị bỏ qua và lý do của từng dòng bị bỏ qua.
 
@@ -315,7 +386,7 @@ Giữa bước 3 và lúc tạo một dòng, dữ liệu vẫn có thể đổi.
 | Tình huống lúc tạo dòng | Lý do trong báo cáo | Kết quả |
 |---|---|---|
 |Email vừa được dùng cho một tài khoản khác, kể cả khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_email_key` quyết định ai tạo trước)|`EMAIL_ALREADY_EXISTS`, ô cột A|Tài khoản đã có giữ nguyên tên, vai trò, mật khẩu; không gửi email. Tiếp tục dòng sau|
-|Số điện thoại đã thuộc một tài khoản khác ở bất kỳ trạng thái nào: từ trước khi nhập (bước 3 chưa kiểm tra số điện thoại), tài khoản vừa tạo từ một dòng phía trên của cùng tệp, hoặc khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_phone_key` của V38 quyết định ai lưu trước)|`PHONE_ALREADY_EXISTS`, ô cột E|Không tạo gì, không gửi email; tài khoản đang dùng số đó giữ nguyên. Tiếp tục dòng sau|
+|Số điện thoại vừa được dùng cho một tài khoản khác sau bước 3, ví dụ người khác vừa lưu số đó vào hồ sơ, kể cả khi hai Admin nhập cùng lúc (ràng buộc unique `user_accounts_phone_key` của V38 quyết định ai lưu trước). Số đã có tài khoản dùng từ trước hoặc lặp lại trong tệp là lỗi dữ liệu của bước 3, không tới bước này|`PHONE_ALREADY_EXISTS`, ô cột E|Không tạo gì, không gửi email; tài khoản đang dùng số đó giữ nguyên. Tiếp tục dòng sau|
 |Phòng ban vừa ngừng áp dụng hoặc đổi mã|`INVALID_DEPARTMENT`, ô cột D|Không tạo gì. Tiếp tục dòng sau|
 |Máy chủ thư trả lời nhưng **từ chối địa chỉ** người nhận (mã SMTP 5xx cho địa chỉ đó, ví dụ hộp thư không tồn tại)|`EMAIL_ADDRESS_REFUSED`, ô cột A|Tài khoản của dòng đó bị hủy như `POST /accounts`. Máy chủ thư vẫn hoạt động với địa chỉ khác nên tiếp tục dòng sau|
 |**Máy chủ thư không hoạt động**: không kết nối được, đăng nhập SMTP sai, hết thời gian chờ, lỗi tạm thời (mã 4xx) hoặc lỗi khác|`ACCOUNT_EMAIL_UNAVAILABLE`, không gắn ô|Tài khoản của dòng đó bị hủy như `POST /accounts`. Server **dừng tạo**: `stoppedAtRow` là số dòng này; mỗi dòng hợp lệ sau đó vào `skipped` với lý do `NOT_ATTEMPTED` (không thử, không ghi gì, không gửi email); các dòng lỗi sau đó vẫn vào `skipped` với lỗi dữ liệu của chúng|
@@ -325,7 +396,7 @@ Server phân biệt hai trường hợp gửi email lỗi theo lỗi mà thư vi
 
 Xem trước không biết máy chủ thư có nhận một địa chỉ hay không, nên dòng bị từ chối địa chỉ vẫn hiện là hợp lệ khi xem trước; chỉ báo cáo nhập mới cho biết lý do `EMAIL_ADDRESS_REFUSED`. Khi đó hãy kiểm tra lại email của dòng.
 
-**Nhập lại cùng tệp là an toàn.** Dòng đã tạo ở lần trước nay có email đã tồn tại nên bị bỏ qua với lý do `EMAIL_ALREADY_EXISTS`: không tạo trùng, không gửi email lần hai, không đổi mật khẩu tạm. Vì vậy sau khi request bị dừng (`stoppedAtRow` khác `null`, 401, 403, mất kết nối), Admin chỉ cần tải lại đúng tệp đó khi hệ thống đã ổn: dòng `stoppedAtRow` và các dòng có lý do `NOT_ATTEMPTED` sẽ được thử lại.
+**Nhập lại cùng tệp là an toàn.** Dòng đã tạo ở lần trước nay có email đã tồn tại nên bị bỏ qua với lý do `EMAIL_ALREADY_EXISTS` (thêm `PHONE_ALREADY_EXISTS` nếu dòng có số điện thoại): không tạo trùng, không gửi email lần hai, không đổi mật khẩu tạm. Vì vậy sau khi request bị dừng (`stoppedAtRow` khác `null`, 401, 403, mất kết nối), Admin chỉ cần tải lại đúng tệp đó khi hệ thống đã ổn: dòng `stoppedAtRow` và các dòng có lý do `NOT_ATTEMPTED` sẽ được thử lại.
 
 ### Response 200: báo cáo tổng kết
 
@@ -421,15 +492,15 @@ Mỗi dòng nhân sự có ở **đúng một** trong hai danh sách. Cả `crea
 
 | Nguồn | Mã | `column` / `cell` | Khi nào | Nhập lại cùng tệp |
 |---|---|---|---|---|
-|Lỗi dữ liệu|Các mã ở [Kiểm tra từng dòng](#kiểm-tra-từng-dòng): `REQUIRED`, `TOO_LONG`, `EMAIL_INVALID`, `EMAIL_ALREADY_EXISTS`, `EMAIL_DUPLICATED_IN_FILE`, `ROLE_UNKNOWN`, `DEPARTMENT_NOT_FOUND`, `DEPARTMENT_INACTIVE`, `PHONE_INVALID`|Ô có lỗi|Dòng sai khi server kiểm tra lại lúc nhập (bước 3). `errors` giống hệt `errors` mà xem trước trả cho dòng đó vào cùng thời điểm, có thể nhiều lỗi (mỗi cột tối đa một)|Vẫn bị bỏ qua cho tới khi sửa tệp hoặc dữ liệu hệ thống|
+|Lỗi dữ liệu|Các mã ở [Kiểm tra từng dòng](#kiểm-tra-từng-dòng): `REQUIRED`, `TOO_LONG`, `EMAIL_INVALID`, `EMAIL_ALREADY_EXISTS`, `EMAIL_DUPLICATED_IN_FILE`, `ROLE_UNKNOWN`, `DEPARTMENT_NOT_FOUND`, `DEPARTMENT_INACTIVE`, `PHONE_INVALID`, `PHONE_ALREADY_EXISTS`, `PHONE_DUPLICATED_IN_FILE`|Ô có lỗi|Dòng sai khi server kiểm tra lại lúc nhập (bước 3). `errors` giống hệt `errors` mà xem trước trả cho dòng đó vào cùng thời điểm, có thể nhiều lỗi (mỗi cột tối đa một)|Vẫn bị bỏ qua cho tới khi sửa tệp hoặc dữ liệu hệ thống|
 |Đổi trong lúc nhập|`EMAIL_ALREADY_EXISTS`|`email`, ô cột A|Email vừa được dùng cho tài khoản khác sau khi server kiểm tra, ví dụ hai Admin nhập cùng lúc. Cùng mã với lỗi dữ liệu và với lỗi 409 của `POST /accounts`; message nói rõ là vừa xảy ra trong lúc nhập|Vẫn bị bỏ qua (email đã có tài khoản)|
-||`PHONE_ALREADY_EXISTS`|`phone`, ô cột E|Số điện thoại đã được dùng cho tài khoản khác lúc tạo dòng này: tài khoản có số từ trước khi nhập (xem trước và bước 3 chưa kiểm tra số điện thoại), tài khoản vừa tạo từ dòng phía trên, hoặc người khác vừa lưu. Cùng mã với lỗi 409 của `PUT /profile` và `PUT /accounts/{id}`; message không nêu tài khoản đang dùng số và không nói số bị dùng từ lúc nào|Vẫn bị bỏ qua cho tới khi sửa số trong tệp|
+||`PHONE_ALREADY_EXISTS`|`phone`, ô cột E|Số điện thoại vừa được dùng cho tài khoản khác sau khi server kiểm tra, ví dụ người khác vừa lưu hoặc hai Admin nhập cùng lúc. Cùng mã với lỗi dữ liệu và với lỗi 409 của `PUT /profile` và `PUT /accounts/{id}`; message nói rõ là vừa xảy ra trong lúc nhập và không nêu tài khoản đang dùng số|Vẫn bị bỏ qua (số đã có tài khoản dùng) cho tới khi sửa số trong tệp|
 ||`INVALID_DEPARTMENT`|`departmentCode`, ô cột D|Phòng ban vừa ngừng áp dụng hoặc đổi mã. Cùng mã với lỗi 400 của `PUT /accounts/{id}`|Bị bỏ qua với `DEPARTMENT_NOT_FOUND` hoặc `DEPARTMENT_INACTIVE`|
 |Gửi email mời|`EMAIL_ADDRESS_REFUSED`|`email`, ô cột A|Máy chủ thư từ chối địa chỉ người nhận|Được thử lại, nhưng nhiều khả năng lại bị từ chối nếu không sửa email|
 ||`ACCOUNT_EMAIL_UNAVAILABLE`|`null` / `null`|Máy chủ thư không hoạt động ở dòng này; dòng này là `stoppedAtRow`. Cùng mã với lỗi 503 của `POST /accounts`|Được thử lại|
 ||`NOT_ATTEMPTED`|`null` / `null`|Dòng hợp lệ nằm sau `stoppedAtRow` nên chưa được thử. Message nêu dòng đã dừng|Được thử lại|
 
-Lý do thuộc nhóm "đổi trong lúc nhập" và "gửi email mời" luôn là lỗi duy nhất của dòng. `column` và `cell` chỉ là `null` khi lý do không nằm ở ô nào (hai mã cuối); lỗi của xem trước luôn có `column` và `cell`. Giao diện có thể ghép `Dòng 4, ô A4: <message>`, hoặc `Dòng 5: <message>` khi `cell` là `null`.
+Cảnh báo (`warnings`) của xem trước không bao giờ là lý do bỏ qua và không có trong báo cáo. Lý do thuộc nhóm "đổi trong lúc nhập" và "gửi email mời" luôn là lỗi duy nhất của dòng. `column` và `cell` chỉ là `null` khi lý do không nằm ở ô nào (hai mã cuối); lỗi của xem trước luôn có `column` và `cell`. Giao diện có thể ghép `Dòng 4, ô A4: <message>`, hoặc `Dòng 5: <message>` khi `cell` là `null`.
 
 Báo cáo không chứa mật khẩu tạm, token kích hoạt hay câu trả lời gốc của máy chủ thư (mã SMTP, tên máy chủ). Server không lưu báo cáo: nó chỉ có trong response này, nên muốn xem lại sau thì frontend phải tự giữ hoặc cho người dùng tải xuống.
 
@@ -443,6 +514,6 @@ Mỗi dòng hợp lệ được băm mật khẩu tạm (BCrypt) và gửi một
 
 Mọi ô trong tệp mẫu là ô chữ: không có công thức, macro hay liên kết ngoài. Tệp được tạo mới trong bộ nhớ ở mỗi yêu cầu, không ghi ra đĩa và không chứa dữ liệu tài khoản hoặc phòng ban, chỉ có tên các vai trò.
 
-Khi đọc tệp tải lên, server không tính công thức và không chạy macro. Ngoài giới hạn 2 MB và 10 MB sau giải nén, Apache POI vẫn áp dụng các kiểm tra mặc định của `ZipSecureFile`, ví dụ từ chối tỉ lệ nén bất thường. Xem trước không mở transaction nên không giữ kết nối database trong lúc đọc tệp; hai truy vấn kiểm tra email và phòng ban chỉ chạy sau khi đọc xong.
+Khi đọc tệp tải lên, server không tính công thức và không chạy macro. Ngoài giới hạn 2 MB và 10 MB sau giải nén, Apache POI vẫn áp dụng các kiểm tra mặc định của `ZipSecureFile`, ví dụ từ chối tỉ lệ nén bất thường. Xem trước không mở transaction nên không giữ kết nối database trong lúc đọc tệp; các truy vấn kiểm tra email, số điện thoại, họ tên và phòng ban chỉ chạy sau khi đọc xong.
 
-API nhập không thêm migration riêng; từ V38, cột `phone` của `user_accounts` có ràng buộc unique `user_accounts_phone_key` (xem [hồ sơ cá nhân](profile.md), gồm câu SQL kiểm tra số trùng trước khi deploy). Cả ba API khóa ngắn dòng `user_accounts` và `auth_sessions` của chính người gọi để kiểm quyền rồi commit ngay; ngoài ra tải tệp mẫu chỉ đọc bảng `roles` của V3, xem trước chỉ đọc quyền của người gọi, cột `email` của `user_accounts` và cột `code`, `active` của `departments`. Nhập thật ghi các bảng mà `POST /accounts` vẫn ghi (`user_accounts`, `user_roles`, `account_activation_tokens`), thêm các cột hồ sơ `department_id`, `phone`, `display_title` của V5, và chỉ khóa đọc (`FOR SHARE`) dòng `departments` được dùng. Tệp và nội dung tệp không được lưu ở đâu. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.
+API nhập không thêm migration riêng; từ V38, cột `phone` của `user_accounts` có ràng buộc unique `user_accounts_phone_key` (xem [hồ sơ cá nhân](profile.md), gồm câu SQL kiểm tra số trùng trước khi deploy). Cả ba API khóa ngắn dòng `user_accounts` và `auth_sessions` của chính người gọi để kiểm quyền rồi commit ngay; ngoài ra tải tệp mẫu chỉ đọc bảng `roles` của V3, xem trước chỉ đọc quyền của người gọi, các cột `email`, `phone`, `full_name` của `user_accounts` và cột `code`, `active` của `departments`. Nhập thật ghi các bảng mà `POST /accounts` vẫn ghi (`user_accounts`, `user_roles`, `account_activation_tokens`), thêm các cột hồ sơ `department_id`, `phone`, `display_title` của V5, và chỉ khóa đọc (`FOR SHARE`) dòng `departments` được dùng. Tệp và nội dung tệp không được lưu ở đâu. Backend dùng thư viện Apache POI `poi-ooxml` 5.5.1 để tạo và đọc tệp `.xlsx`.

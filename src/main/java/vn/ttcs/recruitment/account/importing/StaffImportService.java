@@ -55,8 +55,8 @@ public class StaffImportService {
 
     // Preview only reads: it creates no account and stores neither the file nor its rows. There is no
     // transaction, so no database connection is held while the workbook is parsed: the access check before it
-    // commits at once, and checking the rows afterwards runs two short read-only queries. Accounts or departments
-    // may still change before the real import.
+    // commits at once, and checking the rows afterwards runs at most four short read-only queries (emails, phones
+    // and names of accounts, departments). Accounts or departments may still change before the real import.
     public StaffImportPreview preview(Jwt jwt, MultipartFile file) {
         requireImportAccess(jwt);
         List<StaffImportRow> rows = reader.read(uploadedXlsx(file));
@@ -78,7 +78,8 @@ public class StaffImportService {
         Integer stoppedAtRow = null;
         for (StaffImportCheckedRow row : rows) {
             if (!row.valid()) {
-                // The same cell errors the preview shows for this row.
+                // The same cell errors the preview shows for this row. Warnings, such as a name another account
+                // has, never skip a row, so a row with only warnings is created like any valid row.
                 skipped.add(SkippedRow.of(row, row.errors()));
                 continue;
             }
@@ -96,9 +97,8 @@ public class StaffImportService {
                 // Since the rows were checked, someone created an account with this email.
                 skipped.add(SkippedRow.of(row, StaffImportRowError.emailTaken(row.rowNumber())));
             } catch (PhoneAlreadyUsedException exception) {
-                // Another account has this phone number: one that had it before the import (the row check does not
-                // look at phones yet), one created from a row above, or one saved by someone else meanwhile. Only
-                // this row is affected, so the next rows are still tried.
+                // Since the rows were checked, someone saved this phone number for another account. Only this row is
+                // affected, so the next rows are still tried.
                 skipped.add(SkippedRow.of(row, StaffImportRowError.phoneTaken(row.rowNumber())));
             } catch (InvalidDepartmentException exception) {
                 // Since the rows were checked, someone stopped the department or changed its code.

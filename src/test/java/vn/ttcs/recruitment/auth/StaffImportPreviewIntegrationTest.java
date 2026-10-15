@@ -158,6 +158,8 @@ class StaffImportPreviewIntegrationTest {
                 "phone", "0912345678", "displayTitle", "Chuyên viên tuyển dụng"));
         first.put("valid", true);
         first.put("errors", List.of());
+        // Warnings are always there too: an empty list when nothing needs a look, never missing or null.
+        first.put("warnings", List.of());
         assertThat(json.readTree(json.writeValueAsString(first))).isEqualTo(body.path("rows").get(0));
         JsonNode second = body.path("rows").get(1);
         assertThat(second.path("rowNumber").asInt()).isEqualTo(3);
@@ -475,7 +477,8 @@ class StaffImportPreviewIntegrationTest {
         StaffImportPreview preview = service.preview(admin, file);
         assertThat(preview.totalRows()).isEqualTo(1);
         assertThat(preview.rows()).containsExactly(
-                new StaffImportCheckedRow(2, "a@example.com", "A", List.of("RECRUITER"), null, null, null, true, List.of()));
+                new StaffImportCheckedRow(2, "a@example.com", "A", List.of("RECRUITER"), null, null, null, true, List.of(),
+                        List.of()));
 
         // Access is checked first, so a caller without access learns nothing about the file, not even that it is missing.
         UUID hrId = account("hr@example.test", Set.of(Role.HR_MANAGER));

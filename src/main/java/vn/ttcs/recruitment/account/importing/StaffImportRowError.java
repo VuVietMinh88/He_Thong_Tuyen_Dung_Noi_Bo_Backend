@@ -8,15 +8,16 @@ import static vn.ttcs.recruitment.account.importing.StaffImportColumn.EMAIL;
 import static vn.ttcs.recruitment.account.importing.StaffImportColumn.PHONE;
 
 /**
- * One problem of one row of the staff sheet: a wrong cell value found by {@link StaffImportValidator}, or the
- * reason why the import did not create the account of a valid row. A row has at most one error per column.
+ * One problem or warning of one row of the staff sheet: a wrong cell value found by {@link StaffImportValidator},
+ * a cell value it asks the administrator to look at without stopping the import (a warning), or the reason why the
+ * import did not create the account of a valid row. A row has at most one error and one warning per column.
  *
  * @param rowNumber the row number Excel shows on the left of the sheet
  * @param column    the stable column key of {@link StaffImportColumn}, for example {@code email}; null when the
  *                  reason is not in any cell (the mail server was not working, or the row was not tried)
  * @param cell      the cell address administrators can type into Excel's Name Box, for example {@code A3}; null
  *                  together with {@code column}
- * @param code      a stable error code for the frontend, for example {@code EMAIL_INVALID}
+ * @param code      a stable error or warning code for the frontend, for example {@code EMAIL_INVALID}
  * @param message   a Vietnamese explanation that can be shown as it is
  */
 public record StaffImportRowError(int rowNumber, String column, String cell, String code, String message) {
@@ -36,12 +37,11 @@ public record StaffImportRowError(int rowNumber, String column, String cell, Str
                 + "nhập, nên không tạo tài khoản mới cho dòng này.");
     }
 
-    // The row check does not look at phones yet, so the number may have belonged to another account before the
-    // import as well as been taken during it (by a row above or by someone else). The message fits both and, like
-    // the 409, never says which account has the number.
+    // The row check already refuses a number that an account had before the import or that two rows share, so this
+    // number was taken by someone else after the check. Like the 409, the message never says which account has it.
     static StaffImportRowError phoneTaken(int rowNumber) {
-        return of(rowNumber, PHONE, PhoneAlreadyUsedException.CODE, "Số điện thoại đã được dùng cho một tài khoản "
-                + "khác, nên không tạo tài khoản mới cho dòng này.");
+        return of(rowNumber, PHONE, PhoneAlreadyUsedException.CODE, "Số điện thoại vừa được dùng cho một tài khoản "
+                + "khác trong lúc nhập, nên không tạo tài khoản mới cho dòng này.");
     }
 
     static StaffImportRowError departmentUnavailable(int rowNumber, String departmentCode) {

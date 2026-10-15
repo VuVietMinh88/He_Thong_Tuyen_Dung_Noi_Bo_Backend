@@ -37,15 +37,18 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.sql.Timestamp;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -120,9 +123,11 @@ class StaffImportRowValidationIntegrationTest {
         assertThat(body.path("invalidRows").asInt()).isZero();
         for (JsonNode row : body.path("rows")) {
             assertThat(row.path("valid").asBoolean()).as(row.toString()).isTrue();
-            // A valid row has an empty list, never a missing or null one.
+            // A valid row has empty lists, never missing or null ones.
             assertThat(row.path("errors").isArray()).as(row.toString()).isTrue();
             assertThat(row.path("errors")).isEmpty();
+            assertThat(row.path("warnings").isArray()).as(row.toString()).isTrue();
+            assertThat(row.path("warnings")).isEmpty();
         }
         // Checking only reads: no account, role, activation token (so no invitation e-mail) or department changes.
         assertThat(snapshot()).isEqualTo(before);
@@ -268,7 +273,8 @@ class StaffImportRowValidationIntegrationTest {
 
     @Test
     void phoneMustBeAVietnameseMobileOrLandlineNumber() throws Exception {
-        List<Object> valid = List.of("0912345678", "+84912345678", "0312345678", "02123456789");
+        // Four different numbers: one number in two rows would be PHONE_DUPLICATED_IN_FILE.
+        List<Object> valid = List.of("0912345678", "+84987654321", "0312345678", "02123456789");
         List<Object> invalid = List.of("0212345678", "0912 345 678", 912345678, "0112345678", "091234567a",
                 "09123456789");
         List<Object[]> rows = new ArrayList<>();
@@ -284,13 +290,229 @@ class StaffImportRowValidationIntegrationTest {
         for (int index = 0; index < valid.size(); index++) {
             assertThat(codes(excelRow(body, index + 2))).as(valid.get(index).toString()).isEmpty();
         }
-        assertThat(excelRow(body, 3).path("phone").asText()).isEqualTo("0912345678");
+        assertThat(excelRow(body, 3).path("phone").asText()).isEqualTo("0987654321");
         for (int index = valid.size(); index < rows.size(); index++) {
             assertThat(codes(excelRow(body, index + 2))).as(invalid.get(index - valid.size()).toString())
                     .containsExactly("E" + (index + 2) + " PHONE_INVALID");
         }
         assertThat(message(excelRow(body, valid.size() + 2), "phone"))
                 .contains("10 chữ số", "03, 05, 07, 08, 09", "11 chữ số bắt đầu bằng 02", "định dạng ô là Text");
+    }
+
+    @Test
+    void aPhoneAnotherAccountHasOrAnotherRowRepeatsIsAnError() throws Exception {
+        // Like PUT /profile, a number of an account in any status is taken: active, waiting for activation, locked.
+        Account active = new Account("active@example.test", "Active", fixturePasswordHash, Set.of(Role.RECRUITER), START);
+        active.updateProfile("Active", "0912345678", null);
+        accounts.saveAndFlush(active);
+        Account pending = Account.pendingActivation("pending@example.test", "Pending", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START);
+        pending.updateProfile("Pending", "0901234567", null);
+        accounts.saveAndFlush(pending);
+        Account locked = new Account("locked@example.test", "Locked", fixturePasswordHash, Set.of(Role.RECRUITER), START);
+        locked.updateProfile("Locked", "02812345678", null);
+        UUID lockedId = accounts.saveAndFlush(locked).getId();
+        lock(lockedId);
+        byte[] file = staffFile(
+                row("r2@example.com", "R2", "RECRUITER", null, "0912345678"),
+                row("r3@example.com", "R3", "RECRUITER", null, "+84901234567"),
+                row("r4@example.com", "R4", "RECRUITER", null, "02812345678"),
+                row("r5@example.com", "R5", "RECRUITER", null, "0987654321"),
+                row("r6@example.com", "R6", "RECRUITER", null, "+84987654321"),
+                row("r7@example.com", "R7", "RECRUITER", null, "0912345678"),
+                row("r8@example.com", "R8", "RECRUITER", null, "0987654321"),
+                row("r9@example.com", "R9", "RECRUITER", null, "0987 654 321"),
+                row("r10@example.com", "R10", "RECRUITER", null, 987654321),
+                row("r11@example.com", "R11", "RECRUITER", null, "0977777777"));
+        Map<String, List<Map<String, Object>>> before = snapshot();
+
+        JsonNode body = expectOk(upload(adminToken, file));
+
+        // +84 is the same number as 0, as in the database. A number an account has is reported as such, even when
+        // the file also repeats it (rows 2 and 7).
+        for (int rowNumber : List.of(2, 3, 4, 7)) {
+            assertThat(codes(excelRow(body, rowNumber))).containsExactly("E" + rowNumber + " PHONE_ALREADY_EXISTS");
+        }
+        assertThat(message(excelRow(body, 2), "phone")).isEqualTo("Số điện thoại đã được dùng cho một tài khoản khác.");
+        // Every row of a repeated number is marked and names the other rows.
+        for (int rowNumber : List.of(5, 6, 8)) {
+            assertThat(codes(excelRow(body, rowNumber))).containsExactly("E" + rowNumber + " PHONE_DUPLICATED_IN_FILE");
+        }
+        assertThat(message(excelRow(body, 5), "phone"))
+                .isEqualTo("Số điện thoại này cũng có ở dòng 6, 8 của tệp. Mỗi số điện thoại chỉ dùng cho một người.");
+        assertThat(message(excelRow(body, 6), "phone")).contains("dòng 5, 8 ");
+        assertThat(message(excelRow(body, 8), "phone")).contains("dòng 5, 6 ");
+        // A wrong number is only wrong: it is neither looked up nor counted as a repeat.
+        assertThat(codes(excelRow(body, 9))).containsExactly("E9 PHONE_INVALID");
+        assertThat(codes(excelRow(body, 10))).containsExactly("E10 PHONE_INVALID");
+        assertThat(codes(excelRow(body, 11))).isEmpty();
+        assertThat(body.path("validRows").asInt()).isEqualTo(1);
+        assertThat(body.path("invalidRows").asInt()).isEqualTo(9);
+        // Nothing says which account has a number.
+        assertThat(body.toString()).doesNotContain("active@example.test", "pending@example.test", "locked@example.test",
+                "Active", "Pending", "Locked");
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void aNameRepeatedInTheFileWarnsOnEveryRowAndKeepsThemValid() throws Exception {
+        String decomposed = Normalizer.normalize("NGUYỄN VĂN AN", Normalizer.Form.NFD);
+        assertThat(decomposed).isNotEqualTo("NGUYỄN VĂN AN");
+        byte[] file = staffFile(
+                row("an1@example.com", "Nguyễn Văn An", "RECRUITER"),
+                row("an2@example.com", "  nguyễn   văn  an ", "RECRUITER"),
+                row("an3@example.com", decomposed, "INTERVIEWER"),
+                row("an4@example.com", "Nguyễn Văn\nAn", "APPROVER"),
+                row("an5@example.com", "Nguyen Van An", "RECRUITER"),
+                row("anh@example.com", "Nguyễn Văn Anh", "RECRUITER"),
+                row("hoa1@example.com", "Lê Thị Hoà", "RECRUITER"),
+                row("hoa2@example.com", "Lê Thị Hòa", "RECRUITER"));
+        // The old and the new place of the tone mark are other letters, in NFC too.
+        assertThat(Normalizer.normalize("Lê Thị Hoà", Normalizer.Form.NFC))
+                .isNotEqualTo(Normalizer.normalize("Lê Thị Hòa", Normalizer.Form.NFC));
+        Map<String, List<Map<String, Object>>> before = snapshot();
+
+        JsonNode body = expectOk(upload(adminToken, file));
+
+        // Warnings never make a row invalid: every row can still be imported.
+        assertThat(body.path("validRows").asInt()).isEqualTo(8);
+        assertThat(body.path("invalidRows").asInt()).isZero();
+        // Upper/lower case, the spaces and line breaks between the words and the way a letter is encoded do not
+        // make another name. Every row of the name is marked and names the other rows.
+        assertThat(excelRow(body, 2).path("warnings")).isEqualTo(json.readTree(json.writeValueAsString(List.of(
+                error(2, "fullName", "B2", "FULL_NAME_DUPLICATED_IN_FILE",
+                        "Họ tên này cũng có ở dòng 3, 4, 5 của tệp. Hãy kiểm tra đó có phải cùng một người không.")))));
+        assertThat(warningMessage(excelRow(body, 3))).contains("dòng 2, 4, 5 ");
+        assertThat(warningMessage(excelRow(body, 4))).contains("dòng 2, 3, 5 ");
+        assertThat(warningMessage(excelRow(body, 5))).contains("dòng 2, 3, 4 ");
+        for (int rowNumber = 2; rowNumber <= 5; rowNumber++) {
+            assertThat(codes(excelRow(body, rowNumber))).isEmpty();
+            assertThat(warnings(excelRow(body, rowNumber)))
+                    .containsExactly("B" + rowNumber + " FULL_NAME_DUPLICATED_IN_FILE");
+        }
+        // The name is still returned as it was read; only the comparison ignores those differences.
+        assertThat(excelRow(body, 3).path("fullName").asText()).isEqualTo("nguyễn   văn  an");
+        // The accents count, and a longer name is another name. So is a name with the tone mark at its other place.
+        assertThat(warnings(excelRow(body, 6))).isEmpty();
+        assertThat(warnings(excelRow(body, 7))).isEmpty();
+        assertThat(warnings(excelRow(body, 8))).isEmpty();
+        assertThat(warnings(excelRow(body, 9))).isEmpty();
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void aNameThatAnAccountAlreadyHasWarnsWhateverTheAccountStatus() throws Exception {
+        accounts.saveAndFlush(new Account("bich@example.test", "Trần Thị Bích", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START));
+        accounts.saveAndFlush(Account.pendingActivation("cuong@example.test", "Lê Văn Cường", fixturePasswordHash,
+                Set.of(Role.INTERVIEWER), START));
+        UUID locked = accounts.saveAndFlush(new Account("duc@example.test", "Phạm Minh Đức", fixturePasswordHash,
+                Set.of(Role.APPROVER), START)).getId();
+        lock(locked);
+        // Stored names are not normalized: combining marks and extra spaces still give the same name.
+        accounts.saveAndFlush(new Account("ha@example.test", Normalizer.normalize(" Hoàng  Thu\tHà ", Normalizer.Form.NFD),
+                fixturePasswordHash, Set.of(Role.RECRUITER), START));
+        byte[] file = staffFile(
+                row("bich2@example.com", "TRẦN THỊ BÍCH", "RECRUITER"),
+                row("cuong2@example.com", "Lê Văn Cường", "RECRUITER"),
+                row("duc2@example.com", "Phạm Minh Đức", "RECRUITER"),
+                row("ha2@example.com", "hoàng thu hà", "RECRUITER"),
+                row("bich3@example.com", "Trần Thị Bích", "RECRUITER"),
+                row("tran@example.com", "Tran Thi Bich", "RECRUITER"),
+                row("ngoc@example.com", "Trần Thị Bích Ngọc", "RECRUITER"));
+        Map<String, List<Map<String, Object>>> before = snapshot();
+
+        JsonNode body = expectOk(upload(adminToken, file));
+
+        assertThat(body.path("validRows").asInt()).isEqualTo(7);
+        // Active, waiting for activation, locked: any account with the name counts. As for the email, a name an
+        // account has is reported instead of the repeat in the file (rows 2 and 6).
+        for (int rowNumber = 2; rowNumber <= 6; rowNumber++) {
+            assertThat(codes(excelRow(body, rowNumber))).isEmpty();
+            assertThat(warnings(excelRow(body, rowNumber)))
+                    .containsExactly("B" + rowNumber + " FULL_NAME_ALREADY_EXISTS");
+        }
+        assertThat(warningMessage(excelRow(body, 2)))
+                .isEqualTo("Đã có tài khoản nội bộ mang họ tên này. Hãy kiểm tra để không tạo trùng một người.");
+        // Without the accents it is another name, and so is a longer one.
+        assertThat(warnings(excelRow(body, 7))).isEmpty();
+        assertThat(warnings(excelRow(body, 8))).isEmpty();
+        // The warning never says which account has the name.
+        assertThat(body.toString()).doesNotContain("bich@example.test", "cuong@example.test", "duc@example.test",
+                "ha@example.test");
+        assertThat(snapshot()).isEqualTo(before);
+    }
+
+    @Test
+    void storedNamesAndNamesOfTheFileCountTheSameCharactersAsSpaces() throws Exception {
+        // Every Unicode White_Space character, as Java lists them, U+0085 and the no-break spaces U+00A0, U+2007,
+        // U+202F included. PostgreSQL's [[:space:]] follows the database locale and glibc's leaves those out, so a
+        // stored name pasted with them must still be found.
+        Pattern whiteSpace = Pattern.compile("\\p{IsWhite_Space}");
+        StringBuilder builder = new StringBuilder();
+        for (int code = 0; code <= Character.MAX_CODE_POINT; code++) {
+            if (whiteSpace.matcher(Character.toString(code)).matches()) {
+                builder.appendCodePoint(code);
+            }
+        }
+        String spaces = builder.toString();
+        assertThat(spaces).contains(String.valueOf((char) 0x85), String.valueOf((char) 0xA0),
+                String.valueOf((char) 0x2007), String.valueOf((char) 0x202F));
+        accounts.saveAndFlush(new Account("lan@example.test", spaces + "Đỗ" + spaces + "Thị" + spaces + "Lan" + spaces,
+                fixturePasswordHash, Set.of(Role.RECRUITER), START));
+        // U+180E is no longer a space in Unicode, so a name of the file keeps it, and so does a stored name, although
+        // some database locales (Windows') still count it as a space.
+        String vowelSeparator = String.valueOf((char) 0x180E);
+        assertThat(spaces).doesNotContain(vowelSeparator);
+        accounts.saveAndFlush(new Account("minh@example.test", "Vũ" + vowelSeparator + "Minh", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START));
+        // The spaces beyond ASCII between the words of the file too (vertical tab and form feed cannot be in a cell).
+        String unicodeSpaces = spaces.replaceAll("\\p{ASCII}", "");
+        byte[] file = staffFile(
+                row("lan2@example.com", "Đỗ Thị Lan", "RECRUITER"),
+                row("lan3@example.com", "Đỗ" + unicodeSpaces + "thị\t" + unicodeSpaces + "LAN", "RECRUITER"),
+                row("minh2@example.com", "Vũ" + vowelSeparator + "Minh", "RECRUITER"),
+                row("minh3@example.com", "Vũ Minh", "RECRUITER"));
+
+        JsonNode body = expectOk(upload(adminToken, file));
+
+        for (int rowNumber = 2; rowNumber <= 4; rowNumber++) {
+            assertThat(warnings(excelRow(body, rowNumber))).as("row " + rowNumber)
+                    .containsExactly("B" + rowNumber + " FULL_NAME_ALREADY_EXISTS");
+        }
+        assertThat(warnings(excelRow(body, 5))).isEmpty();
+        assertThat(body.path("validRows").asInt()).isEqualTo(4);
+    }
+
+    @Test
+    void aNameWithItsOwnErrorGetsNoWarning() throws Exception {
+        String longest = "Ễ".repeat(255);
+        String tooLong = "Ễ".repeat(256);
+        // A no-break space, which the reader does not trim.
+        String invisible = String.valueOf((char) 0xA0);
+        byte[] file = staffFile(
+                row("a@example.com", tooLong, "RECRUITER"),
+                row("b@example.com", tooLong, "RECRUITER"),
+                row("c@example.com", null, "RECRUITER"),
+                row("d@example.com", "   ", "RECRUITER"),
+                row("e@example.com", longest, "RECRUITER"),
+                row("f@example.com", longest.toLowerCase(Locale.ROOT), "RECRUITER"),
+                row("g@example.com", invisible, "RECRUITER"),
+                row("h@example.com", invisible + invisible, "RECRUITER"));
+
+        JsonNode body = expectOk(upload(adminToken, file));
+
+        assertThat(codes(excelRow(body, 2))).containsExactly("B2 TOO_LONG");
+        assertThat(codes(excelRow(body, 3))).containsExactly("B3 TOO_LONG");
+        assertThat(codes(excelRow(body, 4))).containsExactly("B4 REQUIRED");
+        assertThat(codes(excelRow(body, 5))).containsExactly("B5 REQUIRED");
+        // Neither a wrong nor an invisible name is compared.
+        for (int rowNumber : List.of(2, 3, 4, 5, 8, 9)) {
+            assertThat(warnings(excelRow(body, rowNumber))).as("row " + rowNumber).isEmpty();
+        }
+        // The longest allowed name still is.
+        assertThat(warnings(excelRow(body, 6))).containsExactly("B6 FULL_NAME_DUPLICATED_IN_FILE");
+        assertThat(warnings(excelRow(body, 7))).containsExactly("B7 FULL_NAME_DUPLICATED_IN_FILE");
     }
 
     @Test
@@ -330,25 +552,31 @@ class StaffImportRowValidationIntegrationTest {
     }
 
     @Test
-    void onlyAdministratorsWithUserAdminWriteLearnWhichEmailsHaveAccounts() throws Exception {
-        accounts.saveAndFlush(new Account("hr@example.test", "HR", fixturePasswordHash, Set.of(Role.HR_MANAGER), START));
+    void onlyAdministratorsWithUserAdminWriteLearnWhichEmailsPhonesAndNamesHaveAccounts() throws Exception {
+        Account hr = new Account("hr@example.test", "HR", fixturePasswordHash, Set.of(Role.HR_MANAGER), START);
+        hr.updateProfile("HR", "0912345678", null);
+        accounts.saveAndFlush(hr);
         accounts.saveAndFlush(new Account("recruiter@example.test", "Recruiter", fixturePasswordHash,
                 Set.of(Role.RECRUITER), START));
         String hrToken = login("hr@example.test").path("accessToken").asText();
         String recruiterToken = login("recruiter@example.test").path("accessToken").asText();
-        byte[] file = staffFile(row("hr@example.test", "Someone", "RECRUITER"));
+        byte[] file = staffFile(row("hr@example.test", "HR", "RECRUITER", null, "0912345678"));
 
         for (String token : List.of(hrToken, recruiterToken)) {
             var response = upload(token, file);
             assertThat(response.statusCode()).as(response.body()).isEqualTo(403);
             assertThat(json.readTree(response.body()).path("code").asText()).isEqualTo("FORBIDDEN");
-            assertThat(response.body()).doesNotContain("EMAIL_ALREADY_EXISTS").doesNotContain("rows");
+            assertThat(response.body()).doesNotContain("EMAIL_ALREADY_EXISTS", "PHONE_ALREADY_EXISTS",
+                    "FULL_NAME_ALREADY_EXISTS", "rows", "warnings");
         }
         var anonymous = upload(null, file);
         assertThat(anonymous.statusCode()).isEqualTo(401);
-        assertThat(anonymous.body()).doesNotContain("EMAIL_ALREADY_EXISTS");
+        assertThat(anonymous.body()).doesNotContain("EMAIL_ALREADY_EXISTS", "PHONE_ALREADY_EXISTS",
+                "FULL_NAME_ALREADY_EXISTS", "warnings");
 
-        assertThat(codes(excelRow(expectOk(upload(adminToken, file)), 2))).containsExactly("A2 EMAIL_ALREADY_EXISTS");
+        JsonNode row = excelRow(expectOk(upload(adminToken, file)), 2);
+        assertThat(codes(row)).containsExactly("A2 EMAIL_ALREADY_EXISTS", "E2 PHONE_ALREADY_EXISTS");
+        assertThat(warnings(row)).containsExactly("B2 FULL_NAME_ALREADY_EXISTS");
     }
 
     @Test
@@ -362,9 +590,10 @@ class StaffImportRowValidationIntegrationTest {
 
         assertThat(preview).isEqualTo(new StaffImportPreview(2, 1, 1, List.of(
                 new StaffImportCheckedRow(2, "admin@example.test", "A", List.of("RECRUITER"), null, null, null, false,
-                        List.of(new StaffImportRowError(2, "email", "A2", "EMAIL_ALREADY_EXISTS", EMAIL_USED))),
+                        List.of(new StaffImportRowError(2, "email", "A2", "EMAIL_ALREADY_EXISTS", EMAIL_USED)),
+                        List.of()),
                 new StaffImportCheckedRow(3, "b@example.com", "B", List.of("RECRUITER"), "HR", null, null, true,
-                        List.of()))));
+                        List.of(), List.of()))));
     }
 
     private static Map<String, Object> error(int rowNumber, String column, String cell, String code, String message) {
@@ -386,6 +615,22 @@ class StaffImportRowValidationIntegrationTest {
         }
         assertThat(row.path("valid").asBoolean()).isEqualTo(codes.isEmpty());
         return codes;
+    }
+
+    // "B3 FULL_NAME_DUPLICATED_IN_FILE" for each warning of the row, in response order. The list is never missing.
+    private static List<String> warnings(JsonNode row) {
+        assertThat(row.path("warnings").isArray()).as(row.toString()).isTrue();
+        List<String> warnings = new ArrayList<>();
+        for (JsonNode warning : row.path("warnings")) {
+            assertThat(warning.path("rowNumber").asInt()).isEqualTo(row.path("rowNumber").asInt());
+            warnings.add(warning.path("cell").asText() + " " + warning.path("code").asText());
+        }
+        return warnings;
+    }
+
+    private static String warningMessage(JsonNode row) {
+        assertThat(row.path("warnings")).as(row.toString()).hasSize(1);
+        return row.path("warnings").path(0).path("message").asText();
     }
 
     private static String message(JsonNode row, String column) {
@@ -424,6 +669,12 @@ class StaffImportRowValidationIntegrationTest {
     private void department(String code, boolean active) {
         jdbc.update("INSERT INTO departments (id, code, name, manager_user_id, active, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 UUID.randomUUID(), code, "Phòng " + code, adminId, active, Timestamp.from(START));
+    }
+
+    // An administrator locks the account, as PUT /accounts/{id}/lock does.
+    private void lock(UUID accountId) {
+        jdbc.update("UPDATE user_accounts SET admin_locked_at = ?, admin_lock_reason = 'Kiểm tra', admin_locked_by = ? "
+                + "WHERE id = ?", Timestamp.from(START), adminId, accountId);
     }
 
     private UUID sessionOf(UUID userId) {

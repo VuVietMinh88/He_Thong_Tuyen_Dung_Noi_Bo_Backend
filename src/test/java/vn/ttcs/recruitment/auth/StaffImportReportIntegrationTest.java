@@ -74,8 +74,8 @@ class StaffImportReportIntegrationTest {
     private static final List<String> HEADERS = List.of(
             "Email", "Họ và tên", "Vai trò", "Mã phòng ban", "Số điện thoại", "Chức danh hiển thị");
     private static final LocalSmtpServer SMTP = startSmtp();
-    private static final String PHONE_TAKEN =
-            "Số điện thoại đã được dùng cho một tài khoản khác, nên không tạo tài khoản mới cho dòng này.";
+    private static final String PHONE_TAKEN = "Số điện thoại vừa được dùng cho một tài khoản khác trong lúc nhập, "
+            + "nên không tạo tài khoản mới cho dòng này.";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -277,37 +277,76 @@ class StaffImportReportIntegrationTest {
     }
 
     @Test
-    void aPhoneRepeatedInTheFileGoesToTheFirstRowAndTheLaterRowIsSkipped(CapturedOutput output) throws Exception {
-        // The row check does not look at phones yet, so both rows are valid when the import checks them. Row 3 gives
-        // the number of row 2 in its +84 form, which is the same number once normalized.
+    void rowsWithARepeatedOrTakenPhoneAreSkippedWithThePreviewErrors(CapturedOutput output) throws Exception {
+        Account owner = Account.pendingActivation("owner@example.com", "Chủ số điện thoại", fixturePasswordHash,
+                Set.of(Role.INTERVIEWER), START);
+        owner.updateProfile("Chủ số điện thoại", "0909090909", null);
+        accounts.saveAndFlush(owner);
+        // Row 3 gives the number of row 2 in its +84 form, which is the same number once normalized. Neither row
+        // gets the number: the administrator decides whose it is.
         byte[] file = staffFile(
                 row("an@example.com", "An", "RECRUITER", null, "0912345678"),
                 row("binh@example.com", "Bình", "RECRUITER", null, "+84912345678"),
-                row("cuong@example.com", "Cường", "RECRUITER", null, "0987654321"));
+                row("cuong@example.com", "Cường", "RECRUITER", null, "0987654321"),
+                row("dung@example.com", "Dũng", "RECRUITER", null, "0909090909"));
+        JsonNode preview = expectOk(upload(PREVIEW, adminToken, file));
 
         JsonNode report = expectOk(upload(IMPORT, adminToken, file));
 
-        assertSummary(report, 3, 2, 1);
+        assertSummary(report, 4, 1, 3);
         assertThat(report.path("stoppedAtRow").isNull()).isTrue();
-        assertThat(rowNumbers(report, "created")).containsExactly(2, 4);
-        JsonNode repeated = onlyError(skippedRow(report, 3));
-        assertThat(repeated.path("column").asText()).isEqualTo("phone");
-        assertThat(repeated.path("cell").asText()).isEqualTo("E3");
-        assertThat(repeated.path("code").asText()).isEqualTo("PHONE_ALREADY_EXISTS");
-        assertThat(repeated.path("message").asText()).isEqualTo(PHONE_TAKEN);
-
-        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0912345678'", String.class))
-                .containsExactly("an@example.com");
-        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com", "cuong@example.com");
-        // One invitation for the repeated number, to the row that got it, and one for the row after.
-        List<String> recipients = new ArrayList<>();
-        for (var message : SMTP.messages()) {
-            recipients.add(message.getAllRecipients()[0].toString());
+        assertThat(rowNumbers(report, "created")).containsExactly(4);
+        assertThat(rowNumbers(report, "skipped")).containsExactly(2, 3, 5);
+        for (JsonNode skipped : report.path("skipped")) {
+            JsonNode previewRow = previewRow(preview, skipped.path("rowNumber").asInt());
+            assertThat(skipped.path("errors")).isEqualTo(previewRow.path("errors"));
         }
-        assertThat(recipients).containsExactlyInAnyOrder("an@example.com", "cuong@example.com");
-        // Row 3 was refused by the check before any write, so the unique constraint (whose error Hibernate logs with
-        // the number) was never reached.
+        assertThat(onlyError(skippedRow(report, 2)).path("cell").asText()).isEqualTo("E2");
+        assertThat(codes(skippedRow(report, 2))).containsExactly("PHONE_DUPLICATED_IN_FILE");
+        assertThat(codes(skippedRow(report, 3))).containsExactly("PHONE_DUPLICATED_IN_FILE");
+        assertThat(codes(skippedRow(report, 5))).containsExactly("PHONE_ALREADY_EXISTS");
+        assertThat(onlyError(skippedRow(report, 5)).path("message").asText())
+                .isEqualTo("Số điện thoại đã được dùng cho một tài khoản khác.");
+        assertThat(report.toString()).doesNotContain("owner@example.com", "Chủ số điện thoại");
+
+        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0912345678'", String.class)).isEmpty();
+        assertThat(jdbc.queryForList("SELECT email FROM user_accounts WHERE phone = '0909090909'", String.class))
+                .containsExactly("owner@example.com");
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "owner@example.com", "cuong@example.com");
+        // Only the row whose number is free gets an invitation.
+        assertThat(SMTP.messages()).hasSize(1);
+        assertThat(SMTP.messages().get(0).getAllRecipients()[0].toString()).isEqualTo("cuong@example.com");
+        // The rows were refused by the check before any write, so the unique constraint (whose error Hibernate logs
+        // with the number) was never reached.
         assertThat(output.getAll()).doesNotContain(PhoneAlreadyUsedException.CONSTRAINT, "Key (phone)");
+    }
+
+    @Test
+    void rowsWithOnlyWarningsAreCreatedAndTheReportHasNoWarnings() throws Exception {
+        accounts.saveAndFlush(new Account("bich@example.test", "Trần Thị Bích", fixturePasswordHash,
+                Set.of(Role.RECRUITER), START));
+        // Two people may have the same name: rows 2 and 3 repeat a name and row 4 has the name of an account.
+        byte[] file = staffFile(
+                row("an1@example.com", "Nguyễn Văn An", "RECRUITER"),
+                row("an2@example.com", "nguyễn  văn an", "INTERVIEWER", "HR"),
+                row("bich2@example.com", "Trần Thị Bích", "APPROVER"));
+        JsonNode preview = expectOk(upload(PREVIEW, adminToken, file));
+        assertThat(preview.path("validRows").asInt()).isEqualTo(3);
+        assertThat(previewRow(preview, 2).path("warnings").findValuesAsString("code"))
+                .containsExactly("FULL_NAME_DUPLICATED_IN_FILE");
+        assertThat(previewRow(preview, 4).path("warnings").findValuesAsString("code"))
+                .containsExactly("FULL_NAME_ALREADY_EXISTS");
+
+        JsonNode report = expectOk(upload(IMPORT, adminToken, file));
+
+        assertSummary(report, 3, 3, 0);
+        assertThat(rowNumbers(report, "created")).containsExactly(2, 3, 4);
+        // Warnings are for the preview only: the report has none, and its fields are unchanged.
+        assertThat(report.toString()).doesNotContain("warnings", "FULL_NAME_");
+        assertThat(jdbc.queryForList("SELECT full_name FROM user_accounts WHERE email IN ('an1@example.com', "
+                + "'an2@example.com', 'bich2@example.com') ORDER BY email", String.class))
+                .containsExactly("Nguyễn Văn An", "nguyễn  văn an", "Trần Thị Bích");
+        assertThat(SMTP.messages()).hasSize(3);
     }
 
     @Test
