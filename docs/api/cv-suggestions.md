@@ -4,6 +4,9 @@ Backend xử lý CV của hồ sơ đã lưu. Recruiter chủ động yêu cầu
 không tự chạy sau khi ứng viên nộp. Kết quả chỉ là gợi ý, không ghi đè hồ sơ hay email chống trùng.
 Lưu xác nhận/sửa chưa thuộc chức năng này; story hiển thị/xác nhận chưa hoàn tất toàn bộ.
 
+API xác nhận/sửa riêng: [confirmed-contacts](confirmed-contacts.md). API gợi ý không tự ghi đè
+bản đã xác nhận. Phần frontend/hồ sơ hợp nhất được tích hợp riêng.
+
 ## API
 
 `POST /api/v1/applications/{applicationId}/cv-extractions` không cần body.
