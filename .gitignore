@@ -31,6 +31,7 @@ target/
 # Local tooling and agent memory
 .cache/
 .agent-memory/
+.local-notes/
 .agents/
 .codex/
 .claude/
@@ -43,6 +44,7 @@ CLAUDE.local.md
 /intent.md
 /plan.md
 /docs/sdlc/
+output/
 
 # OS
 .DS_Store
