@@ -6,6 +6,8 @@ import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
+import vn.ttcs.recruitment.mail.MailBody;
+import vn.ttcs.recruitment.mail.MailLayout;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -15,13 +17,16 @@ import java.util.Set;
 public class PasswordResetMailSender {
 
     private final JavaMailSender sender;
+    private final MailLayout layout;
     private final String from;
     private final URI resetPage;
 
     public PasswordResetMailSender(JavaMailSender sender,
+                                   MailLayout layout,
                                    @Value("${app.password-reset.mail-from}") String from,
                                    @Value("${app.password-reset.page-url}") URI resetPage) {
         this.sender = sender;
+        this.layout = layout;
         this.from = from;
         this.resetPage = resetPage;
         boolean localHttp = "http".equals(resetPage.getScheme())
@@ -40,13 +45,18 @@ public class PasswordResetMailSender {
         String link = resetPage.toASCIIString() + "?token=" + token;
         var message = sender.createMimeMessage();
         try {
-            var helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
+            var helper = new MimeMessageHelper(message, MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED,
+                    StandardCharsets.UTF_8.name());
             helper.setFrom(from);
             helper.setTo(email);
             helper.setSubject("Đặt lại mật khẩu — Hệ thống tuyển dụng nội bộ");
-            helper.setText("Bạn đã yêu cầu đặt lại mật khẩu.\n\n"
-                    + "Mở liên kết sau trong vòng 30 phút; liên kết chỉ dùng được một lần:\n"
-                    + link + "\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.\n", false);
+            // The plain text keeps the lines of the former text-only email; MailLayout adds the HTML and footer.
+            layout.write(helper, MailBody.builder()
+                    .paragraph("Bạn đã yêu cầu đặt lại mật khẩu.")
+                    .paragraph("Mở liên kết sau trong vòng 30 phút; liên kết chỉ dùng được một lần:")
+                    .link("Đặt lại mật khẩu", link)
+                    .paragraph("Nếu bạn không yêu cầu, hãy bỏ qua email này.")
+                    .build());
         } catch (MessagingException exception) {
             throw new MailPreparationException("Could not prepare password reset email.");
         }

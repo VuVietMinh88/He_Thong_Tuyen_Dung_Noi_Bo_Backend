@@ -9,6 +9,8 @@ import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
+import vn.ttcs.recruitment.mail.MailBody;
+import vn.ttcs.recruitment.mail.MailLayout;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -18,13 +20,16 @@ import java.util.Set;
 @Component
 public class AccountInvitationMailSender {
     private final JavaMailSender sender;
+    private final MailLayout layout;
     private final String from;
     private final URI activationPage;
 
     public AccountInvitationMailSender(JavaMailSender sender,
+                                       MailLayout layout,
                                        @Value("${app.password-reset.mail-from}") String from,
                                        @Value("${app.account-activation.page-url}") URI activationPage) {
         this.sender = sender;
+        this.layout = layout;
         this.from = from;
         this.activationPage = activationPage;
         boolean localHttp = "http".equals(activationPage.getScheme())
@@ -41,15 +46,20 @@ public class AccountInvitationMailSender {
     public void send(String email, String temporaryPassword, String token, Duration ttl) {
         var message = sender.createMimeMessage();
         try {
-            var helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
+            var helper = new MimeMessageHelper(message, MimeMessageHelper.MULTIPART_MODE_MIXED_RELATED,
+                    StandardCharsets.UTF_8.name());
             helper.setFrom(from);
             helper.setTo(email);
             helper.setSubject("Kích hoạt tài khoản — Hệ thống tuyển dụng nội bộ");
-            helper.setText("Tài khoản nội bộ của bạn đã được tạo.\n\n"
-                    + "Email đăng nhập: " + email + "\nMật khẩu tạm: " + temporaryPassword
-                    + "\n\nKích hoạt trong " + ttl.toHours() + " giờ; liên kết chỉ dùng được một lần:\n"
-                    + activationPage.toASCIIString() + "?token=" + token
-                    + "\n\nSau khi kích hoạt, đăng nhập và đổi mật khẩu trong tài khoản của bạn.\n", false);
+            // The plain text keeps the lines of the former text-only email; MailLayout adds the HTML and footer.
+            layout.write(helper, MailBody.builder()
+                    .paragraph("Tài khoản nội bộ của bạn đã được tạo.")
+                    .field("Email đăng nhập", email)
+                    .field("Mật khẩu tạm", temporaryPassword)
+                    .paragraph("Kích hoạt trong " + ttl.toHours() + " giờ; liên kết chỉ dùng được một lần:")
+                    .link("Kích hoạt tài khoản", activationPage.toASCIIString() + "?token=" + token)
+                    .paragraph("Sau khi kích hoạt, đăng nhập và đổi mật khẩu trong tài khoản của bạn.")
+                    .build());
         } catch (MessagingException exception) {
             throw new MailPreparationException("Could not prepare account activation email.");
         }

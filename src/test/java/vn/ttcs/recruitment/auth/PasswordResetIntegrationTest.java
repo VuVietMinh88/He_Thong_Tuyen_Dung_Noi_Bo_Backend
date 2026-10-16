@@ -26,6 +26,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
+import vn.ttcs.recruitment.mail.MailParts;
 
 import java.io.IOException;
 import java.net.URI;
@@ -59,6 +60,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.mail.properties.mail.smtp.starttls.required=false",
         "app.password-reset.page-url=http://localhost:5173/reset-password",
         "app.password-reset.mail-from=no-reply@ttcs.test",
+        "app.mail.support-email=help@ttcs.test", "app.mail.logo=classpath:mail/test-logo.png",
         "logging.level.io.zonky.test.db.postgres.embedded=warn"
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
@@ -134,8 +136,29 @@ class PasswordResetIntegrationTest {
         assertThat(message.getSubject()).contains("Đặt lại mật khẩu");
         assertThat(message.getAllRecipients()[0].toString()).isEqualTo(EMAIL);
         assertThat(message.getFrom()[0].toString()).isEqualTo("no-reply@ttcs.test");
-        assertThat(message.getContent().toString()).contains("30 phút", "chỉ dùng được một lần",
-                "http://localhost:5173/reset-password?token=" + token).doesNotContain(PASSWORD);
+        String link = "http://localhost:5173/reset-password?token=" + token;
+        String text = MailParts.text(message);
+        String html = MailParts.html(message);
+        // The former text-only email stays line for line in the text part, followed by the support footer.
+        assertThat(text.replace("\r\n", "\n")).isEqualTo("Bạn đã yêu cầu đặt lại mật khẩu.\n\n"
+                + "Mở liên kết sau trong vòng 30 phút; liên kết chỉ dùng được một lần:\n" + link
+                + "\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.\n\n-- \n"
+                + "Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email help@ttcs.test.\n"
+                + "Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.\n© 2026 Hệ thống tuyển dụng nội bộ\n");
+        assertThat(html).contains("<a href=\"" + link + "\"", ">Đặt lại mật khẩu</a>",
+                "Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email <a href=\"mailto:help@ttcs.test\"",
+                "<img src=\"cid:company-logo\" alt=\"Hệ thống tuyển dụng nội bộ\"");
+        assertThat(message.getReplyTo()).extracting(Object::toString).containsExactly("help@ttcs.test");
+        assertThat(MailParts.structure(message)).isEqualTo(
+                "multipart/mixed[multipart/related[multipart/alternative[text/plain,text/html],image/png]]");
+        var logo = MailParts.inline(message, "company-logo");
+        assertThat(logo.getDisposition()).isEqualToIgnoringCase("inline");
+        assertThat(MailParts.baseType(logo)).isEqualTo("image/png");
+        try (var expected = getClass().getResourceAsStream("/mail/test-logo.png")) {
+            assertThat(logo.getInputStream().readAllBytes()).isEqualTo(expected.readAllBytes());
+        }
+        assertThat(List.of(text, html)).allSatisfy(part -> assertThat(part)
+                .doesNotContain(PASSWORD, generator.hash(token), passwordHash()));
         assertThat(jdbc.queryForObject("SELECT token_hash FROM password_reset_tokens", String.class))
                 .isEqualTo(generator.hash(token)).isNotEqualTo(token);
         assertThat(jdbc.queryForObject("SELECT expires_at FROM password_reset_tokens", Timestamp.class).toInstant())
@@ -415,7 +438,7 @@ class PasswordResetIntegrationTest {
     }
 
     private String lastEmailedToken() throws Exception {
-        var match = Pattern.compile("\\?token=([A-Za-z0-9_-]{43})").matcher(SMTP.messages().getLast().getContent().toString());
+        var match = Pattern.compile("\\?token=([A-Za-z0-9_-]{43})").matcher(MailParts.text(SMTP.messages().getLast()));
         assertThat(match.find()).isTrue();
         return match.group(1);
     }
