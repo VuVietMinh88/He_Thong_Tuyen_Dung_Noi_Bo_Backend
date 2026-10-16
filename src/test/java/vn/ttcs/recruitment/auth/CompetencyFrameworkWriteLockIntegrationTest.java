@@ -50,6 +50,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class CompetencyFrameworkWriteLockIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String BASE = "/api/v1/competency-frameworks";
     private static final String PASSWORD = "TestingOnly123!";
     // Access tokens last 15 minutes from START; only the token expiry case moves the clock.
@@ -159,6 +160,9 @@ class CompetencyFrameworkWriteLockIntegrationTest {
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
+        if ("POST".equals(method) && ("/api/v1/auth/login".equals(path) || "/login".equals(path))) {
+            builder.header("X-Device-Id", loginDeviceId);
+        }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 

@@ -62,6 +62,7 @@ class ProfileIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID userId;
     private UUID otherId;
     private UUID sessionId;
@@ -295,6 +296,9 @@ class ProfileIntegrationTest {
         var request = HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json").method(method,
                         content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            request.header("X-Device-Id", deviceId);
+        }
         if (bearer != null) { request.header("Authorization", "Bearer " + bearer); }
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }

@@ -72,6 +72,7 @@ class AccountProvisioningIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private String adminToken;
 
     @DynamicPropertySource
@@ -322,6 +323,9 @@ class AccountProvisioningIntegrationTest {
         String base = "http://127.0.0.1:" + environment.getRequiredProperty("local.server.port");
         var builder = HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json").method(method, HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

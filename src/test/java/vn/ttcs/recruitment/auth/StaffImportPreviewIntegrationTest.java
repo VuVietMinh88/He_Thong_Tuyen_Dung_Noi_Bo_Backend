@@ -72,6 +72,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class StaffImportPreviewIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String PREVIEW = "/api/v1/accounts/import/preview";
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-06T00:00:00Z");
@@ -725,7 +726,7 @@ class StaffImportPreviewIntegrationTest {
     }
 
     private JsonNode login(String email) throws Exception {
-        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).timeout(Duration.ofSeconds(20))
+        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).header("X-Device-Id", loginDeviceId).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .build();

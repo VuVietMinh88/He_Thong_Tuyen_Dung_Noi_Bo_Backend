@@ -67,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ProfileAvatarIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String OWN = "/api/v1/profile/avatar";
     private static final String PASSWORD = "TestingOnly123!";
     private static final String EMAIL = "lap@example.test";
@@ -519,6 +520,9 @@ class ProfileAvatarIntegrationTest {
                 content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(content));
         if (contentType != null) { builder.header("Content-Type", contentType); }
         if (bearer != null) { builder.header("Authorization", "Bearer " + bearer); }
+        if ("POST".equals(method) && ("/api/v1/auth/login".equals(path) || "/login".equals(path))) {
+            builder.header("X-Device-Id", loginDeviceId);
+        }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
     }
 
