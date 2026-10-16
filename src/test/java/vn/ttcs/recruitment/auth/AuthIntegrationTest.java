@@ -788,6 +788,10 @@ class AuthIntegrationTest {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    // The database and clock of every integration test. Task 356: these contexts run without a Spring profile, so
+    // src/test/resources/application-default.properties turns the daily job posting expiry off
+    // (app.job-posting-expiry.cron=-) while the tests move this clock. A test that activates a profile does not read
+    // that file and must set the property itself.
     @TestConfiguration(proxyBeanMethods = false)
     static class DatabaseConfiguration {
 

@@ -37,6 +37,13 @@ public class BusinessCalendar {
         return LocalDate.ofInstant(instant, zone);
     }
 
+    // Task 356: the business time zone itself, for the cron of the daily job posting expiry (JobPostingExpirySchedule),
+    // so the scheduler reads app.business-zone exactly as the business dates do: a region such as Asia/Ho_Chi_Minh or
+    // an offset such as +07:00 or UTC+07:00 (java.time.ZoneId).
+    public ZoneId zone() {
+        return zone;
+    }
+
     // Task 272: the moment a business day begins. SQL then compares TIMESTAMPTZ columns with these moments and never
     // needs the zone itself: PostgreSQL would read an offset zone such as +07:00 with the opposite (POSIX) sign.
     public Instant startOf(LocalDate date) {
