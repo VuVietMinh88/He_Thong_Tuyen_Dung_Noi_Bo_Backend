@@ -15,9 +15,13 @@ Yêu cầu `SELF_PROFILE_READ`, trả **200**, `Cache-Control: no-store`:
   "displayTitle": "Chuyên viên tuyển dụng",
   "departmentId": null,
   "departmentName": null,
-  "roles": ["INTERVIEWER"]
+  "roles": ["INTERVIEWER"],
+  "hasAvatar": true,
+  "avatarUpdatedAt": "2026-10-07T08:00:00Z"
 }
 ```
+
+`hasAvatar` và `avatarUpdatedAt` được thêm cùng [API ảnh đại diện](avatars.md) (TKNHTTDNB1-188); chưa có ảnh thì `hasAvatar` là false và `avatarUpdatedAt` là null. Ảnh không nằm trong JSON này mà đọc qua `GET /profile/avatar`. `PUT /profile` cũng trả hai trường này nhưng không nhận chúng trong body.
 
 Email/phòng ban/vai trò chỉ để hiển thị. Tài khoản cũ có phone/displayTitle/departmentId lànull cho đến khi cập nhật. Không có password/hash/token trong response. Thêm `?userId=...` không đổi chủ hồ sơ; server vẫn dùng JWT. Không có route sửa `/profile/{id}`.
 

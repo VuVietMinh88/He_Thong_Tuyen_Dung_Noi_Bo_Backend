@@ -17,12 +17,12 @@ class LoginDeviceMigrationTest {
     private static final Timestamp EXPIRES_AT = Timestamp.from(CREATED_AT.toInstant().plusSeconds(1800));
 
     @Test
-    void upgradesV7ClearingOnlyLegacyLoginLocksAndPreservingAccountsAndSessions() throws Exception {
+    void upgradesV17ClearingOnlyLegacyLoginLocksAndPreservingAccountsAndSessions() throws Exception {
         try (var postgres = EmbeddedPostgres.builder().setPort(0)
                 .setServerConfig("listen_addresses", "127.0.0.1").start()) {
             var dataSource = postgres.getPostgresDatabase();
             Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
-                    .target("7").load().migrate();
+                    .target("17").load().migrate();
             var jdbc = new JdbcTemplate(dataSource);
             UUID adminId = insertAccount(jdbc, "admin@example.test", true);
             UUID activeId = insertAccount(jdbc, "active@example.test", true);

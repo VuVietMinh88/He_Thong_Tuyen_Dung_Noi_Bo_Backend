@@ -334,7 +334,8 @@ class AuthIntegrationTest {
                         "email", EMAIL, "password", PASSWORD)))).build();
         var response = client.send(request, HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(429);
-        assertThat(response.headers().firstValue("Access-Control-Expose-Headers")).contains("Retry-After");
+        assertThat(response.headers().firstValue("Access-Control-Expose-Headers").orElseThrow().split("\\s*,\\s*"))
+                .contains("Retry-After", "Content-Disposition");
     }
 
     @Test
