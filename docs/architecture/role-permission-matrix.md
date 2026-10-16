@@ -141,7 +141,7 @@ URL dùng tiền tố `/api/v1`. "6 vai trò nội bộ" là ADMIN, HR_MANAGER, 
 |1|`GET /health`|Công khai khi không gửi token; gửi Bearer hỏng vẫn bị 401|Mọi người|
 |2|`POST /auth/login`|Công khai, bỏ qua header Bearer|Mọi người có tài khoản|
 |3|`POST /auth/refresh`|Công khai, bỏ qua header Bearer; xác thực bằng refresh token trong body|Mọi người có phiên hợp lệ|
-|4|`POST /auth/forgot-password`|Công khai, bỏ qua header Bearer|Mọi người|
+|4|`POST /auth/forgot-password`|Công khai, bỏ qua header Bearer; bắt buộc `X-Device-Id`; mỗi trình duyệt 5 yêu cầu trong một cửa sổ 15 phút tính từ yêu cầu đầu tiên, sau đó 429|Mọi người|
 |5|`POST /auth/reset-password`|Công khai, bỏ qua header Bearer; xác thực bằng token trong body|Người có link đặt lại mật khẩu|
 |6|`POST /auth/activate-account`|Công khai, bỏ qua header Bearer; xác thực bằng token trong body|Người có link kích hoạt|
 |7|`GET /auth/me`|`SELF_PROFILE_READ`|6 vai trò nội bộ|

@@ -82,6 +82,7 @@ Thiếu SPF/DKIM, email mời và đặt lại mật khẩu dễ vào mục Spam
 2. Trên Frontend thật, dùng "Quên mật khẩu" với một tài khoản có email thật mà bạn kiểm soát. API luôn trả thông báo chung, nên phải xem hộp thư để biết thư đã đến.
 3. Mở thư: người gửi là `support@internal-hire.com`, link bắt đầu bằng `https://internal-hire.com/reset-password?token=`. Xem tiêu đề thư (Show original) để chắc SPF và DKIM đều `PASS`.
 4. Nếu không nhận được thư: kiểm tra mục Spam, log Backend (chỉ ghi loại lỗi SMTP, không ghi mật khẩu), host/cổng/kiểu mã hóa và mật khẩu trong `.env`.
+5. Khi thử lại nhiều lần, nhớ giới hạn theo trình duyệt: mỗi trình duyệt chỉ gửi được 5 yêu cầu quên mật khẩu trong một cửa sổ 15 phút. Sau đó trang hiện thời gian chờ đếm ngược (429 `PASSWORD_RESET_DEVICE_LOCKED`); đây không phải lỗi mail. Chờ hết thời gian, hoặc dùng trình duyệt khác hay cửa sổ ẩn danh, rồi mới thử lại. Một tài khoản cũng chỉ nhận một thư mỗi 60 giây. Xem [giới hạn theo trình duyệt](../api/password-reset.md#giới-hạn-theo-trình-duyệt).
 
 ## 5. Bảo mật
 

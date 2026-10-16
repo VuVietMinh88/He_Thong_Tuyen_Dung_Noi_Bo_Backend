@@ -51,10 +51,12 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization"));
-        // Browsers hide this header from cross-origin scripts unless it is exposed; the frontend reads the
-        // file name of downloads such as the staff import template from it.
-        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        // X-Device-Id is the browser UUID of the per-browser forgot-password limit.
+        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization", "X-Device-Id"));
+        // Browsers hide these headers from cross-origin scripts unless they are exposed. The frontend reads the
+        // file name of downloads such as the staff import template from Content-Disposition, and how long a
+        // locked browser must wait (429 of forgot password) from Retry-After.
+        configuration.setExposedHeaders(List.of("Content-Disposition", "Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration legacyHealth = new CorsConfiguration();

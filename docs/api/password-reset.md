@@ -6,13 +6,15 @@ Tài khoản bị [Admin khóa](account-locking.md) không được gửi email 
 
 ## 1. Yêu cầu liên kết
 
-`POST /api/v1/auth/forgot-password`, `Content-Type: application/json`:
+`POST /api/v1/auth/forgot-password`, `Content-Type: application/json`, `X-Device-Id: <UUID của trình duyệt>`:
 
 ```json
 {"email":"admin@example.com"}
 ```
 
 Email chỉ là ví dụ, cần dùng tài khoản đã có trong ứng dụng. Bỏ khoảng trắng hai đầu và chuyển chữ thường; kiểm email hợp lệ, tối đa 254 ký tự.
+
+`X-Device-Id` là UUID ngẫu nhiên frontend tạo một lần và giữ trong `localStorage` của trình duyệt (dùng chung giá trị với chặn đăng nhập theo trình duyệt khi có). Header bắt buộc; backend chỉ nhận dạng chuẩn 8-4-4-4-12 chữ số hex, không phân biệt hoa thường (cùng UUID viết hoa hay viết thường là một trình duyệt), không nhận dạng rút gọn, không dấu gạch hay có ngoặc.
 
 Trả **202 Accepted**, `Cache-Control: no-store`:
 
@@ -23,6 +25,46 @@ Trả **202 Accepted**, `Cache-Control: no-store`:
 202 nghĩa là yêu cầu đã được xếp hàng xử lý. Không xác nhận email tồn tại hoặc thư đã tới inbox. Tài khoản vô hiệu hóa, email lạ và yêu cầu lặp trong60 giây đều có cùng response. Không trả token, địa chỉ email hay thời gian hết hạn trong response.
 
 Thiếu/sai email hoặc JSON trả 400 theo `VALIDATION_ERROR`/`INVALID_JSON` hiện có. Khi hàng đợi đầy trả 503 với `code=PASSWORD_RESET_BUSY`; thử lại sau. Hàng đợi tối đa100 yêu cầu, một worker, chung cho mọi email. Thời gian đợi SMTP không nằm trên luồng trả HTTP.
+
+### Giới hạn theo trình duyệt
+
+Server đếm **mọi** yêu cầu hợp lệ của một trình duyệt (theo `X-Device-Id`), dù email có thuộc tài khoản hay không:
+
+- Yêu cầu thứ 1 đến 5 trong 15 phút (tính từ yêu cầu đầu tiên được đếm) nhận 202 như trên.
+- Từ yêu cầu thứ 6 trả **429** cho tới đúng 15 phút sau yêu cầu thứ 5. Yêu cầu gửi trong lúc bị chặn không được đếm và không kéo dài thời gian chặn. Hết thời gian chặn, yêu cầu kế tiếp mở một cửa sổ 15 phút mới.
+- Chưa tới 5 yêu cầu mà 15 phút của cửa sổ đã qua thì yêu cầu kế tiếp cũng mở cửa sổ mới, đếm lại từ 1.
+- Email có thật, email lạ và tài khoản vô hiệu hóa hoặc bị khóa được đếm như nhau và nhận cùng response (cả 202 lẫn 429), nên giới hạn này không tiết lộ email nào có tài khoản. Cooldown 60 giây theo tài khoản vẫn áp dụng riêng.
+- Chặn đăng nhập và chặn quên mật khẩu độc lập: trình duyệt bị chặn gửi yêu cầu vẫn đăng nhập được và vẫn dùng được liên kết đã nhận.
+
+Trả **429 Too Many Requests**, `Cache-Control: no-store`, `Retry-After: <số giây còn phải chờ>` (số nguyên, làm tròn lên, tối thiểu 1; ngay sau yêu cầu thứ 5 là `900`):
+
+```json
+{"code":"PASSWORD_RESET_DEVICE_LOCKED","message":"Trình duyệt này đã gửi quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau.","fieldErrors":{}}
+```
+
+Thiếu `X-Device-Id` hoặc giá trị không phải UUID hợp lệ trả **400**, `Cache-Control: no-store`; yêu cầu không được đếm, không xếp hàng gửi mail:
+
+```json
+{"code":"PASSWORD_RESET_DEVICE_REQUIRED","message":"Vui lòng cung cấp X-Device-Id là UUID hợp lệ của trình duyệt.","fieldErrors":{}}
+```
+
+Thứ tự kiểm tra:
+
+1. Body sai hoặc JSON hỏng: 400 `VALIDATION_ERROR`/`INVALID_JSON`, không đếm.
+2. Thiếu hoặc sai `X-Device-Id`: 400 `PASSWORD_RESET_DEVICE_REQUIRED`, không đếm.
+3. Trình duyệt đang bị chặn: 429 `PASSWORD_RESET_DEVICE_LOCKED`.
+4. Hàng đợi đầy: 503 `PASSWORD_RESET_BUSY`; yêu cầu đã được đếm.
+5. 202 như trên; yêu cầu được đếm.
+
+CORS cho frontend khác origin gửi header `X-Device-Id` và cho script đọc `Retry-After` (cùng với `Content-Disposition` đã có).
+
+Giới hạn chỉ chặn một trình duyệt: đổi trình duyệt, mở cửa sổ ẩn danh hoặc xóa dữ liệu trang web sẽ có UUID mới. Đây là hạn chế đã biết; chưa có giới hạn theo IP. Bộ đếm nằm trong PostgreSQL (bảng `password_reset_devices`, V39) nên khởi động lại backend không xóa thời gian chặn.
+
+Cửa sổ 15 phút là cửa sổ cố định bắt đầu ở yêu cầu đầu tiên được đếm, không phải cửa sổ trượt. Ở ranh giới hai cửa sổ, một trình duyệt vì vậy có thể được nhận tới 9 yêu cầu trong 15 phút liền nhau: yêu cầu mở cửa sổ cũ, 3 yêu cầu ngay trước khi cửa sổ cũ hết và 5 yêu cầu đầu cửa sổ mới, 8 yêu cầu sau cùng chỉ cách nhau khoảng một giây. Giới hạn chặt "tối đa 5 yêu cầu trong 15 phút bất kỳ" cần lưu thời điểm của 5 yêu cầu gần nhất; chưa làm.
+
+Mỗi `X-Device-Id` mới tạo một dòng trong `password_reset_devices` và chưa có job dọn các dòng cũ. Script đổi UUID ở mỗi yêu cầu vừa không bị chặn vừa làm bảng lớn dần, nên job dọn dòng cũ (xóa dòng không được cập nhật quá 1 ngày và không còn bị chặn) là việc bắt buộc, phải phát hành trước hoặc cùng bản này khi lên production.
+
+**Triển khai:** frontend và backend phải phát hành cùng lúc. Từ bản này backend bắt buộc `X-Device-Id`; frontend chưa gửi header sẽ nhận 400 ở mọi yêu cầu quên mật khẩu. V39 chỉ được đưa vào database dùng chung hoặc database trên VPS cùng lúc hoặc sau các migration V28–V38 đã dành cho nhánh khác; nếu không, phải bật `spring.flyway.out-of-order` hoặc tạo lại database dev. Flyway không bật `out-of-order` nên khi V39 đã áp dụng, một migration có số nhỏ hơn đến sau sẽ làm bước kiểm tra của Flyway thất bại và backend không khởi động.
 
 ## 2. Cập nhật mật khẩu
 
@@ -81,6 +123,7 @@ Nếu SMTP lỗi, token mới bị rollback và API vẫn trả thông báo chun
 ## Nối với frontend
 
 - `/auth/forgot-password` trả một trường `message`, tương thích kiểu ApiMessageResponse đang có.
+- Gửi `X-Device-Id` (UUID trình duyệt trong `localStorage`) ở mọi yêu cầu quên mật khẩu. Khi nhận 429 `PASSWORD_RESET_DEVICE_LOCKED`, hiển thị thời gian chờ đếm ngược theo `Retry-After`; bỏ bộ đếm 5 lần tự giữ ở `localStorage`, vì server đã chặn và bộ đếm phía trình duyệt bị bỏ qua khi xóa dữ liệu. Không hiển thị câu khẳng định email không tồn tại.
 - Sau 202, hiển thị thông báo chung và hướng dẫn xem email. Không chuyển sang form đặt mật khẩu chỉ từ email.
 - Đọc `token` ở query URL email, gửi cùng `newPassword` tới API trên; bỏ giả lập thành công và bỏ log payload chứa mật khẩu/token.
 - Đồng bộ validation frontend về8 ký tự/chữ/số/giới hạn72 byte; màn hình hiện kiểm6 ký tự.

@@ -901,6 +901,10 @@ class ApiAuthorizationMatrixIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/api/v1/auth/forgot-password")) {
+            // The browser id the frontend sends; a new browser each time, so the per-browser limit never applies.
+            builder.header("X-Device-Id", UUID.randomUUID().toString());
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
