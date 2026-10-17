@@ -1,6 +1,6 @@
 # Lưu dấu vết gộp và dữ liệu hoàn tác
 
-Nền lưu trữ nội bộ cho thao tác gộp. Chưa có HTTP preview, merge, đọc audit hoặc undo.
+Nền lưu trữ nội bộ cho thao tác gộp. API xem trước/gộp/đọc kết quả được mô tả tại [candidate-merge-api.md](candidate-merge-api.md). Chưa có API hoàn tác.
 Không tự gộp từ cảnh báo; không mở tính năng hoặc thay quyền trong seed.
 
 ## Dữ liệu

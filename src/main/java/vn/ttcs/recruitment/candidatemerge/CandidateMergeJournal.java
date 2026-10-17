@@ -19,9 +19,9 @@ import static vn.ttcs.recruitment.candidatemerge.MergeAuditException.Reason.*;
 
 /**
  * Internal atomic persistence primitive, NOT a candidate merge API/service or a permission boundary.
- * Future API integration MUST add a trusted reauthorization step after blocking locks and before mutation,
- * including authorization of all recorded members on retries. A pre-call permission check alone is insufficient.
- * No production caller/HTTP route exists until that orchestration is implemented by the merge API module.
+ * The API orchestration uses appendAuthorized for trusted reauthorization after blocking locks and before mutation,
+ * including authorization of all recorded members on retries. The legacy append primitive is internal/test-only.
+ * Never expose the storage record directly as an HTTP response or call append from a controller.
  * Joins a READ_COMMITTED caller transaction: links, revisions, representative, head and journal are atomic.
  */
 @Repository
@@ -50,6 +50,11 @@ public class CandidateMergeJournal {
     }
 
     public CandidateMergeRecord append(CandidateMergeCommand command) {
+        return appendAuthorized(command, members -> { });
+    }
+
+    CandidateMergeRecord appendAuthorized(CandidateMergeCommand command,
+            java.util.function.Consumer<List<Member>> authorize) {
         if (TransactionSynchronizationManager.isCurrentTransactionReadOnly()) throw new MergeAuditException(READ_ONLY_TRANSACTION);
         if (!"read committed".equals(jdbc.queryForObject("SHOW transaction_isolation",String.class)))
             throw new MergeAuditException(UNSUPPORTED_ISOLATION);
@@ -60,12 +65,14 @@ public class CandidateMergeJournal {
         var existing = jdbc.query("SELECT * FROM candidate_merge_operations WHERE actor_id=? AND request_key=?",
                 this::record,command.actorId(),command.requestKey());
         if (!existing.isEmpty()) {
+            authorize.accept(existing.getFirst().before().members());
             if (!MessageDigest.isEqual(HexFormat.of().parseHex(existing.getFirst().payloadHash()),hash))
                 throw new MergeAuditException(REQUEST_KEY_REUSED);
             return existing.getFirst();
         }
         lockSources(command.leftGroupId(),command.rightGroupId());
         var before = snapshot(command.leftGroupId(),command.rightGroupId());
+        authorize.accept(before.members());
         if (!before.fingerprint().equals(command.expectedFingerprint())) throw new MergeAuditException(STALE_SNAPSHOT);
         if (before.members().stream().noneMatch(m -> m.applicationId().equals(command.representativeApplicationId())))
             throw new MergeAuditException(INVALID_REQUEST);

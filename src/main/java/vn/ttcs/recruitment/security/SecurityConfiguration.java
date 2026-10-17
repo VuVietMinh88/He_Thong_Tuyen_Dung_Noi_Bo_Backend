@@ -330,6 +330,12 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/duplicate-candidates")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-merges/preview")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidate-merges/*")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-merges")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

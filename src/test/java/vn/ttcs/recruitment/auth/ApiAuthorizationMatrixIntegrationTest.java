@@ -254,6 +254,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                     anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/applications/{id}/duplicate-candidates",
                     anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("POST", "/api/v1/candidate-merges/preview", anyOf(CANDIDATES_READ_ALL,CANDIDATES_READ_SCOPED), INVALID_BODY,400),
+            endpoint("POST", "/api/v1/candidate-merges", anyOf(CANDIDATES_WRITE_ALL,CANDIDATES_WRITE_SCOPED), INVALID_BODY,400),
+            endpoint("GET", "/api/v1/candidate-merges/{id}", anyOf(CANDIDATES_READ_ALL,CANDIDATES_READ_SCOPED), null,404),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
