@@ -135,7 +135,7 @@ Người **giữ nguyên vai trò đang có** thì không bị kiểm lại. M�
 
 ## Trạng thái của yêu cầu
 
-Phân công được khi yêu cầu ở trạng thái `DRAFT`, trạng thái duy nhất hiện có (`RequisitionRecruiterService.ASSIGNABLE_STATUSES`); trạng thái khác trả 409 `REQUISITION_NOT_ASSIGNABLE`. Khi luồng duyệt thêm trạng thái mới, nhóm phải xếp trạng thái đó vào nhóm được phân công hay không: `RequisitionRecruiterStatusTest` không biên dịch cho tới khi làm việc này. Xem phân công được ở mọi trạng thái.
+Phân công được khi yêu cầu ở trạng thái `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED` (`RequisitionRecruiterService.ASSIGNABLE_STATUSES`, task 257); yêu cầu `REJECTED` trả 409 `REQUISITION_NOT_ASSIGNABLE`. Khi luồng duyệt thêm trạng thái mới, nhóm phải xếp trạng thái đó vào nhóm được phân công hay không: `RequisitionRecruiterStatusTest` không biên dịch cho tới khi làm việc này. Xem phân công được ở mọi trạng thái.
 
 Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức danh trong danh mục. Nó không đổi `updatedAt` của yêu cầu. Yêu cầu chuyển sang phòng ban khác thì nhóm recruiter đi theo. Bản sao (task 278, 279) bắt đầu chưa được phân công.
 
@@ -172,7 +172,7 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 |409|`REQUISITION_PRIMARY_RECRUITER_REQUIRED`|Thêm hỗ trợ khi chưa có recruiter chính; bỏ recruiter chính|
 |409|`REQUISITION_RECRUITER_ALREADY_PRIMARY`|Thêm recruiter chính làm hỗ trợ|
 |409|`REQUISITION_SUPPORTING_RECRUITER_LIMIT`|Đã đủ 10 recruiter hỗ trợ|
-|409|`REQUISITION_NOT_ASSIGNABLE`|Yêu cầu ở trạng thái không cho phân công (chưa xảy ra được)|
+|409|`REQUISITION_NOT_ASSIGNABLE`|Yêu cầu ở trạng thái không cho phân công (đã bị từ chối)|
 
 ## Ghi chú cho frontend
 
@@ -191,7 +191,7 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - ADMIN cũng được phân công;
 - tối đa 10 recruiter hỗ trợ;
 - người cũ rời khỏi yêu cầu khi chuyển giao;
-- chỉ phân công được ở `DRAFT`;
+- phân công được ở `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, không phân công ở `REJECTED`;
 - không giới hạn theo phòng ban;
 - recruiter được giao chưa xem được yêu cầu;
 - lịch sử chỉ ghi lần thay đổi thật, không ghi lần gọi không đổi gì hay bị từ chối (task 286);
