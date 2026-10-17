@@ -13,6 +13,7 @@ public final class CandidateMergeApi {
     public record MergeRequest(@NotNull UUID requestKey,@NotNull UUID leftGroupId,@NotNull UUID rightGroupId,
             @NotNull UUID resultGroupId,@NotNull UUID representativeApplicationId,
             @NotNull @Pattern(regexp="[0-9a-f]{64}") String expectedFingerprint) { }
+    public record UndoRequest(@NotNull UUID requestKey) { }
     public record Member(UUID applicationId,UUID groupId,UUID requisitionId,String postingTitle,
             ContactValues contact,long contactRevision) {
         @Override public String toString() { return "MergeMember[personal data redacted]"; }
@@ -25,4 +26,5 @@ public final class CandidateMergeApi {
     public record Match(UUID leftApplicationId,UUID rightApplicationId,boolean email,boolean phone) { }
     public record Result(UUID id,UUID resultGroupId,UUID representativeApplicationId,
             Instant recordedAt,Instant undoDeadline,boolean undone) { }
+    public record UndoResult(UUID id,UUID mergeOperationId,Instant recordedAt) { }
 }

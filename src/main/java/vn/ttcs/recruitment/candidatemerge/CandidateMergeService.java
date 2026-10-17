@@ -20,15 +20,16 @@ import static vn.ttcs.recruitment.candidatemerge.CandidateMergeApi.*;
 public class CandidateMergeService {
     private final CandidateMergeJournal journal;
     private final CandidateMergeAccess access;
+    private final CandidateMergeUndo undo;
     private final JdbcTemplate jdbc;
     private final Validator validator;
     private final TransactionTemplate read,write;
     private final boolean enabled;
 
-    CandidateMergeService(CandidateMergeJournal journal,CandidateMergeAccess access,JdbcTemplate jdbc,
+    CandidateMergeService(CandidateMergeJournal journal,CandidateMergeAccess access,CandidateMergeUndo undo,JdbcTemplate jdbc,
             Validator validator,PlatformTransactionManager manager,
             @Value("${app.candidate-merges.enabled:false}") boolean enabled) {
-        this.journal=journal;this.access=access;this.jdbc=jdbc;this.validator=validator;this.enabled=enabled;
+        this.journal=journal;this.access=access;this.undo=undo;this.jdbc=jdbc;this.validator=validator;this.enabled=enabled;
         read=new TransactionTemplate(manager);read.setReadOnly(true);read.setTimeout(5);
         read.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         write=new TransactionTemplate(manager);write.setTimeout(5);
@@ -85,6 +86,14 @@ public class CandidateMergeService {
         }));
     }
 
+    public UndoResult undo(Jwt jwt,UUID id,UndoRequest request) {
+        validate(request);
+        return database(()->write.execute(ignored->{
+            timeout(true);UUID actor=access.actor(jwt,true);access.require(jwt,List.of(),true);available();
+            return undo.undo(jwt,actor,id,request.requestKey());
+        }));
+    }
+
     private UUID group(UUID application) {
         var rows=jdbc.queryForList("SELECT candidate_id FROM candidate_memberships WHERE application_id=?",UUID.class,application);
         if (rows.isEmpty()) throw missing();return rows.getFirst();
@@ -118,6 +127,9 @@ public class CandidateMergeService {
                 default -> unavailable();
             };
         } catch (DataAccessException | TransactionException failure) {
+            for (Throwable cause=failure;cause!=null;cause=cause.getCause())
+                if (cause instanceof java.sql.SQLException sql && "P7501".equals(sql.getSQLState()))
+                    throw conflict("CANDIDATE_UNDO_EXPIRED");
             throw unavailable();
         }
     }

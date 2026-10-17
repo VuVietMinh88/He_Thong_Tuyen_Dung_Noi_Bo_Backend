@@ -20,12 +20,13 @@ import static org.assertj.core.api.Assertions.*;
 @DirtiesContext(classMode=DirtiesContext.ClassMode.AFTER_CLASS)
 class CandidateMergeDisabledIntegrationTest extends CvApplicationTestSupport {
     @Autowired DuplicateDetectionWorker detector;
-    @Test void absentFlagDisablesPreviewAndMergeWithoutWriting() throws Exception {
+    @Test void absentFlagDisablesPreviewMergeAndUndoWithoutWriting() throws Exception {
         UUID second=application("second@example.test");detector.processBatch();
         assertThat(api.request("POST","/api/v1/candidate-merges/preview",json.writeValueAsString(Map.of("leftApplicationId",app,"rightApplicationId",second)),recruiterToken).statusCode()).isEqualTo(503);
         var request=Map.of("requestKey",UUID.randomUUID(),"leftGroupId",app,"rightGroupId",second,"resultGroupId",app,
                 "representativeApplicationId",app,"expectedFingerprint","0".repeat(64));
         assertThat(api.request("POST","/api/v1/candidate-merges",json.writeValueAsString(request),recruiterToken).statusCode()).isEqualTo(503);
+        assertThat(api.request("POST","/api/v1/candidate-merges/"+UUID.randomUUID()+"/undo",json.writeValueAsString(Map.of("requestKey",UUID.randomUUID())),recruiterToken).statusCode()).isEqualTo(503);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_merge_operations",Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_merge_undo_events",Integer.class)).isZero();
     }

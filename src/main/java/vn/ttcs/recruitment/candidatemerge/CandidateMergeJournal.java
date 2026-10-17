@@ -106,7 +106,7 @@ public class CandidateMergeJournal {
         return jdbc.query("SELECT * FROM candidate_merge_operations WHERE id=?",this::record,id).stream().findFirst();
     }
 
-    private void lockSources(UUID left, UUID right) {
+    void lockSources(UUID left, UUID right) {
         jdbc.queryForList("SELECT id FROM candidate_profiles WHERE id IN (?,?) ORDER BY id FOR NO KEY UPDATE",UUID.class,left,right);
         // Contact confirmation locks requisition then application. Take those locks in canonical order too.
         jdbc.queryForList("""

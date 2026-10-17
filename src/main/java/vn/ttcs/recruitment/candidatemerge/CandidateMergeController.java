@@ -24,5 +24,9 @@ public class CandidateMergeController {
     }
     @GetMapping("/{id}")
     public ResponseEntity<Result> get(@AuthenticationPrincipal Jwt jwt,@PathVariable UUID id) { return response(service.get(jwt,id)); }
+    @PostMapping("/{id}/undo")
+    public ResponseEntity<UndoResult> undo(@AuthenticationPrincipal Jwt jwt,@PathVariable UUID id,@Valid @RequestBody UndoRequest request) {
+        return response(service.undo(jwt,id,request));
+    }
     private static <T> ResponseEntity<T> response(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }

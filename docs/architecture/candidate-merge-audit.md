@@ -1,6 +1,6 @@
 # Lưu dấu vết gộp và dữ liệu hoàn tác
 
-Nền lưu trữ nội bộ cho thao tác gộp. API xem trước/gộp/đọc kết quả được mô tả tại [candidate-merge-api.md](candidate-merge-api.md). Chưa có API hoàn tác.
+Nền lưu trữ nội bộ cho thao tác gộp. API hiện tại được mô tả tại [candidate-merge-api.md](candidate-merge-api.md).
 Không tự gộp từ cảnh báo; không mở tính năng hoặc thay quyền trong seed.
 
 ## Dữ liệu
@@ -57,10 +57,10 @@ việc gọi authorization một lần trước `append` là chưa đủ.
 Không trả snapshot/actor/key trên endpoint công khai, không log các object này hoặc SQL exception chứa giá trị bind.
 Các record tổng hợp có toString che dữ liệu; SQL chỉ bind giá trị và ghép fragment cố định.
 
-## Hợp đồng cho undo sau này
+## Hợp đồng hoàn tác
 
 `candidate_merge_undo_events` chỉ là mô hình lưu trữ: UUID, merge ID duy nhất, actor/key/hash,
-revision thực tế trước/sau undo và timestamp DB. Chưa có Java writer hoặc thực thi undo.
+revision thực tế trước/sau undo và timestamp DB. `CandidateMergeUndo` thực thi khôi phục và ghi event nguyên tử.
 Partition, đại diện và dependency cần khôi phục lấy từ sự kiện gộp bất biến.
 
 - Chỉ undo thao tác mới nhất còn hiệu lực của nhóm, trong hạn DB; tại deadline là hết hạn.
@@ -83,3 +83,10 @@ Unit test kiểm canonical order/fingerprint/hash/validation/redaction.
 Integration kiểm transaction/isolation, metadata/partition/time, retry, stale contact, rollback, immutability,
 retention, cạnh tranh, detector và nâng V31 có dữ liệu. Audit tests dùng schema/context riêng cho từng ca;
 không vô hiệu hóa trigger để làm sạch fixture.
+
+## Tích hợp API và hạn hoàn tác
+
+`CandidateMergeService` sử dụng callback ủy quyền sau khóa và khi replay; không trả raw audit ra HTTP.
+`CandidateMergeUndo` phục hồi partition/head/đại diện và ghi event cùng transaction, revision luôn tăng.
+V33 bổ sung quy tắc DB nghiêm ngặt trước/đúng/sau deadline; trigger kiểm tra giờ DB tại INSERT cuối.
+API mặc định tắt qua `app.candidate-merges.enabled=false`. Chi tiết hợp đồng, lỗi và triển khai tại tài liệu API liên kết trên.

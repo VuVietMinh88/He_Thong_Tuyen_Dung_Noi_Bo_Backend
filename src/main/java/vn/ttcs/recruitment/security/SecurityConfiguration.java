@@ -334,7 +334,7 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidate-merges/*")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-merges")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-merges", "/api/v1/candidate-merges/*/undo")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions

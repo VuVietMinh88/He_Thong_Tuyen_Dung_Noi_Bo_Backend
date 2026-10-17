@@ -102,6 +102,21 @@ class CandidateMergeSecurityIntegrationTest extends CvApplicationTestSupport {
         assertThat(http("GET","/api/v1/candidate-merges/"+json.readTree(merged.body()).path("id").asText(),null,recruiterToken).statusCode()).isEqualTo(401);
     }
 
+    @Test void mergeRacingUndoHasOnlyOneWinnerAndKeepsAllApplications() throws Exception {
+        UUID second=pair(),third=application("third@example.test");detector.processBatch();assignOther();
+        var merged=http("POST","/api/v1/candidate-merges",request(second),recruiterToken);
+        assertThat(merged.statusCode()).isEqualTo(200);String id=json.readTree(merged.body()).path("id").asText();
+        var next=request(third);
+        try(var pool=Executors.newVirtualThreadPerTaskExecutor()) {
+            var start=new CountDownLatch(1);
+            var merge=pool.submit(()->{start.await();return http("POST","/api/v1/candidate-merges",next,otherToken).statusCode();});
+            var undo=pool.submit(()->{start.await();return http("POST","/api/v1/candidate-merges/"+id+"/undo",Map.of("requestKey",UUID.randomUUID()),recruiterToken).statusCode();});
+            start.countDown();assertThat(java.util.List.of(merge.get(10,TimeUnit.SECONDS),undo.get(10,TimeUnit.SECONDS))).containsExactlyInAnyOrder(200,409);
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM job_applications",Integer.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM candidate_memberships",Integer.class)).isEqualTo(3);
+    }
+
     private void assignOther() {
         jdbc.update("INSERT INTO requisition_recruiters(requisition_id,recruiter_id,assignment_role,assigned_by,assigned_at) VALUES (?,?,'SUPPORTING',?,?)",
                 requisition,other,admin,Timestamp.from(NOW));

@@ -68,6 +68,11 @@ class CandidateMergeMigrationIntegrationTest extends CvApplicationTestSupport {
             assertThat(old.queryForObject("SELECT ciphertext FROM application_email_outbox",byte[].class)).isEqualTo(ciphertext);
             assertThat(old.queryForObject("SELECT content FROM application_cvs WHERE application_id=?",byte[].class,app)).isEqualTo(pdf);
             Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("32").load().validate();
+            var next=Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("33").load();
+            assertThat(next.migrate().migrationsExecuted).isEqualTo(1);next.validate();
+            assertThat(rows(old,"job_applications")).isEqualTo(submissions);
+            assertThat(old.queryForList("SELECT * FROM candidate_memberships ORDER BY application_id")).isEqualTo(memberships);
+            assertThat(old.queryForObject("SELECT candidate_merge_undo_open(clock_timestamp(),clock_timestamp()+INTERVAL '1 second')",Boolean.class)).isFalse();
         } finally {jdbc.execute("DROP SCHEMA "+schema+" CASCADE");}
         assertThat(jdbc.queryForObject("SELECT current_schema()",String.class)).isEqualTo(original);
     }
