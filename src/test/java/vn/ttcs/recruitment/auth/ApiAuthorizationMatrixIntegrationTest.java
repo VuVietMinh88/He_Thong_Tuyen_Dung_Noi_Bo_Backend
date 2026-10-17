@@ -90,6 +90,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
     private static final String JOB_POSTINGS_WRITE_ALL = "JOB_POSTINGS_WRITE_ALL";
     private static final String JOB_POSTINGS_WRITE_SCOPED = "JOB_POSTINGS_WRITE_SCOPED";
+    private static final String CANDIDATES_READ_ALL = "CANDIDATES_READ_ALL";
+    private static final String CANDIDATES_READ_SCOPED = "CANDIDATES_READ_SCOPED";
+    private static final String CANDIDATES_WRITE_ALL = "CANDIDATES_WRITE_ALL";
+    private static final String CANDIDATES_WRITE_SCOPED = "CANDIDATES_WRITE_SCOPED";
     private static final String HEADCOUNT_PLANS_READ_ALL = "HEADCOUNT_PLANS_READ_ALL";
     private static final String HEADCOUNT_PLANS_WRITE_ALL = "HEADCOUNT_PLANS_WRITE_ALL";
 
@@ -234,6 +238,18 @@ class ApiAuthorizationMatrixIntegrationTest {
             // integrations are complete. Admission refuses before JSON/multipart parsing for every role.
             endpoint("POST", "/api/v1/public/job-postings/{id}/applications", PUBLIC, INVALID_BODY, 503),
             endpoint("GET", "/api/v1/public/application-sources", PUBLIC, null, 200),
+            // Candidate APIs use their own permissions; services also enforce access to each application.
+            // Unknown ids stop reads/extraction requests at 404; an empty confirmation body fails at 400.
+            endpoint("POST", "/api/v1/applications/{applicationId}/cv-extractions",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact/history",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
@@ -254,6 +270,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     @Autowired @Qualifier("requestMappingHandlerMapping") private RequestMappingHandlerMapping handlerMapping;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private final Map<Identity, Actor> actors = new EnumMap<>(Identity.class);
     private List<Map<String, Object>> permissionSeed;
     private String fixturePasswordHash;
@@ -873,6 +890,9 @@ class ApiAuthorizationMatrixIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -936,6 +956,7 @@ class ApiAuthorizationMatrixIntegrationTest {
 
         String samplePath() {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+                    .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{type}", CATALOG_TYPE);
         }
 

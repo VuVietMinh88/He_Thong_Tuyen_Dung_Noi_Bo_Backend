@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -28,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -110,8 +112,8 @@ public class InterviewQuestionService {
 
     @Transactional
     public InterviewQuestionView create(Jwt jwt, InterviewQuestionRequest request) {
-        requireWriteAccess(jwt);
-        Target target = lockCriterion(request.criterionId());
+        Writer writer = requireWriteAccess(jwt);
+        Target target = lockCriterion(jwt, writer, request.criterionId());
         requireNewText(request.criterionId(), request.content(), null);
         // Without active in the request, a new question is in use.
         boolean active = request.active() == null || request.active();
@@ -129,10 +131,15 @@ public class InterviewQuestionService {
     // criterion has no other question with the same text (409).
     @Transactional
     public InterviewQuestionView update(Jwt jwt, UUID id, InterviewQuestionRequest request) {
-        requireWriteAccess(jwt);
+        Writer writer = requireWriteAccess(jwt);
         // Locked before the framework, so two edits of the same question run one after the other.
-        InterviewQuestion question = questions.findByIdForUpdate(id).orElseThrow(InterviewQuestionService::notFound);
-        Target target = lockCriterion(request.criterionId());
+        Optional<InterviewQuestion> locked = questions.findByIdForUpdate(id);
+        // This lock can wait for another edit of the question, and meanwhile the access token may expire or the
+        // permission may be removed: the caller is checked again before the 404 (like DepartmentService.lockDepartment,
+        // task 198), and lockCriterion does the same after each lock it waits for.
+        requireStillWriter(jwt, writer);
+        InterviewQuestion question = locked.orElseThrow(InterviewQuestionService::notFound);
+        Target target = lockCriterion(jwt, writer, request.criterionId());
         requireNewText(request.criterionId(), request.content(), question);
         // Without active in the request, the question stays in use or out of use as it is.
         boolean active = request.active() == null ? question.isActive() : request.active();
@@ -157,16 +164,21 @@ public class InterviewQuestionService {
     // criterion run one after the other, so requireNewText of the second one sees the question the first one saved.
     // A criterion of a DRAFT framework is accepted: HR may prepare the questions while the framework is still drafted
     // (the framework only has to be ACTIVE to be assigned to a position, Jira 214).
-    private Target lockCriterion(UUID criterionId) {
+    // Both locks can wait for an edit that is still running, and meanwhile the access token may expire or the
+    // permission may be removed. So the caller is checked again after each lock, before the answer "unknown
+    // criterion" is decided from what the lock returned (the same order as DepartmentService.lockDepartment, task 198).
+    private Target lockCriterion(Jwt jwt, Writer writer, UUID criterionId) {
         UUID frameworkId = criteria.findFrameworkIdById(criterionId)
                 .orElseThrow(InterviewQuestionService::unknownCriterion);
-        CompetencyFramework framework = frameworks.findByIdForShare(frameworkId)
-                .orElseThrow(InterviewQuestionService::unknownCriterion);
+        Optional<CompetencyFramework> sharedFramework = frameworks.findByIdForShare(frameworkId);
+        requireStillWriter(jwt, writer);
+        CompetencyFramework framework = sharedFramework.orElseThrow(InterviewQuestionService::unknownCriterion);
         // Read with the lock, so this is the latest committed criterion row: it may have been deleted or renamed
         // while this request waited. A criterion deleted by direct SQL that has not committed yet makes this wait
         // and then find nothing.
-        CompetencyCriterion criterion = criteria.findByIdForUpdate(criterionId)
-                .orElseThrow(InterviewQuestionService::unknownCriterion);
+        Optional<CompetencyCriterion> lockedCriterion = criteria.findByIdForUpdate(criterionId);
+        requireStillWriter(jwt, writer);
+        CompetencyCriterion criterion = lockedCriterion.orElseThrow(InterviewQuestionService::unknownCriterion);
         return new Target(criterion, framework);
     }
 
@@ -246,7 +258,10 @@ public class InterviewQuestionService {
         }
     }
 
-    private void requireWriteAccess(Jwt jwt) {
+    // The caller of a write after requireWriteAccess: the account id and the session row this transaction has locked.
+    private record Writer(UUID actorId, AuthSession session) { }
+
+    private Writer requireWriteAccess(Jwt jwt) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -263,12 +278,23 @@ public class InterviewQuestionService {
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
 
         // The request may have waited for those locks. Recheck the token, session and permission now.
+        Writer writer = new Writer(actorId, session);
+        requireStillWriter(jwt, writer);
+        return writer;
+    }
+
+    // May the caller still write? Called once the account and session locks are held, and again after every row lock
+    // the write waits for. From the first call on this transaction holds the caller's account and session rows, so
+    // an admin lock, a logout or a role change through the account API waits for it. Time still passes (token or
+    // session expiry) and the grants in role_permissions can still change (a migration locks no account), so all
+    // three are checked every time, with the permissions read again from the database.
+    private void requireStillWriter(Jwt jwt, Writer writer) {
         var now = clock.instant();
         requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!writer.session().getUserId().equals(writer.actorId()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
+        if (!permissions.forUser(writer.actorId()).contains("ORGANIZATION_WRITE_ALL")) {
             throw new AccessDeniedException("Interview question management requires ORGANIZATION_WRITE_ALL");
         }
     }

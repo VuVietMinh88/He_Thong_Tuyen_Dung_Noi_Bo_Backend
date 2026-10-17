@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.common.ApiException;
@@ -29,6 +30,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -144,12 +146,15 @@ public class CompetencyFrameworkService {
 
     @Transactional
     public CompetencyFrameworkView update(Jwt jwt, UUID id, CompetencyFrameworkRequest request) {
-        requireWriteAccess(jwt);
+        Writer writer = requireWriteAccess(jwt);
         // Step 1 of the V8 rules (docs/database/README.md): lock the framework row before reading its criteria.
         // Another edit of the same framework waits here until this transaction ends, so the criteria read
         // below are the latest committed ones and nobody changes them before this edit is saved.
-        CompetencyFramework framework = frameworks.findByIdForUpdate(id)
-                .orElseThrow(CompetencyFrameworkService::notFound);
+        Optional<CompetencyFramework> locked = frameworks.findByIdForUpdate(id);
+        // That wait can be long: the access token may expire, so the caller is checked again after the lock and
+        // before the 404, like DepartmentService.lockDepartment (task 198).
+        requireStillWriter(jwt, writer);
+        CompetencyFramework framework = locked.orElseThrow(CompetencyFrameworkService::notFound);
         List<CompetencyCriterion> current = criteria.findByFrameworkIdOrderBySortOrderAsc(id);
         Set<UUID> currentIds = new HashSet<>();
         current.forEach(criterion -> currentIds.add(criterion.getId()));
@@ -334,7 +339,10 @@ public class CompetencyFrameworkService {
         }
     }
 
-    private void requireWriteAccess(Jwt jwt) {
+    // The caller of a write after requireWriteAccess: the account id and the session row this transaction has locked.
+    private record Writer(UUID actorId, AuthSession session) { }
+
+    private Writer requireWriteAccess(Jwt jwt) {
         UUID actorId;
         UUID sessionId;
         try {
@@ -351,12 +359,24 @@ public class CompetencyFrameworkService {
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
 
         // The request may have waited for those locks. Recheck the token, session and permission now.
+        var writer = new Writer(actorId, session);
+        requireStillWriter(jwt, writer);
+        return writer;
+    }
+
+    // May the caller still write? Called once the account and session locks are held, and again after the
+    // framework row lock, which waits for another edit of the same framework. From the first call on this
+    // transaction holds the caller's account and session rows, so an admin lock, a logout or a role change through
+    // the account API waits for it. Time still passes (token or session expiry) and the grants in role_permissions
+    // can still change (a migration locks no account), so all three are checked every time, with the permissions
+    // read again from the database.
+    private void requireStillWriter(Jwt jwt, Writer writer) {
         var now = clock.instant();
         requireUnexpiredToken(jwt, now);
-        if (!session.getUserId().equals(actorId) || !session.isActive(now)) {
+        if (!writer.session().getUserId().equals(writer.actorId()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        if (!permissions.forUser(actorId).contains("ORGANIZATION_WRITE_ALL")) {
+        if (!permissions.forUser(writer.actorId()).contains("ORGANIZATION_WRITE_ALL")) {
             throw new AccessDeniedException("Competency framework management requires ORGANIZATION_WRITE_ALL");
         }
     }

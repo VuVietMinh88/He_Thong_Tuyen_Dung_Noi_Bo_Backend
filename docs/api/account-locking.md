@@ -35,9 +35,9 @@ Sau khi transaction thành công, login bị từ chối; các access token và 
 
 ## DELETE /accounts/{id}/lock
 
-Không cần body. Chỉ bỏ khóa hành chính, trả HTTP 200 cùng cấu trúc trên: `lockReason`, `lockedAt`, `lockedBy`, `handoverWarning` là `null`. `status` thể hiện trạng thái còn lại: ACTIVE/PENDING_ACTIVATION/DISABLED/TEMPORARILY_LOCKED. Gọi lại trên tài khoản không bị khóa vẫn trả HTTP 200.
+Không cần body. Chỉ bỏ khóa hành chính, trả HTTP 200 cùng cấu trúc trên: `lockReason`, `lockedAt`, `lockedBy`, `handoverWarning` là `null`. `status` thể hiện trạng thái còn lại: ACTIVE/PENDING_ACTIVATION/DISABLED. Chặn đăng nhập do nhập sai thuộc từng trình duyệt, không phải trạng thái tài khoản. Gọi lại trên tài khoản không bị khóa vẫn trả HTTP 200.
 
-Mở khóa không phục hồi phiên/reset link đã thu hồi: người dùng cần đăng nhập lại hoặc yêu cầu reset link mới. Không tự kích hoạt tài khoản pending, không bỏ khóa 15 phút và không thay password/roles/profile.
+Mở khóa không phục hồi phiên/reset link đã thu hồi: người dùng cần đăng nhập lại hoặc yêu cầu reset link mới. Không tự kích hoạt tài khoản pending, không bỏ thời gian chặn 15 phút của trình duyệt và không thay password/roles/profile.
 
 Với tài khoản chưa kích hoạt, link kích hoạt được giữ. Khi đang khóa, gọi activate bị từ chối với HTTP 400 mà không tiêu thụ link; sau mở khóa, link còn hạn và chưa dùng có thể kích hoạt bình thường. Link hết hạn vẫn bị từ chối theo chính sách 24 giờ hiện có; API gửi lại lời mời chưa có trong nhóm này.
 
