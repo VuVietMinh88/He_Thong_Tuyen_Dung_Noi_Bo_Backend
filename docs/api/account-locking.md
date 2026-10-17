@@ -61,3 +61,5 @@ Lỗi login khi bị khóa vẫn dùng thông báo xác thực chung; không ti�
 V6 thêm ba cột nullable: `admin_locked_at`, `admin_lock_reason` kiểu VARCHAR(500), `admin_locked_by` kiểu UUID tham chiếu tài khoản người khóa. Cả ba phải cùng `NULL` hoặc cùng có giá trị; DB kiểm lý do không trống. Tài khoản cũ mặc định không bị khóa hành chính. Không sửa V1–V5, không cần tạo database hay sao chép lại `.env`.
 
 Sao lưu trước khi khởi động backend mới; Flyway tự áp dụng V6 và các migration còn thiếu. Kiểm thử tự động dùng PostgreSQL tạm. Không hạ về bản backend cũ bỏ qua trạng thái khóa mới khi còn tài khoản đang khóa; cần kế hoạch tương thích và kiểm tra dữ liệu trước rollback.
+
+Xem và bàn giao các yêu cầu tuyển dụng của tài khoản trước hoặc sau khi khóa: [API công việc cần bàn giao](account-handover.md).

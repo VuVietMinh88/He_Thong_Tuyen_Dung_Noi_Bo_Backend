@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.InvalidAccountQueryException;
 import vn.ttcs.recruitment.account.role.SelfAdminRevocationException;
 import vn.ttcs.recruitment.account.lock.SelfAccountLockException;
 import vn.ttcs.recruitment.department.DepartmentException;
+import vn.ttcs.recruitment.requisition.ActivePipelineConflictException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
@@ -40,6 +41,14 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
                 .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
+    }
+
+    // Task 291: a closure that needs confirmation also says which candidates are left. More specific than ApiException,
+    // so Spring picks this handler for it.
+    @ExceptionHandler(ActivePipelineConflictException.class)
+    public ResponseEntity<ActivePipelineConflictException.Body> activePipeline(
+            ActivePipelineConflictException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore()).body(exception.body());
     }
 
     @ExceptionHandler(DepartmentException.class)
