@@ -3,7 +3,8 @@
 ## Phạm vi
 
 Thiết kế chung cho 367–370. Bản triển khai đầu chỉ có 367: phát hiện và đọc cảnh báo.
-API gộp, xem trước gộp, audit gộp và hoàn tác chưa được triển khai hoặc công bố.
+Nền lưu trữ audit gộp được mô tả tại [candidate-merge-audit](candidate-merge-audit.md).
+API gộp, xem trước gộp, đọc audit và hoàn tác chưa được triển khai hoặc công bố.
 Không tự liên kết hai application vì email/điện thoại trùng.
 
 ## Dữ liệu và quyền
@@ -44,7 +45,9 @@ Không tự liên kết hai application vì email/điện thoại trùng.
 - Scheduler tắt mặc định, retry ở lần poll kế tiếp, không log SQL/PII khi lỗi.
   Luồng nộp không gọi detector, không có FK từ application gốc tới bảng detector, không lấy advisory lock này.
 
-## Hợp đồng thiết kế cho 369/368/370 (chưa triển khai)
+## Hợp đồng thiết kế cho 369/368/370
+
+Nền lưu trữ 369 đã có; orchestration API gộp và thực thi hoàn tác 368/370 chưa triển khai.
 
 1. Bổ sung đại diện nhóm bằng một application thuộc membership của nhóm, cùng ràng buộc/revision phù hợp.
    Hiển thị liên hệ có hiệu lực của đại diện, không trộn trường hoặc ghi sang các application còn lại.

@@ -187,7 +187,10 @@ class CandidateDuplicateIntegrationTest extends CvApplicationTestSupport {
         drain();
         UUID group = jdbc.queryForObject("SELECT candidate_id FROM candidate_memberships WHERE application_id=?", UUID.class, app);
         // Simulate the future merge module; detector must neither expose same-group warnings nor undo membership.
-        jdbc.update("UPDATE candidate_memberships SET candidate_id=? WHERE application_id=?", group, second);
+        tx.executeWithoutResult(ignored -> {
+            jdbc.update("UPDATE candidate_profiles SET representative_application_id=NULL WHERE id=?",second);
+            jdbc.update("UPDATE candidate_memberships SET candidate_id=? WHERE application_id=?",group,second);
+        });
         assertThat(read(app, recruiterToken).path("items")).isEmpty();
         drain();
         assertThat(jdbc.queryForObject("SELECT candidate_id FROM candidate_memberships WHERE application_id=?", UUID.class, second)).isEqualTo(group);
@@ -325,7 +328,7 @@ class CandidateDuplicateIntegrationTest extends CvApplicationTestSupport {
             String confirmed = legacy.queryForObject("SELECT row_to_json(c)::text FROM application_confirmed_contacts c WHERE application_id=?", String.class, app);
             String history = legacy.queryForObject("SELECT row_to_json(h)::text FROM application_contact_history h WHERE application_id=?", String.class, app);
             byte[] encrypted = legacy.queryForObject("SELECT ciphertext FROM application_email_outbox", byte[].class);
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("31").load().migrate();
+            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).load().migrate();
             assertThat(legacy.queryForObject("SELECT count(*) FROM candidate_contact_index", Integer.class)).isZero();
             var repo = new CandidateDuplicateRepository(legacy, new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(isolated));
             var migratedDetector = new DuplicateDetectionWorker(repo, legacy,

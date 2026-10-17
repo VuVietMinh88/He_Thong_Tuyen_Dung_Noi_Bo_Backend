@@ -54,9 +54,9 @@ public class CandidateDuplicateRepository {
     void index(Source source) {
         // Deterministic singleton identity, without changing an existing (future merged) membership.
         jdbc.update("""
-                INSERT INTO candidate_profiles(id) SELECT ? WHERE NOT EXISTS
+                INSERT INTO candidate_profiles(id,representative_application_id) SELECT ?,? WHERE NOT EXISTS
                 (SELECT 1 FROM candidate_memberships WHERE application_id=?) ON CONFLICT DO NOTHING
-                """, source.id(), source.id());
+                """, source.id(), source.id(), source.id());
         jdbc.update("INSERT INTO candidate_memberships(application_id,candidate_id) VALUES (?,?) ON CONFLICT DO NOTHING",
                 source.id(), source.id());
         var keys = ContactMatchKeys.from(source.email(), source.phone());

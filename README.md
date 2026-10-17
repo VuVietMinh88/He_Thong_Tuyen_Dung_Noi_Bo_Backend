@@ -43,6 +43,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [cv-suggestions](docs/api/cv-suggestions.md)
 - [confirmed-contacts](docs/api/confirmed-contacts.md)
 - [candidate-duplicates](docs/api/candidate-duplicates.md)
+- [candidate-merge-audit: nền lưu trữ nội bộ](docs/architecture/candidate-merge-audit.md)
 - [approval-flows](docs/api/approval-flows.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
