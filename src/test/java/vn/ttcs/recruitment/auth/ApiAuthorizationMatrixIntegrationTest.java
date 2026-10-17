@@ -90,6 +90,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String REQUISITIONS_WRITE_SCOPED = "REQUISITIONS_WRITE_SCOPED";
     private static final String JOB_POSTINGS_WRITE_ALL = "JOB_POSTINGS_WRITE_ALL";
     private static final String JOB_POSTINGS_WRITE_SCOPED = "JOB_POSTINGS_WRITE_SCOPED";
+    private static final String CANDIDATES_READ_ALL = "CANDIDATES_READ_ALL";
+    private static final String CANDIDATES_READ_SCOPED = "CANDIDATES_READ_SCOPED";
+    private static final String CANDIDATES_WRITE_ALL = "CANDIDATES_WRITE_ALL";
+    private static final String CANDIDATES_WRITE_SCOPED = "CANDIDATES_WRITE_SCOPED";
     private static final String HEADCOUNT_PLANS_READ_ALL = "HEADCOUNT_PLANS_READ_ALL";
     private static final String HEADCOUNT_PLANS_WRITE_ALL = "HEADCOUNT_PLANS_WRITE_ALL";
 
@@ -234,6 +238,22 @@ class ApiAuthorizationMatrixIntegrationTest {
             // integrations are complete. Admission refuses before JSON/multipart parsing for every role.
             endpoint("POST", "/api/v1/public/job-postings/{id}/applications", PUBLIC, INVALID_BODY, 503),
             endpoint("GET", "/api/v1/public/application-sources", PUBLIC, null, 200),
+            // Candidate APIs use CANDIDATES permissions independently of requisition/posting access.
+            // The service also requires READ for writes (every writer has it in the role seed) and checks scope.
+            // Unknown application ids stop reads/extraction requests at 404 before the feature flag;
+            // the empty confirmation body stops PUT at validation with 400, without changing any contact.
+            endpoint("POST", "/api/v1/applications/{applicationId}/cv-extractions",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact/history",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/duplicate-candidates",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
@@ -936,6 +956,7 @@ class ApiAuthorizationMatrixIntegrationTest {
 
         String samplePath() {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+                    .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{type}", CATALOG_TYPE);
         }
 

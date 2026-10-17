@@ -45,6 +45,9 @@ CLAUDE.local.md
 /plan.md
 /docs/sdlc/
 output/
+.claude-flow/
+.swarm/
+.mcp.json
 
 # OS
 .DS_Store
@@ -56,3 +59,14 @@ Thumbs.db
 # Secrets
 *.pem
 *.key
+
+# Ruflo local secrets and runtime data
+.env.local
+.env.*.local
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/
+
+# Codex local configuration
+# Claude Flow runtime data
+# Environment variables
