@@ -160,8 +160,9 @@ class RecruitmentRequisitionMigrationTest {
                 assertRejected(jdbc, "UPDATE recruitment_requisitions SET reason=? WHERE id=?",
                         "valid_requisition_reason", reason, id);
             }
-            // Workflow statuses do not exist yet; a later migration widens this CHECK.
-            for (String status : new String[]{"SUBMITTED", "APPROVED", "draft", ""}) {
+            // V19 (task 257) and V24 (task 293) widened this CHECK to the workflow statuses; the frontend's PENDING,
+            // OPEN and CLOSED are not among them.
+            for (String status : new String[]{"SUBMITTED", "PENDING", "CLOSED", "OPEN", "draft", ""}) {
                 assertRejected(jdbc, "UPDATE recruitment_requisitions SET status=? WHERE id=?",
                         "valid_requisition_status", status, id);
             }

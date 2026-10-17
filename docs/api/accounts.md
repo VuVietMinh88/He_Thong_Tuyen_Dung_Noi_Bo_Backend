@@ -68,7 +68,7 @@ Admin gửi đầy đủ trạng thái mới của các trường được phép
 
 Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. [API phòng ban 195–196](departments.md) cung cấp danh sách/cây, tạo/sửa và ngừng áp dụng trên schema của 194. Không tự tạo phòng ban từ tên do người dùng nhập.
 
-Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md).
+Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md): `PUT /accounts/{id}/roles` thay cả bộ vai trò trong một request, kèm bộ vai trò trang đã tải trong `expectedRoles` để không ghi đè thay đổi của người khác (trang Sửa tài khoản gọi API này sau khi lưu thông tin cơ bản, chỉ khi bộ vai trò thay đổi), còn `PUT`/`DELETE /accounts/{id}/roles/{role}` thêm hoặc bỏ từng vai trò.
 
 Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
 

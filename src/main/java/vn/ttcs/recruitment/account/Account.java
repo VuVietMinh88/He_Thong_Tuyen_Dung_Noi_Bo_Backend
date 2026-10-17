@@ -165,6 +165,12 @@ public class Account {
         roles.remove(role);
     }
 
+    // Changes the managed collection in place, so only the roles that differ are deleted or inserted.
+    public void replaceRoles(Set<Role> next) {
+        roles.retainAll(next);
+        roles.addAll(next);
+    }
+
     public UUID getId() { return id; }
     public String getEmail() { return email; }
     public String getFullName() { return fullName; }
