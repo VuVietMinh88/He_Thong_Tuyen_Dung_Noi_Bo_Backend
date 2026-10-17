@@ -37,6 +37,14 @@ public interface RecruitmentCatalogItemRepository extends JpaRepository<Recruitm
     @Query("select i from RecruitmentCatalogItem i where i.catalogType = :type order by i.id")
     List<RecruitmentCatalogItem> findAllByCatalogTypeForUpdate(@Param("type") RecruitmentCatalogType type);
 
+    // Tasks 303, 304: is this value of this catalog type still in use (active)? Empty when it does not exist or has
+    // another type. FOR SHARE keeps it until the caller commits, so HR cannot deactivate or delete it in between (a
+    // delete would otherwise make the posting's save fail on its foreign key), and a change committed while the caller
+    // waited is seen. Read-write transactions only (PostgreSQL refuses FOR SHARE in read-only).
+    @Query(value = "SELECT active FROM recruitment_catalog_items WHERE id = :id AND catalog_type = :type FOR SHARE",
+            nativeQuery = true)
+    Optional<Boolean> findActiveForShare(@Param("id") UUID id, @Param("type") String type);
+
     boolean existsByCatalogTypeAndCode(RecruitmentCatalogType catalogType, String code);
 
     boolean existsByCatalogTypeAndCodeAndIdNot(RecruitmentCatalogType catalogType, String code, UUID id);

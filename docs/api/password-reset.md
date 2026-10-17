@@ -52,6 +52,28 @@ Sai định dạng token hoặc mật khẩu trả 400 `VALIDATION_ERROR` trư�
 
 Cả hai endpoint công khai, không cần Bearer. Nếu client còn gửi Bearer cũ, backend bỏ qua header đó tại đúng hai endpoint này; mật khẩu mới vẫn chỉ được lưu khi reset token trong body hợp lệ. Các API cần xác thực vẫn giữ kiểm Bearer.
 
+## Nội dung email
+
+Tiêu đề `Đặt lại mật khẩu — Hệ thống tuyển dụng nội bộ`, người gửi `MAIL_FROM`, `Reply-To` là email hỗ trợ `MAIL_SUPPORT_EMAIL`. Thư có hai phần cùng nội dung: `text/plain` UTF-8 trước, `text/html` UTF-8 sau (multipart/alternative, nằm trong multipart/related, ngoài cùng là multipart/mixed); trình đọc thư hiển thị phần HTML nếu đọc được, nếu không thì phần văn bản.
+
+Phần văn bản giữ nguyên các dòng trước đây, sau đó là dòng phân cách chữ ký `-- ` (hai gạch và một dấu cách) và footer hỗ trợ:
+
+```text
+Bạn đã yêu cầu đặt lại mật khẩu.
+
+Mở liên kết sau trong vòng 30 phút; liên kết chỉ dùng được một lần:
+https://internal-hire.com/reset-password?token=<43 ký tự>
+
+Nếu bạn không yêu cầu, hãy bỏ qua email này.
+
+--
+Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.
+Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.
+© 2026 Hệ thống tuyển dụng nội bộ
+```
+
+Phần HTML có cùng các câu, liên kết là nút "Đặt lại mật khẩu" kèm URL đầy đủ bên dưới (cho trình đọc thư không mở được nút), footer có liên kết `mailto:` tới email hỗ trợ, và logo inline nếu đã đặt `MAIL_LOGO`. Mọi giá trị chèn vào HTML đều được escape. Token chỉ nằm trong liên kết; email không chứa mật khẩu hay hash. Tên công ty, nhóm hỗ trợ, hotline và logo cấu hình bằng biến môi trường, xem [Footer email](../deployment/domain-and-mail.md#5-footer-email).
+
 ## SMTP local và cấu hình
 
 Mặc định gửi tới SMTP tại 127.0.0.1:1025. Không cần sửa `.env` cũ để chạy với mail catcher ở cổng này. Cấu hình mẫu bổ sung trong `.env.example`; không sao chép đè toàn bộ `.env` đang dùng.
@@ -73,6 +95,7 @@ Mở [Mailpit local](http://localhost:8025) để đọc thư. Compose mail tác
 | `MAIL_SMTP_SSL` | Bật TLS ngay từ đầu (cổng 465), local false; không bật cùng STARTTLS |
 | `MAIL_FROM` | Người gửi, mặc định support@internal-hire.com |
 | `RESET_PASSWORD_PAGE_URL` | URL frontend cố định; mặc định http://localhost:5173/reset-password |
+| `MAIL_COMPANY_NAME`, `MAIL_SUPPORT_TEAM`, `MAIL_SUPPORT_EMAIL`, `MAIL_SUPPORT_PHONE`, `MAIL_LOGO` | Footer, Reply-To và logo của email; mặc định Hệ thống tuyển dụng nội bộ / Bộ phận Nhân sự / support@internal-hire.com / không hotline / không logo ([Footer email](../deployment/domain-and-mail.md#5-footer-email)) |
 
 Với SMTP thật dùng cấu hình được nhà cung cấp cấp, thường 587 + AUTH/STARTTLS hoặc 465 + SSL; giữ bí mật trong `.env`. Cấu hình cho tên miền dự án và hộp thư support@internal-hire.com (ServerPoint) xem [tên miền và email](../deployment/domain-and-mail.md). URL frontend phải HTTPS, chỉ cho HTTP với localhost. Không dùng URL do request gửi lên để tạo link. Timeout kết nối/đọc/ghi SMTP là5 giây. Spring Mail được cấu hình theo [tài liệu Spring Boot](https://docs.spring.io/spring-boot/reference/io/email.html).
 

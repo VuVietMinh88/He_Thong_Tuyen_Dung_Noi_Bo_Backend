@@ -23,6 +23,7 @@ import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
+import vn.ttcs.recruitment.mail.MailParts;
 
 import java.io.IOException;
 import java.net.URI;
@@ -114,14 +115,29 @@ class AccountProvisioningIntegrationTest {
         assertThat(message.getSubject()).contains("Kích hoạt tài khoản");
         assertThat(message.getAllRecipients()[0].toString()).isEqualTo(EMAIL);
         assertThat(message.getFrom()[0].toString()).isEqualTo("no-reply@ttcs.test");
-        String content = message.getContent().toString();
+        String content = MailParts.text(message);
+        String html = MailParts.html(message);
         String token = activationToken(content);
         String temporaryPassword = temporaryPassword(content);
-        assertThat(content).contains("24 giờ", "chỉ dùng được một lần", "đổi mật khẩu");
+        assertThat(content).contains("24 giờ", "chỉ dùng được một lần", "đổi mật khẩu", "Email đăng nhập: " + EMAIL);
+        assertThat(content.replace("\r\n", "\n")).endsWith("trong tài khoản của bạn.\n\n-- \n"
+                + "Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.\n"
+                + "Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.\n© 2026 Hệ thống tuyển dụng nội bộ\n");
         assertThat(temporaryPassword).hasSize(24).matches(".*[A-Za-z].*").matches(".*[0-9].*");
+        // Defaults of application.properties: support footer, Reply-To the support mailbox, no logo part.
+        assertThat(html).contains("<strong>Mật khẩu tạm:</strong>", ">" + temporaryPassword + "</code>",
+                        "<a href=\"http://localhost:5173/activate-account?token=" + token + "\"",
+                        ">Kích hoạt tài khoản</a>", "Hệ thống tuyển dụng nội bộ</span>",
+                        "Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email <a href=\"mailto:support@internal-hire.com\"")
+                .doesNotContain("<img", "cid:", "tel:");
+        assertThat(message.getReplyTo()).extracting(Object::toString).containsExactly("support@internal-hire.com");
+        assertThat(MailParts.structure(message))
+                .isEqualTo("multipart/mixed[multipart/related[multipart/alternative[text/plain,text/html]]]");
         String hash = accounts.findById(id).orElseThrow().getPasswordHash();
         assertThat(hash).startsWith("$2").isNotEqualTo(temporaryPassword);
         assertThat(passwordEncoder.matches(temporaryPassword, hash)).isTrue();
+        assertThat(List.of(content, html)).allSatisfy(part -> assertThat(part)
+                .doesNotContain(hash, generator.hash(token), PASSWORD));
         assertThat(result.body()).doesNotContain(temporaryPassword, token, hash);
         assertThat(jdbc.queryForObject("SELECT token_hash FROM account_activation_tokens", String.class))
                 .isEqualTo(generator.hash(token)).isNotEqualTo(token);
@@ -261,7 +277,7 @@ class AccountProvisioningIntegrationTest {
     @ValueSource(longs = {86399, 86400, 86401})
     void activationExpiryUsesStrictBoundary(long elapsed) throws Exception {
         assertThat(create(EMAIL, adminToken).statusCode()).isEqualTo(201);
-        String token = activationToken(SMTP.messages().getFirst().getContent().toString());
+        String token = activationToken(MailParts.text(SMTP.messages().getFirst()));
         clock.set(START.plusSeconds(elapsed));
         assertThat(activate(token, null).statusCode()).isEqualTo(elapsed < 86400 ? 200 : 400);
         assertThat(jdbc.queryForObject("SELECT enabled FROM user_accounts WHERE email=?", Boolean.class, EMAIL))
@@ -271,7 +287,7 @@ class AccountProvisioningIntegrationTest {
     @Test
     void unknownWrongPurposeAndMalformedTokensDoNotActivate() throws Exception {
         assertThat(create(EMAIL, adminToken).statusCode()).isEqualTo(201);
-        String token = activationToken(SMTP.messages().getFirst().getContent().toString());
+        String token = activationToken(MailParts.text(SMTP.messages().getFirst()));
         String resetToken = generator.create();
         UUID adminId = UUID.fromString(login("admin@example.test", PASSWORD).path("user").path("id").asText());
         jdbc.update("""
@@ -291,7 +307,7 @@ class AccountProvisioningIntegrationTest {
     @Test
     void concurrentActivationConsumesOnlyOnce() throws Exception {
         assertThat(create(EMAIL, adminToken).statusCode()).isEqualTo(201);
-        String token = activationToken(SMTP.messages().getFirst().getContent().toString());
+        String token = activationToken(MailParts.text(SMTP.messages().getFirst()));
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(() -> activate(token, null));
             var second = executor.submit(() -> activate(token, null));

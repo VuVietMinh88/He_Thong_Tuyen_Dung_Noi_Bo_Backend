@@ -113,6 +113,22 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/departments/*")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/approval-flows", "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows/preview")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/approval-flows")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/approval-flows/*")
+                        .access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_READ")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/profile").hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me",
@@ -161,16 +177,41 @@ public class SecurityConfiguration {
                         // the source (REQUISITIONS_READ_* and its department).
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/copy")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 257: sending a requisition for approval changes its status, a write of its department;
+                        // RequisitionService also checks that the caller may read it (the answer shows it).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/submit")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 262: a decision of the current approval level changes the requisition's status, a write;
+                        // RequisitionApprovalService decides who may take the level (ApproverRule), not the scope.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/approvals")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         // Task 284: assigning or handing over recruiters is for ALL writers only (HR_MANAGER, ADMIN); a
                         // department head (REQUISITIONS_WRITE_SCOPED) is refused. RequisitionRecruiterService checks the
                         // code again after its locks.
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/assign",
                                 "/api/v1/requisitions/*/unassign")
                                 .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
+                        // Task 290 (story S3-07): pausing, resuming, closing as filled and cancelling a requisition are
+                        // HR decisions (REQUISITIONS_WRITE_ALL: ADMIN, HR_MANAGER), like recruiter assignment (matrix
+                        // §7.13); RequisitionStatusService checks the code again after its locks and also requires read
+                        // access.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/status-changes")
+                                .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
+                        // Task 291 (story S3-07): the candidates still in the pipeline are shown in HR's close dialog,
+                        // so only those who may close read them (REQUISITIONS_WRITE_ALL); RequisitionStatusService
+                        // checks the code again and also requires read access.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/active-pipeline")
+                                .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
                         // Task 284, 286: who is assigned, and the history of changes, are read like the requisition
                         // itself (same scope as GET /{id}).
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment",
                                 "/api/v1/requisitions/*/assignment-history")
+                                .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
+                        // Task 267: the approval progress and the approver inbox are read like requisitions; the
+                        // service applies the same scope as GET /requisitions/{id} (department, approval part or,
+                        // task 285, recruiter assignment).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/approvals",
+                                "/api/v1/requisitions/approval-inbox")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions", "/api/v1/requisitions/*",
                                 "/api/v1/requisitions/*/headcount-overrides")
@@ -216,6 +257,42 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
                         // Pictures of the saved page; the service answers 404 for every other picture.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/company-media/*").permitAll()
+                        // Tasks 302-304 (story S3-09): job postings. Composing and every internal read (list, detail,
+                        // preview, history) need a JOB_POSTINGS write permission: ALL (HR_MANAGER, ADMIN) or SCOPED
+                        // (RECRUITER: postings of the requisitions they are assigned to). JobPostingService also
+                        // requires the matching JOB_POSTINGS READ permission and applies the scope.
+                        // JOB_POSTINGS_READ_ALL alone (HIRING_MANAGER, APPROVER) only reads the public portal, like
+                        // the company page. Listed before "/api/v1/job-postings/*", which it would match.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/source-requisitions")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/job-postings/*")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings", "/api/v1/job-postings/*")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 308 (story S3-10): sending for review is the authors' write; reviewing and publishing
+                        // are HR decisions (JOB_POSTINGS_WRITE_ALL = ADMIN, HR_MANAGER), checked again by
+                        // JobPostingApprovalService after its locks. Task 355 (story S4-08): taking a published posting
+                        // down is the composers' write too, since the story's actor is the recruiter; JobPostingService
+                        // applies the recruiter scope after its locks.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit",
+                                "/api/v1/job-postings/*/unpublish")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/approvals",
+                                "/api/v1/job-postings/*/publish")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        // Task 309: the authoring preview is read like the posting. Candidates read published
+                        // postings without an account; the service answers 404 for every other posting.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/preview")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 315: the filter values are named although "/*" covers them, so they stay public if
+                        // "/*" is ever narrowed to ids.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/job-postings",
+                                "/api/v1/public/job-postings/filters", "/api/v1/public/job-postings/*").permitAll()
+                        // Task 310: the review and publication history is read like the posting.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/history")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

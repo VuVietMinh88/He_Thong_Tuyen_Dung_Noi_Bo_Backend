@@ -168,7 +168,8 @@ class DepartmentDeletionIntegrationTest {
     @EnumSource(RequisitionStatus.class)
     void everyRequisitionStatusBlocksDeletionWithTheCodeOfItsGroup(RequisitionStatus status) throws Exception {
         String expected = switch (status) {
-            case DRAFT -> "DEPARTMENT_HAS_OPEN_REQUISITIONS";
+            case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED, PAUSED -> "DEPARTMENT_HAS_OPEN_REQUISITIONS";
+            case REJECTED, FILLED, CANCELLED -> "DEPARTMENT_IN_USE";
         };
         UUID department = department("STATUS", null, true);
         jdbc.update("""

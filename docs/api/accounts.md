@@ -100,6 +100,27 @@ Thành công **201**, `Cache-Control: no-store`:
 
 Tài khoản chưa được đăng nhập cho đến khi kích hoạt. SMTP gửi email UTF8 gồm liên kết kích hoạt và mật khẩu tạm. Response không trả mật khẩu, token hoặc hash. Email trùng, kể cả khác chữ hoa/khoảng trắng hay hai Admin tạo đồng thời, trả **409 `EMAIL_ALREADY_EXISTS`** với thông báo tiếng Việt và không ghi đè tài khoản/gửi email lần hai. DB unique constraint xử lý trường hợp cạnh tranh sau precheck.
 
+Email kích hoạt có tiêu đề `Kích hoạt tài khoản — Hệ thống tuyển dụng nội bộ`, người gửi `MAIL_FROM`, `Reply-To` là email hỗ trợ `MAIL_SUPPORT_EMAIL`, và gồm hai phần cùng nội dung, `text/plain` rồi `text/html`, như [email đặt lại mật khẩu](password-reset.md#nội-dung-email). Phần văn bản giữ nguyên các dòng trước đây, rồi tới dòng `-- ` và footer hỗ trợ:
+
+```text
+Tài khoản nội bộ của bạn đã được tạo.
+
+Email đăng nhập: interviewer@example.com
+Mật khẩu tạm: <24 ký tự>
+
+Kích hoạt trong 24 giờ; liên kết chỉ dùng được một lần:
+https://internal-hire.com/activate-account?token=<43 ký tự>
+
+Sau khi kích hoạt, đăng nhập và đổi mật khẩu trong tài khoản của bạn.
+
+--
+Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.
+Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.
+© 2026 Hệ thống tuyển dụng nội bộ
+```
+
+Phần HTML hiện email đăng nhập và mật khẩu tạm trong ô chữ đơn cách để dễ sao chép, nút "Kích hoạt tài khoản" kèm URL đầy đủ, footer có liên kết `mailto:`; mọi giá trị đều được escape. Email mời khi [import nhân sự](account-import.md) dùng cùng mẫu. Cấu hình footer và logo: [Footer email](../deployment/domain-and-mail.md#5-footer-email).
+
 Các lỗi: **400** dữ liệu sai/role không hợp lệ; **401** thiếu/hết phiên; **403** thiếu quyền Admin; **503 `ACCOUNT_EMAIL_UNAVAILABLE`** gửi email thất bại. Khi503, transaction rollback tài khoản/vai trò/token để có thể thử tạo lại.
 
 ## POST /auth/activate-account
