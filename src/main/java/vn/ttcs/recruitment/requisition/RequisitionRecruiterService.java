@@ -38,10 +38,14 @@ import java.util.stream.Collectors;
  */
 @Service
 public class RequisitionRecruiterService {
-    // Statuses in which the recruiters may still change; reading is allowed in every status. Only DRAFT exists today.
-    // RequisitionStatus asks every new status to be classified here; RequisitionRecruiterStatusTest does not compile
-    // until it is.
-    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+    // Statuses in which the recruiters may still change; reading is allowed in every status. RequisitionStatus asks
+    // every new status to be classified here; RequisitionRecruiterStatusTest does not compile until it is. Task 257:
+    // recruiters may be prepared while the requisition waits for approval or is returned, and are needed once it is
+    // approved (job postings, S3-09); a rejected requisition is finished. Task 293: a paused requisition may hand over
+    // its recruiters; a filled or cancelled one is finished.
+    static final Set<RequisitionStatus> ASSIGNABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED, RequisitionStatus.APPROVED,
+            RequisitionStatus.PAUSED);
 
     private static final String WRITE_ALL = "REQUISITIONS_WRITE_ALL";
 
@@ -69,8 +73,9 @@ public class RequisitionRecruiterService {
         this.clock = clock;
     }
 
-    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), and a SCOPED
-    // reader manages its department (403). Reusing it keeps the two in step when the scope rules change.
+    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), then
+    // department, current recruiters (task 285) or approval participants (403). Reusing it keeps the two in step when
+    // the scope rules change.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionAssignmentView assignment(Jwt jwt, UUID id) {
         requisitionService.get(jwt, id);
@@ -133,8 +138,10 @@ public class RequisitionRecruiterService {
     // Task 286: the team and its history change together, under the requisition lock and with the same moment, so
     // replaying the history always ends in the current team. No-ops and refused requests never reach this point.
     // Recording a handover references the old primary's account (FOR KEY SHARE), which never waits for the
-    // FOR NO KEY UPDATE locks of other writes, so no check is needed after it.
-    private void apply(UUID id, RecruiterChange change, UUID actorId, String note) {
+    // FOR NO KEY UPDATE locks of other writes, so no check is needed after it. Package-private, like requireAssignable
+    // and requireEligible, for RequisitionHandover (feedback item 10), so the handover of an account's requisitions
+    // changes the team by the same rules and writes the same history.
+    void apply(UUID id, RecruiterChange change, UUID actorId, String note) {
         Instant at = now();
         recruiters.apply(id, change, actorId, at);
         changes.record(id, change, actorId, at, note);
@@ -224,25 +231,37 @@ public class RequisitionRecruiterService {
     }
 
     private static void requireAssignable(RecruitmentRequisition requisition) {
+        requireAssignable(requisition, null);
+    }
+
+    // field: the request field that names the requisition, given in fieldErrors; null when the requisition is the
+    // path {id}.
+    static void requireAssignable(RecruitmentRequisition requisition, String field) {
         if (!ASSIGNABLE_STATUSES.contains(requisition.getStatus())) {
-            throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_ASSIGNABLE",
-                    "Không thể phân công recruiter cho yêu cầu tuyển dụng ở trạng thái hiện tại.");
+            String message = "Không thể phân công recruiter cho yêu cầu tuyển dụng ở trạng thái hiện tại.";
+            throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_ASSIGNABLE", message,
+                    field == null ? Map.of() : Map.of(field, message));
         }
     }
 
-    // The account was read while locked, so a role change or an admin lock committed while we waited is seen here.
     private static void requireEligible(Account account) {
+        requireEligible(account, "recruiterId");
+    }
+
+    // The account was read while locked, so a role change or an admin lock committed while we waited is seen here.
+    // field: the request field that names the person, given in fieldErrors.
+    static void requireEligible(Account account, String field) {
         switch (RecruiterEligibility.of(account)) {
             case NOT_RECRUITER -> throw invalidRecruiter("INVALID_REQUISITION_RECRUITER",
-                    "Người được phân công phải là tài khoản tồn tại và có vai trò Recruiter.");
+                    "Người được phân công phải là tài khoản tồn tại và có vai trò Recruiter.", field);
             case INACTIVE -> throw invalidRecruiter("REQUISITION_RECRUITER_INACTIVE",
-                    "Tài khoản này đang bị khóa hoặc chưa kích hoạt nên không thể được phân công.");
+                    "Tài khoản này đang bị khóa hoặc chưa kích hoạt nên không thể được phân công.", field);
             case ELIGIBLE -> { }
         }
     }
 
-    private static ApiException invalidRecruiter(String code, String message) {
-        return new ApiException(HttpStatus.BAD_REQUEST, code, message, Map.of("recruiterId", message));
+    private static ApiException invalidRecruiter(String code, String message, String field) {
+        return new ApiException(HttpStatus.BAD_REQUEST, code, message, Map.of(field, message));
     }
 
     // PostgreSQL TIMESTAMPTZ keeps microseconds, so the response shows the same time a later read returns.
