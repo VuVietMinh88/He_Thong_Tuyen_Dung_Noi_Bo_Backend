@@ -60,6 +60,7 @@ class RequisitionSubmitIntegrationTest {
     @Autowired private PlatformTransactionManager transactions;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private String fixturePasswordHash;
     private UUID hrId;
     private String hrToken;
@@ -437,6 +438,9 @@ class RequisitionSubmitIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

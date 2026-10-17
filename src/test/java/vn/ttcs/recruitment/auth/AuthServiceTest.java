@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,31 +37,31 @@ class AuthServiceTest {
     // Lower cost keeps unit tests fast; the application uses BCrypt cost 12.
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-    private final AuthService service = new AuthService(accounts, sessions, passwordEncoder, tokens, clock);
+    private final LoginDeviceRepository devices = mock(LoginDeviceRepository.class);
+    private final UUID deviceId = UUID.randomUUID();
+    private final AuthService service = new AuthService(accounts, sessions, passwordEncoder, tokens, clock, devices);
     private Account account;
 
     @BeforeEach
     void createAccount() {
         account = new Account(EMAIL, "Recruiter", passwordEncoder.encode(PASSWORD), Set.of(Role.RECRUITER), NOW);
         when(accounts.findByEmailForUpdate(EMAIL)).thenReturn(Optional.of(account));
+        when(devices.lock(deviceId, NOW)).thenReturn(new LoginDevice(deviceId, 0, null));
     }
 
     @Test
     void successfulLoginReturnsRoleAndClearsPreviousFailures() {
-        account.recordFailedLogin(NOW);
+        when(devices.lock(deviceId, NOW)).thenReturn(new LoginDevice(deviceId, 4, null));
         when(tokens.createRefreshToken()).thenReturn("test-refresh-token");
         when(tokens.hashRefreshToken("test-refresh-token")).thenReturn("test-refresh-hash");
         when(sessions.save(any(AuthSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tokens.createAccessToken(any(), any())).thenReturn("test-access-token");
 
-        TokenResponse response = service.login(new LoginRequest("  RECRUITER@EXAMPLE.TEST  ", PASSWORD));
+        TokenResponse response = service.login(new LoginRequest("  RECRUITER@EXAMPLE.TEST  ", PASSWORD), deviceId);
 
         assertThat(response.accessToken()).isEqualTo("test-access-token");
         assertThat(response.user().roles()).containsExactly(Role.RECRUITER);
-        // Four new failures must still leave the account unlocked after a successful login.
-        for (int attempt = 0; attempt < 4; attempt++) {
-            account.recordFailedLogin(NOW);
-        }
+        verify(devices).save(new LoginDevice(deviceId, 0, null), NOW);
         assertThat(account.isLoginLocked(NOW)).isFalse();
     }
 
@@ -69,7 +70,7 @@ class AuthServiceTest {
         when(accounts.findByEmailForUpdate("unknown@example.test")).thenReturn(Optional.empty());
         for (LoginRequest request : new LoginRequest[] {
                 new LoginRequest(EMAIL, "WrongPassword1"), new LoginRequest("unknown@example.test", PASSWORD)}) {
-            assertThatThrownBy(() -> service.login(request))
+            assertThatThrownBy(() -> service.login(request, deviceId))
                     .isInstanceOf(AuthenticationFailureException.class)
                     .hasMessage("Không thể đăng nhập bằng thông tin đã cung cấp.");
         }
@@ -78,15 +79,16 @@ class AuthServiceTest {
     }
 
     @Test
-    void fifthFailureLocksAccountAndCorrectPasswordCannotBypassTheLock() {
-        for (int attempt = 0; attempt < 5; attempt++) {
-            assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, "WrongPassword1")))
-                    .isInstanceOf(AuthenticationFailureException.class);
-        }
-        assertThat(account.isLoginLocked(NOW.plusSeconds(899))).isTrue();
-        assertThat(account.isLoginLocked(NOW.plus(Duration.ofMinutes(15)))).isFalse();
-        assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, PASSWORD)))
-                .isInstanceOf(AuthenticationFailureException.class);
+    void fifthFailureLocksOnlyTheBrowserAndCorrectPasswordCannotBypassIt() {
+        when(devices.lock(deviceId, NOW)).thenReturn(new LoginDevice(deviceId, 4, null));
+        assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, "WrongPassword1"), deviceId))
+                .isInstanceOf(LoginDeviceLockedException.class);
+        LoginDevice locked = new LoginDevice(deviceId, 5, NOW.plus(Duration.ofMinutes(15)));
+        verify(devices).save(locked, NOW);
+        assertThat(account.isLoginLocked(NOW)).isFalse();
+        when(devices.lock(deviceId, NOW)).thenReturn(locked);
+        assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, PASSWORD), deviceId))
+                .isInstanceOf(LoginDeviceLockedException.class);
         verify(sessions, never()).save(any());
         verifyNoInteractions(tokens);
     }
@@ -97,7 +99,7 @@ class AuthServiceTest {
         account = new Account(EMAIL, "Recruiter", passwordEncoder.encode(prefix), Set.of(Role.RECRUITER), NOW);
         when(accounts.findByEmailForUpdate(EMAIL)).thenReturn(Optional.of(account));
 
-        assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, prefix + "ắ")))
+        assertThatThrownBy(() -> service.login(new LoginRequest(EMAIL, prefix + "ắ"), deviceId))
                 .isInstanceOf(AuthenticationFailureException.class);
         verify(sessions, never()).save(any());
         verifyNoInteractions(tokens);

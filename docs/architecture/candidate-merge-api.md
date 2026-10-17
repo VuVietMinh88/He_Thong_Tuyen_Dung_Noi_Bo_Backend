@@ -12,6 +12,9 @@ operation details and undo require this flag. Apply migrations through V33 and c
 before opting in. Duplicate detection has a separate existing flag. Enabling either flag does not enable
 the public submission API. No environment file or development database is changed by this implementation.
 
+An installation that already applied later migrations without develop's V17.1 needs its own reviewed
+upgrade procedure; do not turn on global out-of-order migration or run repair to bypass validation.
+
 ## Contract
 
 All routes require an active authenticated session and return `Cache-Control: no-store` on successful responses.

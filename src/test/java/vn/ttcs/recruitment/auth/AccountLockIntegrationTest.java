@@ -74,6 +74,7 @@ class AccountLockIntegrationTest {
     @Autowired @Qualifier("passwordResetExecutor") private ThreadPoolTaskExecutor mailExecutor;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID adminId;
     private String adminToken;
     private String fixturePasswordHash;
@@ -212,16 +213,14 @@ class AccountLockIntegrationTest {
     }
 
     @Test
-    void unlockDoesNotClearBruteForceLockOrFailedAttemptCounter() throws Exception {
+    void unlockAllowsLoginDespitePreservedLegacyLockAndFailedAttemptCounter() throws Exception {
         UUID target = account("bruteforce@example.test", Set.of(Role.RECRUITER));
         jdbc.update("UPDATE user_accounts SET failed_login_attempts = 5, locked_until = ? WHERE id = ?",
                 Timestamp.from(START.plus(Duration.ofMinutes(15))), target);
         Map<String, Object> before = accountData(target);
         ok(lock(target, "Manual hold", adminToken));
-        assertThat(ok(unlock(target, adminToken)).path("status").asText()).isEqualTo("TEMPORARILY_LOCKED");
+        assertThat(ok(unlock(target, adminToken)).path("status").asText()).isEqualTo("ACTIVE");
         assertThat(accountData(target)).isEqualTo(before);
-        assertThat(loginResponse("bruteforce@example.test").statusCode()).isEqualTo(401);
-        clock.set(START.plus(Duration.ofMinutes(15)));
         login("bruteforce@example.test");
     }
 
@@ -576,6 +575,9 @@ class AccountLockIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

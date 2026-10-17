@@ -65,6 +65,7 @@ class AccountManagementIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID adminId;
     private String adminToken;
     private String fixturePasswordHash;
@@ -160,7 +161,7 @@ class AccountManagementIntegrationTest {
     }
 
     @Test
-    void classifiesTemporaryLockAndPendingActivationWithoutConfusingDisabledAccounts() throws Exception {
+    void ignoresLegacyTemporaryLocksWhenClassifyingAccountStatus() throws Exception {
         UUID locked = account("locked@example.test", "Locked", Set.of(Role.INTERVIEWER));
         UUID expiredLock = account("expiredlock@example.test", "Expired lock", Set.of(Role.INTERVIEWER));
         UUID boundaryLock = account("boundarylock@example.test", "Boundary lock", Set.of(Role.INTERVIEWER));
@@ -179,13 +180,13 @@ class AccountManagementIntegrationTest {
         invitation(consumedInvitation, START.plusSeconds(3600), START.minusSeconds(30));
 
         assertThat(ids(ok(get("/api/v1/accounts?status=TEMPORARILY_LOCKED", adminToken))))
-                .containsExactly(locked.toString());
+                .isEmpty();
         assertThat(ids(ok(get("/api/v1/accounts?status=PENDING_ACTIVATION", adminToken))))
                 .containsExactlyInAnyOrder(pending.toString(), expiredInvitation.toString());
         assertThat(ids(ok(get("/api/v1/accounts?status=DISABLED", adminToken))))
                 .containsExactlyInAnyOrder(disabled.toString(), consumedInvitation.toString());
         assertThat(ids(ok(get("/api/v1/accounts?status=ACTIVE", adminToken))))
-                .containsExactlyInAnyOrder(adminId.toString(), expiredLock.toString(), boundaryLock.toString());
+                .containsExactlyInAnyOrder(adminId.toString(), locked.toString(), expiredLock.toString(), boundaryLock.toString());
     }
 
     @ParameterizedTest
@@ -525,6 +526,9 @@ class AccountManagementIntegrationTest {
         var builder = HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

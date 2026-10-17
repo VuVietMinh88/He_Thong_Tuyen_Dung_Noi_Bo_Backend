@@ -136,7 +136,9 @@ Import **Existing Maven Projects**, chọn `pom.xml`, compiler/JRE là JDK 21, w
 | PostgreSQL `Connection refused` | Database đang chạy, port, `DB_URL` |
 | JWT secret không hợp lệ | Base64 của ít nhất 32 byte ngẫu nhiên |
 | Không đọc `.env` | Working directory thư mục gốc repo Backend |
-| Đúng password vẫn 401 | Có thể đang khóa 15 phút, bị Admin khóa, hoặc tài khoản chưa kích hoạt/bị vô hiệu hóa |
+| Đúng password vẫn 401 | Kiểm tra khóa do Admin hoặc tài khoản chưa kích hoạt/bị vô hiệu hóa |
+| Login trả 400 LOGIN_DEVICE_REQUIRED | Gửi header X-Device-Id là UUID ổn định của trình duyệt |
+| Login trả 429 LOGIN_DEVICE_LOCKED | Trình duyệt nhập sai 5 lần; chờ số giây trong Retry-After, tối đa 15 phút |
 | Browser chặn CORS | Frontend URL, gồm scheme và port, phải khớp cấu hình |
 
 Mở/debug trực tiếp trong từng IDE và chạy Docker cần xác nhận trên môi trường của bạn. Test HTTP + PostgreSQL kiểm chứng backend; không thay thế kiểm tra giao diện IDE.
