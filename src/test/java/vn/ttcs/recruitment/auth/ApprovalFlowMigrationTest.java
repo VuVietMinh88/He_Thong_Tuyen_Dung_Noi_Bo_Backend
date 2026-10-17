@@ -17,7 +17,7 @@ class ApprovalFlowMigrationTest {
     void upgradesV6AndEnforcesCompleteImmutableVersionsAndScope() throws Exception {
         try (var pg = EmbeddedPostgres.builder().setPort(0).setServerConfig("listen_addresses", "127.0.0.1").start()) {
             var ds = pg.getPostgresDatabase();
-            Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("17").load().migrate();
+            Flyway.configure().dataSource(ds).locations("classpath:db/migration").target("17.1").load().migrate();
             var jdbc = new JdbcTemplate(ds);
             var tx = new TransactionTemplate(new DataSourceTransactionManager(ds));
             UUID actor = UUID.randomUUID(), department = UUID.randomUUID(), flow = UUID.randomUUID();

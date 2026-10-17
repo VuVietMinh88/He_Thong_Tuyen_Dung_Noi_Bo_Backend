@@ -67,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class StaffImportIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String IMPORT = "/api/v1/accounts/import";
     private static final String PREVIEW = "/api/v1/accounts/import/preview";
     private static final String PASSWORD = "TestingOnly123!";
@@ -247,6 +248,22 @@ class StaffImportIntegrationTest {
         assertThat(jdbc.queryForList("SELECT user_id FROM account_activation_tokens", UUID.class))
                 .containsExactlyInAnyOrder(first, last);
         assertThat(recipients()).containsExactlyInAnyOrder("first@example.com", "last@example.com");
+    }
+
+    // A full name of nothing but a Unicode space (U+2003) is as empty as no name: POST /accounts refuses it with 400,
+    // so the import skips that row and creates no account, instead of saving an account with an invisible name.
+    @Test
+    void aNameOfOnlyUnicodeSpacesIsSkippedLikeAnEmptyOne() throws Exception {
+        byte[] file = staffFile(
+                row("an@example.com", "An", "RECRUITER"),
+                row("khong-ten@example.com", "\u2003", "RECRUITER"));
+
+        JsonNode body = expectOk(upload(IMPORT, adminToken, file));
+
+        assertThat(statuses(body)).containsExactly("2 CREATED", "3 SKIPPED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("code")).containsExactly("REQUIRED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("cell")).containsExactly("B3");
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com");
     }
 
     @Test
@@ -581,7 +598,7 @@ class StaffImportIntegrationTest {
     }
 
     private JsonNode login(String email) throws Exception {
-        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).timeout(Duration.ofSeconds(20))
+        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).header("X-Device-Id", loginDeviceId).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .build();
