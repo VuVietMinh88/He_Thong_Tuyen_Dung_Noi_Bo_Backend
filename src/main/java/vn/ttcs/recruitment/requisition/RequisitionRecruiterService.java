@@ -73,8 +73,9 @@ public class RequisitionRecruiterService {
         this.clock = clock;
     }
 
-    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), and a SCOPED
-    // reader manages its department (403). Reusing it keeps the two in step when the scope rules change.
+    // Exactly the access of GET /requisitions/{id}: read permission (403), the requisition exists (404), then
+    // department, current recruiters (task 285) or approval participants (403). Reusing it keeps the two in step when
+    // the scope rules change.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public RequisitionAssignmentView assignment(Jwt jwt, UUID id) {
         requisitionService.get(jwt, id);

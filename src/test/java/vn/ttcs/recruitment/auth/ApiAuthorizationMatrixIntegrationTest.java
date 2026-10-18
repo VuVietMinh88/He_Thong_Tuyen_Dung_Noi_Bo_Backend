@@ -626,7 +626,17 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "FILLED", "reason", "Đã tuyển thay", "expectedRevision", 2)),
                 new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 2)),
                 new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions/" + ready + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 0)),
-                new Attack(Identity.NO_ROLE, "POST", "/api/v1/requisitions/" + requisition + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 0)));
+                new Attack(Identity.NO_ROLE, "POST", "/api/v1/requisitions/" + requisition + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 0)),
+                // Task 285: RECRUITER is the primary recruiter of "requisition"; being assigned opens it for reading
+                // only. It is an incomplete DRAFT of TARGET: a widened submit would answer 400, a widened decision 409
+                // and a widened read of the HR exceptions 200. PUT and copy pin the whole outcome only: their valid
+                // bodies name TARGET, which RECRUITER does not manage, so RequisitionRecruiterAccessIntegrationTest
+                // catches a widened check of the saved row or the source.
+                new Attack(Identity.RECRUITER, "PUT", "/api/v1/requisitions/" + requisition, changedRequisition),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/copy", Map.of()),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/submit", null),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + requisition + "/approvals", rejection),
+                new Attack(Identity.RECRUITER, "GET", "/api/v1/requisitions/" + requisition + "/headcount-overrides", null));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();

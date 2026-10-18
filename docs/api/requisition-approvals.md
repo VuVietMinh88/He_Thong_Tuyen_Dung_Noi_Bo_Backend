@@ -128,7 +128,7 @@ Quyền ở matcher: `REQUISITIONS_WRITE_ALL` hoặc `REQUISITIONS_WRITE_SCOPED`
 5. Khóa dòng yêu cầu, kiểm lại người gọi. Không có quyền xem yêu cầu nào thì 403 ngay, trước khi biết yêu cầu có tồn tại không.
 6. Yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`).
 7. Khóa `FOR SHARE` phòng ban của yêu cầu, kiểm lại người gọi.
-8. Người gọi xem được yêu cầu (mục "Ai được xem yêu cầu"), nếu không thì 403.
+8. Người gọi xem được yêu cầu (mục "Ai được xem yêu cầu"), nếu không thì 403 (recruiter được phân công không được tính, task 285).
 9. Yêu cầu đang chờ duyệt (409 `REQUISITION_NOT_PENDING_APPROVAL`).
 10. `expectedRevision` đúng `revision` mới nhất (409 `APPROVAL_STATE_CHANGED`).
 11. Người gọi được quyết định cấp hiện tại (403).
@@ -166,7 +166,9 @@ Người có `REQUISITIONS_READ_SCOPED` vốn chỉ xem yêu cầu của phòng 
 - người đã quyết định một cấp của yêu cầu, ở bất kỳ lượt nào, mãi về sau;
 - người mà một cấp được chuyển tới (tài khoản được chỉ định, hoặc người giữ vai trò theo bảng ở mục "Ai được duyệt một cấp"), khi lượt duyệt đã **tới** cấp đó. Cấp chưa tới thì chưa mở gì. Cấp đang chờ khi Trưởng phòng Nhân sự hủy yêu cầu vẫn tính là đã tới (task 293): người được chuyển tới vẫn xem được yêu cầu, và nếu bấm quyết định trên trang cũ thì nhận 409 `REQUISITION_NOT_PENDING_APPROVAL` để tải lại, không phải 403.
 
-Quy tắc này áp dụng cho `GET /requisitions/{id}`, `GET /requisitions/{id}/assignment`, `GET /requisitions/{id}/assignment-history` và quyết định duyệt. Danh sách `GET /requisitions`, `GET /requisitions/{id}/headcount-overrides` và sao chép vẫn chỉ theo phòng ban. Quyền ghi nội dung (sửa, gửi duyệt, sao chép, phân công) không được mở rộng.
+Quy tắc này áp dụng cho `GET /requisitions/{id}`, `GET /requisitions/{id}/assignment`, `GET /requisitions/{id}/assignment-history`, `GET /requisitions/{id}/approvals` và quyết định duyệt. Danh sách `GET /requisitions` không gồm yêu cầu mà người gọi chỉ tham gia duyệt; `GET /requisitions/{id}/headcount-overrides` và sao chép vẫn chỉ theo phòng ban. Quyền ghi nội dung (sửa, gửi duyệt, sao chép, phân công) không được mở rộng.
+
+Từ task 285, recruiter đang được phân công (chính hoặc hỗ trợ) cũng xem được yêu cầu, phân công, lịch sử phân công và tiến độ duyệt (`actions.canDecide` vẫn theo người duyệt), và yêu cầu đó có trong danh sách của họ; quyết định duyệt không tính phân công (vẫn 403, không phải 409). Xem mục "Recruiter được phân công" của [API yêu cầu tuyển dụng](requisitions.md).
 
 ## Lịch sử quyết định
 
@@ -326,7 +328,7 @@ Nhãn trạng thái: `DRAFT` Nháp; `PENDING_APPROVAL` Chờ duyệt; `RETURNED`
 
 Tạm dừng, mở lại, đóng vì đã tuyển đủ và hủy yêu cầu (task 290) nằm ở [Tạm dừng, đóng và hủy yêu cầu tuyển dụng](requisition-status.md), mục "Ghi chú cho frontend". Sau khi yêu cầu bị hủy lúc đang chờ duyệt, người duyệt bấm quyết định trên trang cũ nhận 409 `REQUISITION_NOT_PENDING_APPROVAL` (tải lại), không bị chuyển sang /unauthorized.
 
-Người duyệt chỉ xem yêu cầu qua quyền tham gia duyệt thì vẫn nhận 403 ở `GET /requisitions/{id}/headcount-overrides` và `GET /headcount-plans/remaining` của phòng ban khác. Màn hình chi tiết không nên gọi hai API này khi người xem không phụ trách phòng ban, hoặc phải tự xử lý 403 của chúng thay vì chuyển sang `/unauthorized`.
+Người duyệt chỉ xem yêu cầu qua quyền tham gia duyệt, và recruiter chỉ xem qua phân công (task 285), thì vẫn nhận 403 ở `GET /requisitions/{id}/headcount-overrides` và `GET /headcount-plans/remaining` của phòng ban khác. Màn hình chi tiết không nên gọi hai API này khi người xem không phụ trách phòng ban, hoặc phải tự xử lý 403 của chúng thay vì chuyển sang `/unauthorized`.
 
 ## Giả định chờ BA/PO
 
@@ -344,4 +346,5 @@ Các quy tắc trên là giả định của backend. Gồm:
 - recruiter vẫn được phân công khi yêu cầu chờ duyệt, cần bổ sung, đã duyệt hoặc tạm dừng; không phân công khi đã bị từ chối, đã tuyển đủ hoặc đã hủy;
 - gửi duyệt và duyệt không đổi `updatedAt`; bản sao không mang trạng thái hay lịch sử duyệt;
 - người tham gia duyệt xem được yêu cầu, phân công và lịch sử phân công của nó; danh sách và ngoại lệ định biên vẫn theo phòng ban;
+- từ task 285, recruiter đang được phân công cũng xem được yêu cầu, phân công, lịch sử phân công và tiến độ duyệt, và yêu cầu có trong danh sách của họ; quyết định duyệt không tính phân công (câu hỏi 19 trong ma trận vai trò và quyền);
 - `HR_MANAGER` và `ADMIN` không duyệt thay; một cấp mà người duyệt bị khóa hoặc mất quyền sau khi gửi thì chờ tới khi có người đủ điều kiện.

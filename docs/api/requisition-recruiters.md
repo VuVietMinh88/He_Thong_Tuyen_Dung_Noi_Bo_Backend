@@ -1,26 +1,26 @@
 # API phân công recruiter cho yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-283 (lưu recruiter chính và hỗ trợ), TKNHTTDNB1-284 (API phân công và bàn giao) và TKNHTTDNB1-286 (lịch sử thay đổi người tuyển dụng), story TKNHTTDNB1-35 (S3-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-283 (lưu recruiter chính và hỗ trợ), TKNHTTDNB1-284 (API phân công và bàn giao), TKNHTTDNB1-286 (lịch sử thay đổi người tuyển dụng) và TKNHTTDNB1-285 (giới hạn truy cập theo vị trí được phân công), story TKNHTTDNB1-35 (S3-06). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`.
 
 Tiêu chí của story:
 
 - "Phân công một recruiter chính và nhiều recruiter hỗ trợ": đã có (283, 284).
 - "Có ghi lịch sử chuyển giao khi đổi người phụ trách": đã có (286, mục "Lịch sử phân công").
-- "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao": thuộc task 285, chưa làm vì chưa có module ứng viên.
+- "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao": phần yêu cầu tuyển dụng đã có (285: recruiter đang được phân công xem được yêu cầu, mất quyền ngay khi bàn giao, mục "Recruiter xem yêu cầu được phân công"); phần hồ sơ ứng viên chờ module ứng viên, sẽ dùng cùng quy tắc `RecruiterAssignmentAccess`. Tiêu chí này vì vậy chưa đạt đủ.
 
 ## Quyền
 
 | Thao tác | Quyền cần có | Vai trò được phép theo seed hiện tại |
 |---|---|---|
-|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}` (từ task 262 gồm cả người tham gia duyệt)|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách)|
-|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt)|HR_MANAGER, ADMIN|
+|`GET /requisitions/{id}/assignment`|`REQUISITIONS_READ_ALL` **hoặc** `REQUISITIONS_READ_SCOPED`, cùng phạm vi như `GET /requisitions/{id}` (từ task 262 gồm cả người tham gia duyệt, từ task 285 cả recruiter đang được phân công)|ADMIN, HR_MANAGER (mọi yêu cầu); HIRING_MANAGER, RECRUITER, APPROVER (yêu cầu của phòng ban mình phụ trách, yêu cầu mình đang được phân công, hoặc khi tham gia duyệt)|
+|`POST /requisitions/{id}/assign`|`REQUISITIONS_WRITE_ALL`, **và** xem được yêu cầu đó theo phạm vi phòng ban (như `GET /requisitions/{id}`, không gồm người tham gia duyệt và recruiter được phân công)|HR_MANAGER, ADMIN|
 |`POST /requisitions/{id}/unassign`|Như `POST /assign`|HR_MANAGER, ADMIN|
-|`GET /requisitions/{id}/assignment-history`|Như `GET /assignment`|Như `GET /assignment`|
+|`GET /requisitions/{id}/assignment-history`|Như `GET /assignment`|Như `GET /assignment` (yêu cầu của phòng ban mình phụ trách, yêu cầu mình đang được phân công, hoặc khi tham gia duyệt)|
 
 - Chỉ người có `REQUISITIONS_WRITE_ALL` được phân công. Trưởng bộ phận (`REQUISITIONS_WRITE_SCOPED`) bị 403, vì bảng vai trò ghi việc "phân công recruiter" thuộc về Trưởng phòng Nhân sự. Không thêm mã quyền mới.
-- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó theo phạm vi phòng ban của `GET /requisitions/{id}` (người tham gia duyệt không được tính, task 262), giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
-- Được phân công **chưa** làm recruiter thấy yêu cầu đó: `REQUISITIONS_*_SCOPED` vẫn hiểu là "phòng ban mình phụ trách". Việc mở rộng phạm vi theo phân công chờ BA/PO (câu hỏi 14 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)) và task 285. Lọc `recruiterId` ở danh sách `GET /requisitions` (task 297, recruiter chính) không mở rộng phạm vi xem.
-- Từ task 303, recruiter được phân công (chính hoặc hỗ trợ) soạn và xem [tin tuyển dụng](job-postings.md) của yêu cầu đó, dù vẫn chưa đọc được yêu cầu (task 285).
+- Quyền ghi không bao gồm quyền đọc. `/assign` và `/unassign` trả về cả nhóm, kể cả khi không đổi gì, nên người gọi còn phải xem được yêu cầu đó theo phạm vi phòng ban của `GET /requisitions/{id}` (người tham gia duyệt và recruiter được phân công không được tính, task 262, 285), giống sao chép yêu cầu (task 278). Người chỉ có quyền ghi bị 403, kể cả với `{id}` không tồn tại. Theo seed hiện tại HR_MANAGER và ADMIN có cả `REQUISITIONS_READ_ALL`, nên điều này chưa chặn ai.
+- Từ task 285, được phân công (chính hoặc hỗ trợ) cho recruiter **xem** yêu cầu đó, phân công, lịch sử phân công và tiến độ duyệt; không cho sửa, gửi duyệt, sao chép, xem ngoại lệ định biên, quyết định duyệt, đổi trạng thái hay phân công. Bàn giao hoặc bỏ recruiter hỗ trợ lấy lại quyền xem ngay khi lưu. Lọc `recruiterId` (recruiter chính) không mở rộng phạm vi. Xem câu hỏi 14 và 19 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md).
+- Từ task 303, recruiter được phân công soạn và xem [tin tuyển dụng](job-postings.md) của yêu cầu đó; từ task 285 họ cũng đọc được chính yêu cầu.
 
 ## Xem phân công
 
@@ -54,7 +54,8 @@ Tiêu chí của story:
 - Recruiter hỗ trợ xếp theo thứ tự được thêm.
 - Response chỉ có `id` và họ tên, không có email. Tên được đọc lúc trả, nên đổi tên tài khoản thì hiện tên mới.
 - `eligible` cho biết người đó hiện có được giao vai trò mới không: còn vai trò RECRUITER, không bị quản trị khóa, đã kích hoạt. Khóa này **chỉ có** khi người gọi có `REQUISITIONS_WRITE_ALL`; người khác không nhận khóa này. `eligible: false` là dấu hiệu nên chuyển giao.
-- Thứ tự kiểm giống `GET /requisitions/{id}`: quyền (401/403), yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`), phạm vi (403).
+- Thứ tự kiểm giống `GET /requisitions/{id}`: quyền (401/403), yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`), rồi phòng ban phụ trách, phân công (task 285) hoặc tham gia duyệt (task 262); không khớp thì 403.
+- Recruiter xem qua phân công (task 285) nhận response như Trưởng bộ phận: không có `eligible`.
 
 ## Phân công và chuyển giao
 
@@ -123,6 +124,17 @@ Mỗi lần nhóm recruiter **thực sự** thay đổi, backend ghi thêm một
 - Tên người được đọc lúc trả, nên tài khoản đổi tên thì hiện tên mới.
 - Phân công được lưu trước khi có V17 (nếu task 284 được phát hành trước) được V17 ghi bổ sung mỗi người một dòng, recruiter chính trước, không có người tiền nhiệm và ghi chú.
 
+## Recruiter xem yêu cầu được phân công (task 285)
+
+Người có `REQUISITIONS_READ_SCOPED` đang là recruiter chính hoặc hỗ trợ của một yêu cầu xem được yêu cầu đó: nó có trong `GET /requisitions` của họ, và `GET /requisitions/{id}`, `/assignment`, `/assignment-history`, `/approvals` (tiến độ duyệt) trả 200, ở mọi trạng thái. Mọi thao tác ghi vẫn theo phòng ban; `/headcount-overrides` cũng vậy. Bảng đầy đủ từng API ở mục "Recruiter được phân công" của [API yêu cầu tuyển dụng](requisitions.md).
+
+- Quyền xem đi theo nhóm **hiện tại** (bảng `requisition_recruiters`), không theo lịch sử phân công: sau khi bàn giao, recruiter chính mới xem được và người cũ mất quyền ngay từ request bắt đầu sau khi lần bàn giao commit. Bỏ recruiter hỗ trợ cũng vậy. Thăng recruiter hỗ trợ lên recruiter chính thì người đó vẫn xem được, còn recruiter chính cũ thì không.
+- Lệnh đọc không khóa gì và không chờ một lần đổi nhóm đang chạy; lệnh đọc bắt đầu trước khi lần đổi nhóm commit vẫn trả theo nhóm cũ.
+- Quyền xem theo mã quyền: người được phân công mất vai trò RECRUITER nhưng còn `REQUISITIONS_READ_SCOPED` từ vai trò khác vẫn xem được; không còn quyền đọc nào thì 403, dù dòng phân công vẫn còn.
+- Quy tắc nằm ở `RecruiterAssignmentAccess` (gói `requisition`): yêu cầu được giao cho một người là yêu cầu có dòng của người đó trong `requisition_recruiters`, vai trò chính hay hỗ trợ đều được. Danh sách yêu cầu và tin tuyển dụng dùng truy vấn con `ASSIGNED_REQUISITION_IDS` trong câu SQL; một yêu cầu dùng `isAssigned`, được viết bằng chính truy vấn con đó, nên danh sách và chi tiết không thể trả khác nhau. Nó đọc trong transaction của người gọi (bắt buộc có transaction) và không khóa gì.
+
+**Dành cho module ứng viên.** Khi có module ứng viên, recruiter (`CANDIDATES_*_SCOPED`) chỉ xem ứng viên và hồ sơ ứng tuyển của yêu cầu mình đang được phân công, và phải dùng `RecruiterAssignmentAccess`: danh sách lọc bằng `ASSIGNED_REQUISITION_IDS` trong câu SQL, một bản ghi kiểm bằng `isAssigned`, thao tác ghi về một ứng viên kiểm `isAssigned` khi đang giữ khóa dòng yêu cầu (mọi lần đổi nhóm đều khóa dòng đó trước). Còn chờ BA/PO: "được phân công" theo yêu cầu tuyển dụng hay theo chức danh (backend: theo yêu cầu, V16), và ứng viên nộp vào nhiều yêu cầu thì recruiter thấy cả hồ sơ hay chỉ đơn ứng tuyển vào yêu cầu của mình (câu hỏi 19).
+
 ## Ai được phân công
 
 Người **được giao vai trò mới** phải:
@@ -147,7 +159,7 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 3. Khóa tài khoản người gọi và tài khoản người được giao (theo thứ tự id), rồi phiên; kiểm lại hạn token, phiên và quyền (401 `SESSION_INVALID` / 403).
 4. Khóa dòng yêu cầu tuyển dụng, rồi kiểm lại người gọi lần nữa. Người gọi phải có `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED`, nếu không thì 403 ngay, trước khi biết yêu cầu có tồn tại hay không.
 5. Yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`).
-6. Người chỉ có `REQUISITIONS_READ_SCOPED` phải phụ trách phòng ban của yêu cầu (403), như `GET /requisitions/{id}`.
+6. Người chỉ có `REQUISITIONS_READ_SCOPED` phải phụ trách phòng ban của yêu cầu (403), theo quy tắc phòng ban của `GET /requisitions/{id}`; người tham gia duyệt và recruiter được phân công không được tính (task 262, 285).
 7. Trạng thái cho phép phân công (409 `REQUISITION_NOT_ASSIGNABLE`).
 8. Người đó đã có đúng vai trò: 200, không ghi gì.
 9. Người được giao hợp lệ (400).
@@ -158,6 +170,7 @@ Phân công gắn với **yêu cầu tuyển dụng**, không gắn với chức
 - Mọi lần đổi nhóm đều khóa dòng yêu cầu tuyển dụng trước khi đọc nhóm hiện tại. Vì vậy hai HR thao tác cùng lúc chạy lần lượt, và lệnh sau áp lên kết quả của lệnh trước. Ví dụ: hai HR cùng thêm hai recruiter hỗ trợ khác nhau thì cả hai đều được giữ.
 - Tài khoản người được giao bị khóa cùng tài khoản người gọi, theo cùng thứ tự với quản trị tài khoản. Nếu Admin gỡ vai trò RECRUITER hoặc khóa người đó trong lúc lệnh đang chờ, lệnh sẽ thấy thay đổi và trả 400.
 - Database có lớp chặn cuối: mỗi yêu cầu tối đa một recruiter chính (`requisition_recruiters_one_primary_idx`), mỗi người tối đa một dòng.
+- Từ task 285, nhóm quyết định ai xem được yêu cầu: một lần đổi nhóm đã commit có hiệu lực từ request đọc tiếp theo. Lệnh đọc không chờ khóa dòng yêu cầu, nên không thêm chờ đợi hay deadlock nào.
 
 ## Lỗi
 
@@ -184,6 +197,8 @@ Frontend nhánh `UI` (`src/services/recruiterAssignmentService.ts`, `AssignRecru
 - Chỉ hiện nút "Phân công" khi người dùng có `REQUISITIONS_WRITE_ALL` (người đó cũng phải xem được yêu cầu; nút nằm trong trang chi tiết yêu cầu nên điều này đã đúng). Không dựa vào quyền sửa yêu cầu nói chung, vì Trưởng bộ phận sẽ bấm được rồi bị 403 và bị đưa sang `/unauthorized`.
 - Lịch sử: thêm `changeType` (và `previousAssignedTo`) vào `AssignmentHistoryItem`, rồi ghi nhãn mỗi dòng theo `changeType`: giao recruiter chính, chuyển giao từ `previousAssignedTo` sang `assignedTo`, thêm hỗ trợ, bỏ hỗ trợ. `AssignRecruiterModal.tsx` hiện ghi "Giao cho:" cho mọi dòng, nên một lần bỏ recruiter hỗ trợ sẽ hiện thành "Giao cho" chính người vừa bị bỏ.
 - Để hiện và quản lý recruiter hỗ trợ: gọi `GET /requisitions/{id}/assignment`, gửi `role: "SUPPORTING"` khi thêm hỗ trợ, gọi `POST /requisitions/{id}/unassign` khi bỏ.
+- Task 285: RECRUITER nay thấy yêu cầu mình được phân công trong danh sách và mở được chi tiết, phân công, lịch sử phân công, tiến độ duyệt. Trang chi tiết với người chỉ xem qua phân công là **chỉ đọc**: chỉ hiện "Sửa", "Gửi duyệt", "Sao chép" khi có `REQUISITIONS_WRITE_ALL` hoặc người dùng phụ trách phòng ban của yêu cầu; `REQUISITIONS_WRITE_SCOPED` một mình không đủ (bấm sẽ nhận 403 rồi bị chuyển sang `/unauthorized`). Nút "Phân công" và đổi trạng thái vẫn theo `REQUISITIONS_WRITE_ALL`; quyết định duyệt theo `actions.canDecide`. Không gọi `/headcount-overrides` hay `/headcount-plans/remaining` cho yêu cầu như vậy.
+- Task 285: sau khi bàn giao, lần tải tiếp theo của recruiter cũ nhận 403 và interceptor chuyển sang `/unauthorized`. Gợi ý: trang chi tiết bắt 403 và hiện "Bạn không còn được phân công yêu cầu này" kèm liên kết về danh sách (frontend quyết định). `JobPostingForm.tsx` (`GET /requisitions/{id}`) nay chạy được với recruiter được phân công.
 
 ## Giả định chờ BA/PO
 
@@ -194,6 +209,6 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - người cũ rời khỏi yêu cầu khi chuyển giao;
 - phân công được ở `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `PAUSED`, không phân công ở `REJECTED`, `FILLED`, `CANCELLED`;
 - không giới hạn theo phòng ban;
-- recruiter được giao chưa xem được yêu cầu;
+- recruiter được giao (chính và hỗ trợ) xem được yêu cầu, phân công, lịch sử phân công và tiến độ duyệt ở mọi trạng thái, mất quyền ngay khi bàn giao (câu hỏi 19);
 - lịch sử chỉ ghi lần thay đổi thật, không ghi lần gọi không đổi gì hay bị từ chối (task 286);
 - phân công lưu trước V17 được ghi bổ sung thành dòng lịch sử không có người tiền nhiệm và ghi chú (task 286).

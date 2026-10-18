@@ -370,8 +370,12 @@ class RequisitionRecruiterAssignmentIntegrationTest {
         String interviewerToken = token("interviewer@example.test");
 
         forbidden(get(requisitionId, "assignment", salesToken));
-        // Being assigned does not open the requisition yet: REQUISITIONS_*_SCOPED still means managed departments.
-        forbidden(get(requisitionId, "assignment", recruiterToken));
+        // Task 285: being assigned opens the requisition for reading (not for writing); a recruiter who is not on the
+        // team still gets 403.
+        JsonNode team = expect(get(requisitionId, "assignment", recruiterToken), 200);
+        assertThat(team.path("primaryRecruiter").path("recruiterId").asText()).isEqualTo(r.get(0).toString());
+        assertThat(team.path("primaryRecruiter").has("eligible")).isFalse();
+        forbidden(get(requisitionId, "assignment", token("r1@example.test")));
         forbidden(get(requisitionId, "assignment", interviewerToken));
         forbidden(assign(requisitionId, Map.of("recruiterId", r.get(1)), interviewerToken));
         forbidden(assign(requisitionId, Map.of("recruiterId", r.get(1)), recruiterToken));

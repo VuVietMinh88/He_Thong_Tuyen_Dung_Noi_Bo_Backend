@@ -203,7 +203,8 @@ public class SecurityConfiguration {
                                 "/api/v1/requisitions/*/assignment-history")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")
                         // Task 267: the approval progress and the approver inbox are read like requisitions; the
-                        // service applies the same scope as GET /requisitions/{id} (department or approval part).
+                        // service applies the same scope as GET /requisitions/{id} (department, approval part or,
+                        // task 285, recruiter assignment).
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/approvals",
                                 "/api/v1/requisitions/approval-inbox")
                                 .hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")

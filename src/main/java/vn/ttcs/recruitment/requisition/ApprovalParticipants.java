@@ -19,6 +19,10 @@ import java.util.function.Supplier;
  * decide and a late decision answers 409. Targets rather than "may decide now" on purpose: two holders of a role
  * clicking the same level both read it, and the second gets a 409 it can show, not a 403.
  * Write scope is never widened: deciding is authorized by ApproverRule, not by department scope.
+ * <p>
+ * Task 285: GET /requisitions/{id} also admits the requisition's current recruiters, in
+ * RequisitionService.requireReadable; readable() deliberately does not, because a decision uses it (an assigned
+ * recruiter who may not decide must get 403, not a 409 that shows the requisition's state).
  */
 @Component
 public class ApprovalParticipants {
@@ -34,9 +38,16 @@ public class ApprovalParticipants {
     // events: the requisition's approval history, loaded only when the department rule does not already answer.
     public boolean readable(ApproverCandidate reader, AccessScope readScope, RecruitmentRequisition requisition,
                             Supplier<List<ApprovalEvent>> events) {
+        return byDepartment(reader, readScope, requisition) || isParticipant(reader, requisition, events.get());
+    }
+
+    // ALL, or a SCOPED reader who manages the requisition's department (with its parents, task 249). Shared with
+    // RequisitionService.requireReadable, which adds the recruiter assignment (task 285) between this and
+    // isParticipant.
+    public static boolean byDepartment(ApproverCandidate reader, AccessScope readScope,
+                                       RecruitmentRequisition requisition) {
         return readScope == AccessScope.ALL
-                || reader.managedDepartmentIds().get().contains(requisition.getDepartmentId())
-                || isParticipant(reader, requisition, events.get());
+                || reader.managedDepartmentIds().get().contains(requisition.getDepartmentId());
     }
 
     public boolean isParticipant(ApproverCandidate reader, RecruitmentRequisition requisition,

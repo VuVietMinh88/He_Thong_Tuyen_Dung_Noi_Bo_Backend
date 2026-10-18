@@ -134,12 +134,14 @@ class RequisitionStatusChangeLockIntegrationTest {
     // HR pauses an approved requisition while a save holds its row, or while an admin lock or a logout holds HR's
     // account. Whatever changed meanwhile is seen once the lock is granted: the token expiring, the permission to
     // change statuses lost or narrowed to a department (WRITE_SCOPED never changes a status), the permission to read
-    // requisitions lost, the requisition cancelled by someone else.
+    // requisitions lost, the requisition cancelled by someone else. Task 285: reading narrowed to SCOPED while HR
+    // became the requisition's primary recruiter is still refused: the assignment opens reads, never the department
+    // read rule of a write.
     @ParameterizedTest(name = "{0} held, then {1}")
     @CsvSource({
             "requisition, nothing, 200", "requisition, token-expired, 401", "requisition, permission-lost, 403",
             "requisition, downgraded-to-scoped, 403", "requisition, read-lost, 403",
-            "requisition, cancelled-meanwhile, 409",
+            "requisition, cancelled-meanwhile, 409", "requisition, scoped-reader-assigned, 403",
             "actor, locked-actor, 401", "actor, revoked-session, 401"
     })
     void theCallerIsCheckedAgainAfterEachLockWait(String held, String change, int expected) throws Exception {
@@ -164,6 +166,17 @@ class RequisitionStatusChangeLockIntegrationTest {
                     }
                     case "read-lost" -> jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' "
                             + "AND permission_code = 'REQUISITIONS_READ_ALL'");
+                    // Committed together with the release of the row. The team row's foreign keys take FOR KEY SHARE
+                    // on HR's account, which the waiting request's FOR NO KEY UPDATE does not block.
+                    case "scoped-reader-assigned" -> {
+                        execute(connection, "DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' "
+                                + "AND permission_code = 'REQUISITIONS_READ_ALL'");
+                        execute(connection, "INSERT INTO role_permissions (role_code, permission_code) "
+                                + "VALUES ('HR_MANAGER', 'REQUISITIONS_READ_SCOPED')");
+                        execute(connection, "INSERT INTO requisition_recruiters (requisition_id, recruiter_id, "
+                                + "assignment_role, assigned_by, assigned_at) VALUES (?, ?, 'PRIMARY', ?, ?)",
+                                id, hrId, adminId, Timestamp.from(START));
+                    }
                     // Another user (ADMIN) cancels the requisition meanwhile and writes its history row. Naming HR
                     // would work too: the waiting request holds HR's account FOR NO KEY UPDATE, which the row's
                     // foreign key check (FOR KEY SHARE) does not wait for (see RequisitionStatusService).
