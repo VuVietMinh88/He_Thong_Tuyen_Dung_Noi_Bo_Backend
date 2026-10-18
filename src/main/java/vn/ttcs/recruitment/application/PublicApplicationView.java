@@ -17,11 +17,22 @@ import java.time.Instant;
  * {status, occurredAt} built with {@link PublicApplicationStatus#of}, never notes, reasons or actors. Every new
  * component changes the public contract: PublicApplicationResponsesTest and PublicApplicationPrivacyIntegrationTest pin
  * it, and docs/api/application-tracking.md ("Dữ liệu công khai (task 341)") must say why the candidate may see it.
+ *
+ * <p>Task 345 (story S4-06): actions.canWithdraw tells the tracking page whether to offer the withdrawal: true while
+ * the stage is still in the pipeline (ApplicationStage.active: NEW, SCREENING, INTERVIEW, OFFER), false once it has
+ * an outcome or was withdrawn. It is derived from the stage the reader already reads, so the lookup still reads no other
+ * table. Every active stage shows a status other than COMPLETED and every final stage shows COMPLETED (task 340), so it
+ * tells the candidate nothing that status does not already tell.
  */
-public record PublicApplicationView(String postingTitle, Instant receivedAt, String status, String statusName) {
+public record PublicApplicationView(String postingTitle, Instant receivedAt, String status, String statusName,
+                                    Actions actions) {
+
+    // What the candidate may do with the application now (the pattern of the portal's actions.canUnpublish).
+    public record Actions(boolean canWithdraw) { }
 
     public static PublicApplicationView of(String postingTitle, Instant receivedAt, ApplicationStage stage) {
         var status = PublicApplicationStatus.of(stage);
-        return new PublicApplicationView(postingTitle, receivedAt, status.name(), status.displayName());
+        return new PublicApplicationView(postingTitle, receivedAt, status.name(), status.displayName(),
+                new Actions(stage.active()));
     }
 }

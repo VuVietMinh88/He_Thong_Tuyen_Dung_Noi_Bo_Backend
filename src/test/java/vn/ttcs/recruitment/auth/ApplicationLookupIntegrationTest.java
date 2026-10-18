@@ -60,7 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ApplicationLookupIntegrationTest {
-    private static final List<String> KEYS = List.of("postingTitle", "receivedAt", "status", "statusName");
+    // Task 345 adds actions ({canWithdraw}) to the four public fields.
+    private static final List<String> KEYS = List.of("postingTitle", "receivedAt", "status", "statusName", "actions");
     private static final String EMAIL = "Nguyen.Van.A@Example.test";
     private static final String TITLE = "Lập trình viên Java";
     private static final String NOT_FOUND = "Mã tra cứu hoặc email không đúng.";
@@ -111,6 +112,8 @@ class ApplicationLookupIntegrationTest {
         assertThat(body.get("receivedAt").asString()).isEqualTo(ApplicationTestSupport.NOW.toString());
         assertThat(body.get("status").asString()).isEqualTo("RECEIVED");
         assertThat(body.get("statusName").asString()).isEqualTo("Đã nhận");
+        assertThat(body.get("actions").propertyNames()).containsExactly("canWithdraw");
+        assertThat(body.get("actions").get("canWithdraw").asBoolean()).isTrue();
         assertThat(response.body()).doesNotContain(receipt.applicationId().toString(), receipt.trackingCode(),
                 ApplicationTestSupport.FULL_NAME, "Nguyen.Van.A", ApplicationTestSupport.PHONE, "Thư", "NEW", "Hồ sơ mới");
 
@@ -131,6 +134,8 @@ class ApplicationLookupIntegrationTest {
         var expected = PublicApplicationStatus.of(stage);
         assertThat(body.get("status").asString()).isEqualTo(expected.name());
         assertThat(body.get("statusName").asString()).isEqualTo(expected.displayName());
+        // Task 345: the withdrawal is offered exactly while the stage is still in the pipeline.
+        assertThat(body.get("actions").get("canWithdraw").asBoolean()).isEqualTo(stage.active());
         assertThat(response.body()).doesNotContain("\"" + stage.name() + "\"", stage.displayName());
     }
 

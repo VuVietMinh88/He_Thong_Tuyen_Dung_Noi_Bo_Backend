@@ -162,7 +162,8 @@ class PublicApplicationPrivacyIntegrationTest {
         for (ApplicationStage stage : ApplicationStage.values()) internal.add("\"" + stage.name() + "\"");
     }
 
-    // Whatever the stage, the candidate gets exactly the four public fields, with task 340's exact values.
+    // Whatever the stage, the candidate gets exactly the four public fields, with task 340's exact values, and (task
+    // 345) actions with canWithdraw as its only key.
     @ParameterizedTest
     @EnumSource(ApplicationStage.class)
     void everyStageShowsTheFourPublicFieldsAndNothingInternal(ApplicationStage stage) throws Exception {
@@ -171,12 +172,34 @@ class PublicApplicationPrivacyIntegrationTest {
         var response = applications.lookup(application.trackingCode(), EMAIL);
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         JsonNode body = json.readTree(response.body());
-        assertJsonKeys(body, "postingTitle", "receivedAt", "status", "statusName");
+        assertJsonKeys(body, "postingTitle", "receivedAt", "status", "statusName", "actions");
+        assertJsonKeys(body.get("actions"), "canWithdraw");
+        assertThat(body.get("actions").get("canWithdraw").asBoolean()).isEqualTo(stage.active());
         assertThat(body.get("postingTitle").asString()).isEqualTo(TITLE);
         assertThat(body.get("receivedAt").asString()).isEqualTo(ApplicationTestSupport.NOW.toString());
         assertThat(body.get("status").asString()).isEqualTo(PublicApplicationStatus.of(stage).name());
         assertThat(body.get("statusName").asString()).isEqualTo(PublicApplicationStatus.of(stage).displayName());
         assertNothingInternal(response);
+    }
+
+    // Task 345: the withdrawal's answer is the same kind of whitelist: exactly its five keys, nothing of the staff, the
+    // notes or the application around it, and not the reason the candidate just typed.
+    @Test
+    void theWithdrawalShowsItsFivePublicFieldsAndNothingInternal() throws Exception {
+        String reason = "LY_DO_RUT_HO_SO_RIENG_TU";
+        internal.add(reason);
+        var response = applications.withdraw(application.trackingCode(), EMAIL, reason);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        JsonNode body = json.readTree(response.body());
+        assertJsonKeys(body, "postingTitle", "receivedAt", "status", "statusName", "withdrawnAt");
+        assertThat(body.get("postingTitle").asString()).isEqualTo(TITLE);
+        assertThat(body.get("status").asString()).isEqualTo("COMPLETED");
+        assertNothingInternal(response);
+
+        // The lookup after it carries the reason nowhere either.
+        var lookup = applications.lookup(application.trackingCode(), EMAIL);
+        assertThat(lookup.statusCode()).as(lookup.body()).isEqualTo(200);
+        assertNothingInternal(lookup);
     }
 
     // The reader joins nothing: while a raw connection holds an exclusive lock on every table but the application's

@@ -154,6 +154,29 @@ class ApplicationTrackingQuotaIntegrationTest {
         assertThat(lookUp()).isEqualTo(429);
     }
 
+    // Task 345: lookups and withdrawals share one bucket. A lookup, a withdrawal and a lookup use the three attempts;
+    // the next withdrawal is refused (and withdraws nothing), and so is the next lookup.
+    @Test
+    void lookupsAndWithdrawalsShareOneBucket() throws Exception {
+        var stored = applications.stored(posting, EMAIL);
+        var other = applications.stored(posting, "other@example.test");
+        assertThat(applications.lookup(stored.trackingCode(), EMAIL).statusCode()).isEqualTo(200);
+        var withdrawn = applications.withdraw(stored.trackingCode(), EMAIL, null);
+        assertThat(withdrawn.statusCode()).as(withdrawn.body()).isEqualTo(200);
+        assertThat(applications.lookup(stored.trackingCode(), EMAIL).statusCode()).isEqualTo(200);
+        assertThat(attempts(LOOPBACK)).isEqualTo(3);
+
+        var limited = applications.withdraw(other.trackingCode(), "other@example.test", null);
+        assertThat(limited.statusCode()).as(limited.body()).isEqualTo(429);
+        assertThat(json.readTree(limited.body()).get("code").asString())
+                .isEqualTo("APPLICATION_TRACKING_RATE_LIMIT_EXCEEDED");
+        assertThat(limited.headers().firstValue("Retry-After")).isPresent();
+        assertThat(jdbc.queryForObject("SELECT stage FROM job_applications WHERE id = ?", String.class,
+                other.applicationId())).isEqualTo("NEW");
+        assertThat(lookUp()).isEqualTo(429);
+        assertThat(attempts(LOOPBACK)).isEqualTo(3);
+    }
+
     // Two lookups from one address at the same moment, one attempt left: exactly one is admitted.
     @Test
     void simultaneousAttemptsFromOneAddressAreCountedExactly() throws Exception {

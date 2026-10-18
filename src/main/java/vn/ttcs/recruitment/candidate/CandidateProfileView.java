@@ -17,6 +17,8 @@ import java.util.UUID;
  * form, which is never shown). currentApplicationId is that newest application; createdAt and updatedAt are the
  * earliest and the newest appliedAt of the returned applications, never the profile's own creation time, which may
  * date an application outside the scope. tags and notes are always empty until S5-04. toString shows ids only.
+ * Task 345: updatedAt also counts the withdrawnAt of the returned applications (a withdrawal is the only change of an
+ * application after its receipt in Sprint 4), still never anything of an application outside the scope.
  */
 public record CandidateProfileView(
         UUID id,
@@ -54,11 +56,17 @@ public record CandidateProfileView(
                 !application.fullName().equals(newest.fullName()) || !application.phone().equals(newest.phone()));
         Instant createdAt = applications.stream().map(ApplicationDetail::appliedAt).min(Instant::compareTo)
                 .orElseThrow();
-        Instant updatedAt = applications.stream().map(ApplicationDetail::appliedAt).max(Instant::compareTo)
+        // Task 345: a withdrawal is the newest change of an application in Sprint 4.
+        Instant updatedAt = applications.stream().map(CandidateProfileView::lastChange).max(Instant::compareTo)
                 .orElseThrow();
         return new CandidateProfileView(candidateId, mismatch ? null : newest.fullName(), newest.email(),
                 mismatch ? null : newest.phone(), mismatch, newest.id(), createdAt, updatedAt, List.of(), List.of(),
                 applications);
+    }
+
+    private static Instant lastChange(ApplicationDetail application) {
+        Instant withdrawnAt = application.withdrawnAt();
+        return withdrawnAt != null && withdrawnAt.isAfter(application.appliedAt()) ? withdrawnAt : application.appliedAt();
     }
 
     @Override

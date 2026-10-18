@@ -12,6 +12,7 @@ import java.util.Map;
  * Order: canonical code (400) -> client address (400) -> quota (429/503) -> one SQL read (404/200). Every admitted
  * well-formed attempt counts, found or not; a malformed one never does. An unknown code, a wrong email and a revoked
  * code all answer the same 404, so the API never tells which factor was wrong. Anything unexpected is masked as 503.
+ * Task 345: the withdrawal (ApplicationWithdrawalService) takes the same first three steps and the same 404 from here.
  */
 @Service
 public class ApplicationTrackingService {
@@ -27,8 +28,8 @@ public class ApplicationTrackingService {
     // Call only after @Valid has accepted the request: both fields are then present and well formed.
     public PublicApplicationView lookup(ApplicationLookupRequest request, HttpServletRequest http) {
         try {
-            var credential = credential(request);
-            quota.checkAndRecord(bucket(http));
+            var credential = credential(request.trackingCode(), request.email());
+            quota.checkAndRecord(bucket(addresses, http));
             return reader.find(credential).orElseThrow(ApplicationTrackingService::notFound);
         } catch (ApiException exception) {
             throw exception;
@@ -38,14 +39,17 @@ public class ApplicationTrackingService {
         }
     }
 
-    private static TrackingCredential credential(ApplicationLookupRequest request) {
-        byte[] hash = TrackingCode.hash(request.trackingCode()).orElseThrow(() -> new ApiException(
+    // The canonical code's hash and the normalized email; a well-formed code in another spelling is a 400 here, before
+    // the quota. Shared with the withdrawal (task 345).
+    static TrackingCredential credential(String trackingCode, String email) {
+        byte[] hash = TrackingCode.hash(trackingCode).orElseThrow(() -> new ApiException(
                 HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra dữ liệu đã nhập.",
                 Map.of("trackingCode", "Mã tra cứu không hợp lệ.")));
-        return new TrackingCredential(hash, ApplicationSubmission.normalizeEmail(request.email()));
+        return new TrackingCredential(hash, ApplicationSubmission.normalizeEmail(email));
     }
 
-    private String bucket(HttpServletRequest http) {
+    // The tracking quota's bucket of the client (TrackingBuckets: IPv4, or the IPv6 /64). Shared with the withdrawal.
+    static String bucket(ApplicationClientIpResolver addresses, HttpServletRequest http) {
         String address;
         try {
             address = addresses.resolve(http);
@@ -57,7 +61,8 @@ public class ApplicationTrackingService {
         return TrackingBuckets.of(address);
     }
 
-    private static ApiException notFound() {
+    // The one answer for an unknown code, a wrong email and a revoked code, of the lookup and the withdrawal alike.
+    static ApiException notFound() {
         return new ApiException(HttpStatus.NOT_FOUND, "APPLICATION_LOOKUP_NOT_FOUND", "Mã tra cứu hoặc email không đúng.");
     }
 }

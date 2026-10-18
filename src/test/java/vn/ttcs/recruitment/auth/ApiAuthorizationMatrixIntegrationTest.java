@@ -244,6 +244,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
+            // Task 345: a candidate's withdrawal, guarded and counted like the lookup; the empty body fails validation
+            // (code, email and confirm missing) before the quota or any lock.
+            endpoint("POST", "/api/v1/public/applications/withdraw", PUBLIC, INVALID_BODY, 400),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             // Task 361: the unified candidate profile; both CANDIDATES read scopes pass (APPROVER is SCOPED from
@@ -795,6 +798,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
                 // Task 339: the frontend's current lookup puts the secret in the query; only the POST exists.
                 "GET /api/v1/public/applications/lookup",
+                // Task 345: the frontend's current withdrawal puts the code in the path; only the POST with the
+                // credential in the body exists.
+                "PATCH /api/v1/public/applications/" + UNKNOWN_ID + "/withdraw",
                 // Task 361: only the unified profile exists; /candidates/{id} stays free for a later resource, and the
                 // frontend's notes, tags and rating routes belong to S5-04.
                 "GET /api/v1/candidates/" + UNKNOWN_ID, "POST /api/v1/candidates/" + UNKNOWN_ID + "/notes",

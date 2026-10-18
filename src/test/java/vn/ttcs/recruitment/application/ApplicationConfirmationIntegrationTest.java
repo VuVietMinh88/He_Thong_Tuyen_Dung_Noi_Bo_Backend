@@ -159,6 +159,9 @@ class ApplicationConfirmationIntegrationTest {
         assertThat(message.getContent().toString()).contains("Nguyễn Văn A","Lập trình viên",time,"giờ Việt Nam",
                 receipt.get("trackingCode").asString(),receipt.get("trackingUrl").asString(),"hồ sơ đã được tiếp nhận")
                 .doesNotContain("evil.test","Mật khẩu","cv.pdf");
+        // Task 345: the withdrawal link of task 344 (same page and code, "#rut="), offered with the withdrawal API.
+        assertThat(message.getContent().toString()).contains("rút hồ sơ",
+                "https://portal.example.test/tra-cuu#rut="+receipt.get("trackingCode").asString());
         assertThat(status()).isEqualTo("SENT");assertThat(attempts()).isEqualTo(1);
         var row=jdbc.queryForMap("SELECT key_id,nonce,ciphertext,sent_at,lease_token,lease_until FROM application_email_outbox");
         for(String key:List.of("key_id","nonce","ciphertext","lease_token","lease_until"))assertThat(row.get(key)).isNull();

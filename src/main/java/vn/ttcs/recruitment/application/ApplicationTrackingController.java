@@ -10,16 +10,28 @@ import org.springframework.web.bind.annotation.RestController;
 
 // Task 339: anonymous; ApplicationTrackingRequestFilter has already refused a query string, a body that is not JSON
 // or above 8 KiB, and more concurrent tracking requests than allowed, and has read the whole body before taking its
-// permit. No "consumes": the filter owns the 415.
+// permit. No "consumes": the filter owns the 415. Task 345 adds the withdrawal behind the same filter.
 @RestController
 public class ApplicationTrackingController {
     private final ApplicationTrackingService service;
+    private final ApplicationWithdrawalService withdrawals;
 
-    public ApplicationTrackingController(ApplicationTrackingService service) { this.service = service; }
+    public ApplicationTrackingController(ApplicationTrackingService service, ApplicationWithdrawalService withdrawals) {
+        this.service = service;
+        this.withdrawals = withdrawals;
+    }
 
     @PostMapping(ApplicationTrackingRoutes.LOOKUP)
     public ResponseEntity<PublicApplicationView> lookup(@Valid @RequestBody ApplicationLookupRequest body,
                                                         HttpServletRequest request) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.lookup(body, request));
+    }
+
+    // Task 345: 200 for the first call and every repeat; POST, never PATCH (the frontend's PATCH is not allowed by
+    // CORS, and the code must stay out of the path).
+    @PostMapping(ApplicationTrackingRoutes.WITHDRAW)
+    public ResponseEntity<ApplicationWithdrawalView> withdraw(@Valid @RequestBody ApplicationWithdrawalRequest body,
+                                                              HttpServletRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(withdrawals.withdraw(body, request));
     }
 }

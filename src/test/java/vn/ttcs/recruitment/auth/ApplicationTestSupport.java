@@ -36,6 +36,7 @@ import java.util.UUID;
  */
 final class ApplicationTestSupport {
     static final String LOOKUP = ApplicationTrackingRoutes.LOOKUP;
+    static final String WITHDRAW = ApplicationTrackingRoutes.WITHDRAW;
     static final String FULL_NAME = "Nguyễn Văn A";
     static final String PHONE = "0912345678";
     // 10:00 on 15 Oct 2026 in Vietnam; every posting made here takes applications until 31 Dec 2026.
@@ -68,9 +69,11 @@ final class ApplicationTestSupport {
     // ApprovalTestSupport.reset(): they delete postings, requisitions and accounts but not applications, and the
     // applications' RESTRICT keys would make them fail. The candidate profiles (task 360) go first: a profile with a
     // link cannot be deleted, and nothing else deletes a profile. The access log (task 363) has no keys but rejects
-    // DELETE (append-only, V33); TRUNCATE fires no row trigger.
+    // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) would go with their
+    // applications (CASCADE) but are deleted first, like every child table.
     void reset() {
         jdbc.execute("TRUNCATE candidate_access_events");
+        jdbc.update("DELETE FROM application_stage_events");
         jdbc.update("DELETE FROM candidate_applications");
         jdbc.update("DELETE FROM candidates");
         jdbc.update("DELETE FROM application_email_outbox");
@@ -245,6 +248,29 @@ final class ApplicationTestSupport {
 
     HttpResponse<String> lookup(String trackingCode, String email, Map<String, String> headers) throws Exception {
         return post(LOOKUP, lookupBody(trackingCode, email), "application/json", headers);
+    }
+
+    // Task 345: the withdrawal body; a null value is sent as JSON null, so tests leave a key out with withdrawBody(Map).
+    String withdrawBody(String trackingCode, String email, String reason, Boolean confirm) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("trackingCode", trackingCode);
+        body.put("email", email);
+        if (reason != null) body.put("reason", reason);
+        body.put("confirm", confirm);
+        return json.writeValueAsString(body);
+    }
+
+    String withdrawBody(Map<String, Object> body) {
+        return json.writeValueAsString(body);
+    }
+
+    HttpResponse<String> withdraw(String trackingCode, String email, String reason) throws Exception {
+        return withdraw(trackingCode, email, reason, Map.of());
+    }
+
+    HttpResponse<String> withdraw(String trackingCode, String email, String reason, Map<String, String> headers)
+            throws Exception {
+        return post(WITHDRAW, withdrawBody(trackingCode, email, reason, true), "application/json", headers);
     }
 
     HttpResponse<String> post(String path, String body, String contentType, Map<String, String> headers) throws Exception {
