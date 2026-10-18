@@ -93,6 +93,21 @@ public class JobPosting {
         this.updatedAt = createdAt;
     }
 
+    // Task 303: a save replaces the whole content (PUT). The caller holds the posting row lock and has checked the
+    // status and the expected revision.
+    void replaceContent(JobPostingContent content, Instant updatedAt) {
+        this.title = content.title();
+        this.jobDescription = content.jobDescription();
+        this.candidateRequirements = content.candidateRequirements();
+        this.benefits = content.benefits();
+        this.workLocationId = content.workLocationId();
+        this.employmentTypeId = content.employmentTypeId();
+        this.applicationDeadline = content.applicationDeadline();
+        this.showSalary = content.showSalary();
+        this.revision++;
+        this.updatedAt = updatedAt;
+    }
+
     public UUID getId() { return id; }
     public UUID getRequisitionId() { return requisitionId; }
     public JobPostingStatus getStatus() { return status; }

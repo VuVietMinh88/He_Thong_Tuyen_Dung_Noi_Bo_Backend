@@ -245,6 +245,20 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
                         // Pictures of the saved page; the service answers 404 for every other picture.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/company-media/*").permitAll()
+                        // Tasks 302-304 (story S3-09): job postings. Composing and every internal read (list, detail,
+                        // preview, history) need a JOB_POSTINGS write permission: ALL (HR_MANAGER, ADMIN) or SCOPED
+                        // (RECRUITER: postings of the requisitions they are assigned to). JobPostingService also
+                        // requires the matching JOB_POSTINGS READ permission and applies the scope.
+                        // JOB_POSTINGS_READ_ALL alone (HIRING_MANAGER, APPROVER) only reads the public portal, like
+                        // the company page. Listed before "/api/v1/job-postings/*", which it would match.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/source-requisitions")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/job-postings/*")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings", "/api/v1/job-postings/*")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")
