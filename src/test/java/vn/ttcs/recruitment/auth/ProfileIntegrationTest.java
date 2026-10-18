@@ -208,6 +208,71 @@ class ProfileIntegrationTest {
     }
 
     @Test
+    void removesInvisibleCharactersAroundOwnNameAndTitleAndTreatsInvisibleOnesAsEmpty() throws Exception {
+        // trim() kept these, so they were stored around a name or title, or alone as an invisible one: non-breaking
+        // spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the ideographic and em
+        // spaces, and zero-width characters (U+200B, U+FEFF, U+2060). The characters are built from code points, so the
+        // source shows which one each case sends.
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            var result = put(Map.of("fullName", character + "Lâm Duy Lập" + character,
+                    "displayTitle", character + "Chuyên viên" + character, "phone", character + "0912345678" + character));
+            assertThat(result.statusCode()).as("U+%04X", invisible).isEqualTo(200);
+            assertThat(body(result).path("fullName").asText()).as("U+%04X", invisible).isEqualTo("Lâm Duy Lập");
+            assertThat(body(result).path("displayTitle").asText()).as("U+%04X", invisible).isEqualTo("Chuyên viên");
+            assertThat(body(result).path("phone").asText()).as("U+%04X", invisible).isEqualTo("0912345678");
+            assertThat(jdbc.queryForMap("SELECT full_name, display_title FROM user_accounts WHERE id = ?", userId))
+                    .containsEntry("full_name", "Lâm Duy Lập").containsEntry("display_title", "Chuyên viên");
+        }
+        // Characters inside the name belong to it and are kept; the length limit counts the name without its ends.
+        String nbsp = Character.toString(0x00A0);
+        assertThat(body(put(Map.of("fullName", "Lâm" + nbsp + "Duy Lập"))).path("fullName").asText())
+                .isEqualTo("Lâm" + nbsp + "Duy Lập");
+        assertThat(body(put(Map.of("fullName", nbsp + "n".repeat(255) + nbsp))).path("fullName").asText())
+                .isEqualTo("n".repeat(255));
+
+        // Without a visible character the name counts as empty and is refused; the title is cleared.
+        assertThat(put(Map.of("fullName", "Lâm Duy Lập", "displayTitle", "Chuyên viên")).statusCode()).isEqualTo(200);
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            Map<String, Object> before = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", userId);
+            var refused = put(Map.of("fullName", invisible, "displayTitle", "Chuyên viên"));
+            assertThat(refused.statusCode()).as("%s", invisible.codePoints().mapToObj(Integer::toHexString).toList())
+                    .isEqualTo(400);
+            assertThat(body(refused).path("code").asText()).isEqualTo("VALIDATION_ERROR");
+            assertThat(body(refused).path("fieldErrors").has("fullName")).isTrue();
+            assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", userId)).isEqualTo(before);
+
+            var cleared = put(Map.of("fullName", "Lâm Duy Lập", "displayTitle", invisible));
+            assertThat(cleared.statusCode()).isEqualTo(200);
+            assertThat(body(cleared).path("displayTitle").isNull()).isTrue();
+            assertThat(accounts.findById(userId).orElseThrow().getDisplayTitle()).isNull();
+            assertThat(put(Map.of("fullName", "Lâm Duy Lập", "displayTitle", "Chuyên viên")).statusCode()).isEqualTo(200);
+        }
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundOwnNameAndTitle() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            ProfileUpdateRequest request = new ProfileUpdateRequest(character + "Lâm Duy Lập" + character, null,
+                    character + "Chuyên viên" + character);
+            assertThat(request.fullName()).as("U+%04X", space).isEqualTo("Lâm Duy Lập");
+            assertThat(request.displayTitle()).as("U+%04X", space).isEqualTo("Chuyên viên");
+            ProfileUpdateRequest invisible = new ProfileUpdateRequest(character, null, character);
+            assertThat(invisible.fullName()).as("U+%04X", space).isNull();
+            assertThat(invisible.displayTitle()).as("U+%04X", space).isNull();
+        }
+    }
+
+    @Test
     void requiresAuthenticationAndRefusesRevokedDisabledAndExpiredSessions() throws Exception {
         assertDeniedForBothMethods(null);
         jdbc.update("UPDATE auth_sessions SET revoked_at=? WHERE id=?", Timestamp.from(START), sessionId);
