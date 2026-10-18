@@ -14,10 +14,12 @@ public class ApplicationConfirmationWorker {
     private final ApplicationOutboxRepository outbox;
     private final ApplicationOutboxCrypto crypto;
     private final ApplicationConfirmationMailSender mail;
+    private final ApplicationReferralLookup referrals;
 
+    // Task 351: the referral lookup tells the mail sender, at send time, that a staff member submitted the application.
     public ApplicationConfirmationWorker(ApplicationConfirmationSettings settings,ApplicationOutboxRepository outbox,
-            ApplicationOutboxCrypto crypto,ApplicationConfirmationMailSender mail) {
-        this.settings=settings;this.outbox=outbox;this.crypto=crypto;this.mail=mail;
+            ApplicationOutboxCrypto crypto,ApplicationConfirmationMailSender mail,ApplicationReferralLookup referrals) {
+        this.settings=settings;this.outbox=outbox;this.crypto=crypto;this.mail=mail;this.referrals=referrals;
     }
 
     @Scheduled(initialDelayString="${app.application-confirmation.poll-delay-ms:10000}",
@@ -35,7 +37,9 @@ public class ApplicationConfirmationWorker {
         try {payload=crypto.decrypt(delivery);}
         catch(RuntimeException exception) {outbox.failed(delivery,true,"PAYLOAD_INVALID");return true;}
         if(!outbox.renew(delivery))return true;
-        try {mail.send(payload,delivery.messageId());}
+        // Task 351: a failed lookup leaves the row PROCESSING until its lease expires; it is then retried.
+        boolean referred=referrals.isReferral(delivery.applicationId());
+        try {mail.send(payload,delivery.messageId(),referred);}
         catch(MailException exception) {
             outbox.failed(delivery,MailFailureClassifier.refusedRecipient(exception),"RECIPIENT_REFUSED");return true;
         }

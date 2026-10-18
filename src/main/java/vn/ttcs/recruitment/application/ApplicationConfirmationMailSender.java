@@ -24,13 +24,19 @@ public class ApplicationConfirmationMailSender {
         this.sender=sender;time=DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(zone);this.settings=settings;
     }
 
-    void send(ApplicationConfirmationPayload payload,String messageId) {
+    void send(ApplicationConfirmationPayload payload,String messageId) {send(payload,messageId,false);}
+
+    // Task 351 (story S4-07): referred is true when a staff member submitted the application through the referral API
+    // (ApplicationReferralLookup at send time). The mail then says so after the greeting, with how to withdraw and whom
+    // to ask to delete the data; it never names the referrer.
+    void send(ApplicationConfirmationPayload payload,String messageId,boolean referred) {
         var message=sender.createMimeMessage();
         try {
             var helper=new MimeMessageHelper(message,StandardCharsets.UTF_8.name());
             helper.setFrom(payload.from());helper.setTo(payload.email());
             helper.setSubject("Xác nhận nhận hồ sơ ứng tuyển — Hệ thống tuyển dụng nội bộ");
             helper.setText("Chào "+payload.fullName()+",\n\n"
+                    +(referred?referralParagraph(payload.from()):"")
                     +"Hệ thống đã nhận hồ sơ ứng tuyển của bạn.\n\n"
                     +"Vị trí ứng tuyển: "+payload.postingTitle()+"\n"
                     +"Thời gian tiếp nhận: "+time.format(payload.receivedAt())+" (giờ Việt Nam)\n"
@@ -46,5 +52,12 @@ public class ApplicationConfirmationMailSender {
             message.setHeader("Message-ID",messageId);
         } catch(MessagingException exception) {throw new MailPreparationException("Could not prepare application confirmation");}
         sender.send(message);
+    }
+
+    // The sender's address (MAIL_FROM) is the contact for a deletion request; the referrer is not named (BA/PO 27(6)).
+    static String referralParagraph(String from) {
+        return "Hồ sơ này do một nhân viên của công ty gửi thay bạn qua kênh giới thiệu nội bộ, kèm xác nhận rằng bạn "
+                +"đã đồng ý. Nếu bạn không muốn tiếp tục, bạn có thể rút hồ sơ bằng liên kết rút hồ sơ bên dưới. Để yêu "
+                +"cầu xóa dữ liệu của bạn, vui lòng trả lời email này hoặc liên hệ "+from+".\n\n";
     }
 }

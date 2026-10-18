@@ -23,7 +23,9 @@ public class ApplicationMultipartConfiguration {
             @Override public boolean isMultipart(HttpServletRequest request) {
                 // This route reads a bounded streaming multipart body. All existing uploads retain the Servlet
                 // parser and its original 5 MiB/file, 6 MiB/request configuration and temporary-file behavior.
-                return !ApplicationIntakeRoutes.isSubmission(request) && super.isMultipart(request);
+                // Task 351: so does the staff referral, whose CV has the intake's 10 MiB limit.
+                return !ApplicationIntakeRoutes.isSubmission(request) && !ApplicationReferralRoutes.isSubmission(request)
+                        && super.isMultipart(request);
             }
         };
         resolver.setResolveLazily(properties.isResolveLazily());

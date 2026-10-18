@@ -23,6 +23,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.application.ApplicationIntakeFilter;
 import vn.ttcs.recruitment.application.ApplicationIntakeRoutes;
+import vn.ttcs.recruitment.application.ApplicationReferralRoutes;
 import vn.ttcs.recruitment.application.ApplicationTrackingRequestFilter;
 import vn.ttcs.recruitment.application.ApplicationTrackingRoutes;
 
@@ -328,6 +329,11 @@ public class SecurityConfiguration {
                         // again before any lookup, then the scope of that application (403 outside it, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
+                        // ApplicationReferralWriter checks the code again after locking the account and the session.
+                        // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
+                        .requestMatchers(HttpMethod.POST, ApplicationReferralRoutes.SUBMISSION)
+                                .hasAuthority("PERM_SELF_PROFILE_WRITE")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

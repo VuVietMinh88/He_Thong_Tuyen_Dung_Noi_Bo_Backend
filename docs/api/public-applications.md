@@ -56,6 +56,9 @@ Body tối đa 11 MiB, được kiểm cả Content-Length và stream. CV không
 sử dụng [streaming API](https://commons.apache.org/proper/commons-fileupload/streaming.html).
 M5 là milestone; version này được kiểm thử trên Servlet/Tomcat của dự án.
 Servlet multipart cũ vẫn giới hạn 5/6 MiB; avatar/media/import giữ nguyên behavior.
+Task 351: `POST /api/v1/referrals` (giới thiệu nội bộ) cũng bỏ qua parser Servlet và đọc CV bằng cùng vòng
+đọc streaming (`ApplicationMultipartDecoder.decodeReferral`), cùng giới hạn 10/11 MiB; xem
+[API giới thiệu](application-referrals.md#api-giới-thiệu-task-351).
 Budget concurrent chặn quá tải parser; không thay thế hard CPU/heap isolation hay quét malware.
 
 Tin phải PUBLISHED, requisition APPROVED và còn hạn hết ngày Việt Nam.
