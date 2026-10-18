@@ -326,7 +326,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/unified-profile")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Kanban applies the same record scope and logs the profiles disclosed by its cards.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/application-board")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/application-board", "/api/v1/application-board/positions")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Task 362: one application's CV, read like the profile: ApplicationCvService checks the code
                         // again before any lookup, then the scope of that application (403 outside it, logged).

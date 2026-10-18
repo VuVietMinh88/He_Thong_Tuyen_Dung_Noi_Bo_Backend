@@ -253,6 +253,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             // V33_1), and the unknown id stops at 404 before any scope check.
             endpoint("GET", "/api/v1/candidates/{id}/unified-profile", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/application-board", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            endpoint("GET", "/api/v1/application-board/positions", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
             // scope check.
             endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
