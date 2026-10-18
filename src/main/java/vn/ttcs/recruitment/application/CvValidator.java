@@ -1,5 +1,8 @@
 package vn.ttcs.recruitment.application;
 
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.pdfparser.PDFParser;
 import org.apache.poi.openxml4j.opc.OPCPackage;
@@ -19,12 +22,18 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 // Checks structure, not malware or extracted candidate data. Never renders a PDF or executes embedded content.
+// Task 362 (S4-09): also refuses content a viewer would run, open or fetch from outside the file: a DOCX relationship
+// outside the package other than a web or mail hyperlink or a local-drive path (allowedRelationship), and a PDF with a
+// Launch or JavaScript action or an attached file (PdfActiveContent). Answer: 400 APPLICATION_CV_ACTIVE_CONTENT.
+// A DOCX whose central directory lists other parts than its local headers is APPLICATION_CV_INVALID.
 @Component
 public class CvValidator {
     public static final int MAX_BYTES = 10 * 1024 * 1024;
@@ -32,6 +41,9 @@ public class CvValidator {
     private static final int MAX_EXPANDED_BYTES = 100 * 1024 * 1024;
     private static final int MAX_XML_BYTES = 5 * 1024 * 1024;
     private static final String DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    // Task 362: the hyperlink relationship type of transitional and of strict OOXML.
+    private static final String HYPERLINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+    private static final String STRICT_HYPERLINK = "http://purl.oclc.org/ooxml/officeDocument/relationships/hyperlink";
 
     // The caller owns/closes the stream. The limit is on bytes read, not a client-provided size header.
     public ValidatedCv validate(String originalFilename, InputStream input) {
@@ -90,12 +102,15 @@ public class CvValidator {
                 if (document.isEncrypted() || document.getNumberOfPages() < 1 || document.getNumberOfPages() > 1000) {
                     throw invalid();
                 }
+                // Task 362: every object, compressed ones included; too deep or too large is an IOException (invalid).
+                if (PdfActiveContent.found(document.getDocument())) throw activeContent();
             }
         }
     }
 
     private static void validateDocx(byte[] bytes) throws Exception {
-        inspectZip(bytes);
+        // Task 362: reported only once every entry passed the structural checks, and before POI opens the package.
+        if (inspectZip(bytes)) throw activeContent();
         // Use POI's OOXML parser after bounded preflight, without changing its global settings used by Excel import.
         try (var pkg = OPCPackage.open(new ByteArrayInputStream(bytes)); var document = new XWPFDocument(pkg)) {
             if (!"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
@@ -103,9 +118,13 @@ public class CvValidator {
         }
     }
 
-    private static void inspectZip(byte[] bytes) throws Exception {
-        var names = new HashSet<String>();
+    // Task 362: true when a .rels part holds a relationship outside the package that is not allowed, in the parts read
+    // here from the local headers or in those the central directory lists (inspectCentralDirectory).
+    private static boolean inspectZip(byte[] bytes) throws Exception {
+        // In the order of the local headers.
+        var names = new LinkedHashSet<String>();
         long expanded = 0;
+        boolean external = false;
         try (var zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
             for (ZipEntry entry; (entry = zip.getNextEntry()) != null;) {
                 String name = entry.getName();
@@ -127,16 +146,49 @@ public class CvValidator {
                 // Entry sizes are available after its data descriptor has been consumed, not from an untrusted header.
                 if (entryBytes > 1024 * 1024 && (entry.getCompressedSize() <= 0
                         || entryBytes > entry.getCompressedSize() * 100)) throw invalid();
-                if (xml) inspectXml(xmlBytes.toByteArray());
+                if (xml && inspectXml(xmlBytes.toByteArray(), lower.endsWith(".rels"))) external = true;
                 zip.closeEntry();
             }
         }
         if (!names.contains("[Content_Types].xml") || !names.contains("_rels/.rels") || !names.contains("word/document.xml")) {
             throw invalid();
         }
+        boolean centralExternal = inspectCentralDirectory(bytes, List.copyOf(names));
+        return external || centralExternal;
     }
 
-    private static void inspectXml(byte[] bytes) throws Exception {
+    // Task 362: ZipInputStream (above) and POI walk the local headers from the start of the file; Word, like any ZIP
+    // reader that seeks, finds the parts through the central directory at its end. One file can show the two readers
+    // different parts: a part renamed in its local header only, parts behind a fake central directory signature that
+    // stops the walk, or a central entry pointing at a second local header hidden inside another part's data. So the
+    // central directory must list exactly the parts walked above, with the same names in the same order (else
+    // APPLICATION_CV_INVALID), and every .rels part is read again from where the central directory points. A part
+    // that an Info-ZIP Unicode Path extra field names differently gets that name here (commons-compress's default), so
+    // it no longer matches the name ZipInputStream read.
+    private static boolean inspectCentralDirectory(byte[] bytes, List<String> walked) throws Exception {
+        try (var zip = ZipFile.builder().setSeekableByteChannel(new SeekableInMemoryByteChannel(bytes)).get()) {
+            List<ZipArchiveEntry> entries = Collections.list(zip.getEntries());
+            if (!entries.stream().map(ZipArchiveEntry::getName).toList().equals(walked)) throw invalid();
+            long expanded = 0;
+            boolean external = false;
+            for (ZipArchiveEntry entry : entries) {
+                if (!entry.getName().toLowerCase(Locale.ROOT).endsWith(".rels")) continue;
+                byte[] xml;
+                try (var input = zip.getInputStream(entry)) {
+                    xml = input.readNBytes(MAX_XML_BYTES + 1);
+                }
+                // Central entries may share data: the limits of the walk do not bound this second read.
+                expanded += xml.length;
+                if (xml.length > MAX_XML_BYTES || expanded > MAX_EXPANDED_BYTES) throw invalid();
+                if (inspectXml(xml, true)) external = true;
+            }
+            return external;
+        }
+    }
+
+    // Task 362: for a .rels part (relationships), true when one Relationship is not allowed. The handler only sets a
+    // flag that the caller maps after the parse; no answer depends on an exception thrown from a SAX callback.
+    private static boolean inspectXml(byte[] bytes, boolean relationships) throws Exception {
         var factory = SAXParserFactory.newInstance();
         factory.setNamespaceAware(true);
         factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
@@ -149,8 +201,12 @@ public class CvValidator {
         var handler = new DefaultHandler() {
             private int depth;
             private int elements;
+            private boolean external;
             @Override public void startElement(String uri, String localName, String name, Attributes attributes) throws SAXException {
                 if (++depth > 128 || ++elements > 200000) throw new SAXException("CV XML complexity limit");
+                // Any namespace: a Relationship element that only looks foreign is still checked (fail closed).
+                if (relationships && "Relationship".equals(localName) && !allowedRelationship(attributes.getValue("", "TargetMode"),
+                        attributes.getValue("", "Type"), attributes.getValue("", "Target"))) external = true;
             }
             @Override public void endElement(String uri, String localName, String name) { depth--; }
             @Override public void error(SAXParseException exception) throws SAXException { throw exception; }
@@ -159,6 +215,47 @@ public class CvValidator {
         reader.setContentHandler(handler);
         reader.setErrorHandler(handler);
         reader.parse(new InputSource(new ByteArrayInputStream(bytes)));
+        return handler.external;
+    }
+
+    // Task 362: may Word resolve this relationship? Without TargetMode, or with Internal, it points inside the package.
+    // Any other TargetMode counts as External (compared trimmed, ignoring ASCII case; an unknown value fails closed).
+    // An external hyperlink is allowed only to http, https or mailto (ignoring case): a click opens a browser or a mail
+    // program. Any other external relationship (attachedTemplate, oleObject, frame, subDocument, a linked image) is
+    // allowed only to a path on a local drive of the author's machine, without a host, as Word leaves in a CV made from
+    // a local template: file:///X:/..., file:///X:\..., X:\... or X:/... with one ASCII drive letter. Everything else
+    // is refused: a UNC path or any host (Word fetches from it or signs in to it, which leaks the reader's NTLM hash), a
+    // web address, a relative or empty target, and a hyperlink to file: or to a UNC path.
+    static boolean allowedRelationship(String targetMode, String type, String target) {
+        if (targetMode == null || equalsIgnoringAsciiCase(targetMode.strip(), "internal")) return true;
+        if (target == null) return false;
+        if (HYPERLINK.equals(type) || STRICT_HYPERLINK.equals(type)) {
+            return startsWithIgnoringCase(target, "http://") || startsWithIgnoringCase(target, "https://")
+                    || startsWithIgnoringCase(target, "mailto:");
+        }
+        String path = startsWithIgnoringCase(target, "file:///") ? target.substring("file:///".length()) : target;
+        return path.length() >= 3 && isAsciiLetter(path.charAt(0)) && path.charAt(1) == ':'
+                && (path.charAt(2) == '/' || path.charAt(2) == '\\');
+    }
+
+    // ASCII only: String.equalsIgnoreCase and regionMatches would also match the long s (U+017F) to "s" and the
+    // dotless i (U+0131) to "i", which Word does not read as the same scheme or mode. lowerPrefix is lower-case ASCII.
+    private static boolean startsWithIgnoringCase(String value, String lowerPrefix) {
+        if (value.length() < lowerPrefix.length()) return false;
+        for (int index = 0; index < lowerPrefix.length(); index++) {
+            char actual = value.charAt(index);
+            if (actual != lowerPrefix.charAt(index)
+                    && !(isAsciiLetter(actual) && (char) (actual | 0x20) == lowerPrefix.charAt(index))) return false;
+        }
+        return true;
+    }
+
+    private static boolean equalsIgnoringAsciiCase(String value, String lower) {
+        return value.length() == lower.length() && startsWithIgnoringCase(value, lower);
+    }
+
+    private static boolean isAsciiLetter(char value) {
+        return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z');
     }
 
     private static boolean startsWith(byte[] content, byte[] prefix) {
@@ -169,5 +266,12 @@ public class CvValidator {
 
     private static ApiException invalid() {
         return new ApiException(HttpStatus.BAD_REQUEST, "APPLICATION_CV_INVALID", "CV bị hỏng, trống hoặc không đọc được.");
+    }
+
+    // Task 362: the body names no file, part or relationship.
+    private static ApiException activeContent() {
+        return new ApiException(HttpStatus.BAD_REQUEST, "APPLICATION_CV_ACTIVE_CONTENT",
+                "CV có nội dung tự động mở tệp, mẫu hoặc chương trình bên ngoài, hoặc có tệp đính kèm. "
+                        + "Vui lòng lưu lại CV dưới dạng PDF thông thường rồi gửi lại.");
     }
 }
