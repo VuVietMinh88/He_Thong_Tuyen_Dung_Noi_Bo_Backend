@@ -51,8 +51,36 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
         assertThat(count("evaluation_events")).isZero();
     }
 
+    @Test
+    void submitUsesServerWeightsAndStoresImmutableSnapshotAndPermanentScheduleMarker() throws Exception {
+        form(panelToken);
+        JsonNode submitted = ok(write("POST", payload(0, 2, 5, "CONSIDER"), panelToken));
+        assertThat(submitted.path("totalScore").decimalValue()).isEqualByComparingTo("4.10");
+        assertThat(submitted.path("status").asText()).isEqualTo("SUBMITTED");
+        assertThat(submitted.path("firstSubmittedAt").asText()).isEqualTo(ApplicationTestSupport.NOW.toString());
+        assertThat(jdbc.queryForObject("SELECT ever_submitted_at FROM interview_sessions WHERE id=?", Timestamp.class, interview).toInstant())
+                .isEqualTo(ApplicationTestSupport.NOW);
+        String snapshot = jdbc.queryForObject("SELECT submission_snapshot::text FROM evaluation_events WHERE interview_id=?", String.class, interview);
+        assertThat(json.readTree(snapshot).path("totalScore").decimalValue()).isEqualByComparingTo("4.10");
+        assertThat(json.readTree(snapshot).path("items").get(0).path("comment").asText()).isEqualTo("Technical note");
+        assertThatThrownBy(() -> jdbc.update("UPDATE evaluation_events SET reason='tamper' WHERE interview_id=?", interview))
+                .rootCause().hasMessageContaining("evaluation_events rows are never changed");
+    }
 
 
+    @Test
+    void submitRejectsMissingNullDuplicateAndForeignCriteriaOrMissingConclusionWithoutPartialChanges() throws Exception {
+        form(panelToken);
+        var missing = payload(0, 3, 4, "HIRE"); missing.put("items", List.of(answer(criterionA, 3, null)));
+        var duplicate = payload(0, 3, 4, "HIRE"); duplicate.put("items", List.of(answer(criterionA, 3, null), answer(criterionA, 4, null)));
+        var unknown = payload(0, 3, 4, "HIRE"); unknown.put("items", List.of(answer(criterionA, 3, null), answer(UUID.randomUUID(), 4, null)));
+        for (var invalid : List.of(missing, duplicate, unknown, payload(0, 3, null, "HIRE"), payload(0, 3, 4, null))) {
+            error(write("POST", invalid, panelToken), 400, "VALIDATION_ERROR");
+        }
+        assertThat(ok(call("GET", ownPath(), null, panelToken)).path("version").asLong()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM evaluation_form_items WHERE score IS NOT NULL", Long.class)).isZero();
+        assertThat(count("evaluation_events")).isZero();
+    }
 
     @Test
     void scoreMustBeIntegerOneToFiveAndClientCannotProvideComputedTotal() throws Exception {
@@ -96,7 +124,25 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
         assertThat(write("POST", payload(0, 3, 4, "HIRE"), panelToken).statusCode()).isEqualTo(401);
     }
 
+    @Test
+    void notFinishedInterviewAllowsDraftButRejectsSubmissionUntilEndBoundary() throws Exception {
+        jdbc.update("UPDATE interview_sessions SET starts_at=?,ends_at=? WHERE id=?",
+                Timestamp.from(ApplicationTestSupport.NOW.minusSeconds(60)), Timestamp.from(ApplicationTestSupport.NOW.plusSeconds(60)), interview);
+        form(panelToken);
+        ok(write("PUT", payload(0, 3, 4, "HIRE"), panelToken));
+        error(write("POST", payload(1, 3, 4, "HIRE"), panelToken), 409, "EVALUATION_NOT_FINISHED");
+        clock.set(ApplicationTestSupport.NOW.plusSeconds(60));
+        ok(write("POST", payload(1, 3, 4, "HIRE"), panelToken));
+    }
 
+    @Test
+    void cancelledInterviewRejectsCreateSaveAndRead() throws Exception {
+        form(panelToken);
+        jdbc.update("UPDATE interview_sessions SET status='CANCELLED' WHERE id=?", interview);
+        error(call("POST", ownPath(), null, peerToken), 409, "INTERVIEW_CANCELLED");
+        error(call("GET", ownPath(), null, panelToken), 409, "INTERVIEW_CANCELLED");
+        error(write("POST", payload(0, 3, 4, "HIRE"), panelToken), 409, "INTERVIEW_CANCELLED");
+    }
 
 
 
