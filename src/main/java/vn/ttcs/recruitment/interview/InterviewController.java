@@ -59,5 +59,11 @@ public class InterviewController {
     public ResponseEntity<InterviewBulkPreview> previewBulk(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody InterviewBulkRequest request) { return ok(service.previewBulk(jwt, request)); }
 
+    @PostMapping("/api/v1/interviews/bulk")
+    public ResponseEntity<InterviewBulkResult> createBulk(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody InterviewBulkRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(service.createBulk(jwt, request));
+    }
+
     private static <T> ResponseEntity<T> ok(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }
