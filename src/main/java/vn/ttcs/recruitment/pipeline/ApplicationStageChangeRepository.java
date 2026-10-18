@@ -61,13 +61,33 @@ class ApplicationStageChangeRepository {
         }
     }
 
-    // One STAFF row of the history: the actor is the caller's account (V34 requires it for STAFF).
+    // Task 381: a value of the REJECTION_REASON catalog (V10), FOR SHARE until the change commits, so HR cannot rename,
+    // deactivate or delete it between this check and the history row (they lock it FOR UPDATE and wait). Empty for an
+    // unknown id or a value of another catalog. Locked after the application: catalog writes never lock applications
+    // (a deletion's RESTRICT checks take FOR KEY SHARE, which a FOR NO KEY UPDATE lock does not block), so no cycle.
     @Transactional(propagation = Propagation.MANDATORY)
-    void record(UUID applicationId, ApplicationStage before, ApplicationStage after, UUID actorId, Instant at) {
+    Optional<RejectionReason> lockRejectionReason(UUID reasonId) {
+        return jdbc.query("""
+                SELECT id, name, active FROM recruitment_catalog_items
+                WHERE id = ? AND catalog_type = 'REJECTION_REASON' FOR SHARE
+                """, (row, number) -> new RejectionReason(row.getObject(1, UUID.class), row.getString(2),
+                        row.getBoolean(3)), reasonId).stream().findFirst();
+    }
+
+    // One STAFF row of the history: the actor is the caller's account (V34 requires it for STAFF); a rejection's reason
+    // as an id and the name it has now (V40); whether the interview was skipped (the HR exception, V40).
+    @Transactional(propagation = Propagation.MANDATORY)
+    void record(UUID applicationId, ApplicationStage before, ApplicationStage after, UUID actorId, Instant at,
+                RejectionReason reasonOrNull, boolean interviewSkipped) {
         jdbc.update("""
                 INSERT INTO application_stage_events(id,application_id,stage_before,stage_after,actor_type,actor_id,
-                    reason,occurred_at)
-                VALUES (?,?,?,?,'STAFF',?,NULL,?)
-                """, UUID.randomUUID(), applicationId, before.name(), after.name(), actorId, Timestamp.from(at));
+                    reason,occurred_at,rejection_reason_id,rejection_reason_name,interview_skipped)
+                VALUES (?,?,?,?,'STAFF',?,NULL,?,?,?,?)
+                """, UUID.randomUUID(), applicationId, before.name(), after.name(), actorId, Timestamp.from(at),
+                reasonOrNull == null ? null : reasonOrNull.id(), reasonOrNull == null ? null : reasonOrNull.name(),
+                interviewSkipped);
     }
+
+    // A rejection reason as locked: its catalog name and whether HR still offers it.
+    record RejectionReason(UUID id, String name, boolean active) { }
 }

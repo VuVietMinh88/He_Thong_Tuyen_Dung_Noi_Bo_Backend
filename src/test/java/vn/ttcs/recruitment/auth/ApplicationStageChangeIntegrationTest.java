@@ -16,8 +16,12 @@ import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.application.ApplicationStorageService;
 import vn.ttcs.recruitment.application.CvValidator;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,6 +37,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Fixture: two postings of two requisitions in two departments. The Java requisition has a PRIMARY (primary) and a
  * SUPPORTING (supporting) recruiter and its department is managed by itHead; the accounting requisition has no team.
  * Lan applied to Java, Minh to accounting. Tokens come from real session rows, so the seeded permissions decide.
+ * Task 381 adds the rejection reasons (an active and an inactive REJECTION_REASON value, and a CANDIDATE_SOURCE value
+ * that is no rejection reason) and the HR exception.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
@@ -57,20 +63,23 @@ class ApplicationStageChangeIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private TokenService tokens;
 
+    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private ApplicationTestSupport applications;
+    private int port;
     private UUID admin, hr, primary, supporting, otherRecruiter, itHead, interviewer, approver, noRole;
-    private UUID javaRequisition, accountingRequisition;
+    private UUID javaPosting, javaRequisition, accountingRequisition;
+    private UUID activeReason, inactiveReason, sourceValue;
     private ApplicationTestSupport.Stored lan, minh;
 
     @BeforeEach
     void fixture() {
         clock.set(NOW);
-        int port = Integer.parseInt(environment.getRequiredProperty("local.server.port"));
+        port = Integer.parseInt(environment.getRequiredProperty("local.server.port"));
         applications = new ApplicationTestSupport(jdbc, json, storage, validator, port);
         applications.reset();
         new JobPostingTestSupport(jdbc, json, transactions, port).reset();
 
-        UUID javaPosting = applications.publishedPosting("Lập trình viên Java");
+        javaPosting = applications.publishedPosting("Lập trình viên Java");
         UUID accountingPosting = applications.publishedPosting("Kế toán tổng hợp");
         javaRequisition = applications.requisitionOf(javaPosting);
         accountingRequisition = applications.requisitionOf(accountingPosting);
@@ -91,6 +100,10 @@ class ApplicationStageChangeIntegrationTest {
 
         lan = applications.stored(javaPosting, "lan@example.test");
         minh = applications.stored(accountingPosting, "minh@example.test");
+        // Task 381: rejection reasons as HR declares them (V10 seeds none), and a value of another catalog.
+        activeReason = catalogValue("REJECTION_REASON", "Chưa phù hợp kỹ năng", true);
+        inactiveReason = catalogValue("REJECTION_REASON", "Lý do cũ", false);
+        sourceValue = catalogValue("CANDIDATE_SOURCE", "LinkedIn", true);
     }
 
     // The forward path, one stage at a time; each answer is the history row it wrote, at the clock time of the change.
@@ -193,20 +206,25 @@ class ApplicationStageChangeIntegrationTest {
         assertThat(events(lan.applicationId())).hasSize(1);
     }
 
-    // Skipping a stage, going back, staying, withdrawing for the candidate, or leaving a final stage: 409, nothing
-    // written. ApplicationStageTransitionsTest holds the whole matrix.
+    // Skipping a stage, going back, staying, withdrawing for the candidate, or leaving a final stage (rejecting it too,
+    // with a valid reason): 409, nothing written. ApplicationStageTransitionsTest holds the whole matrix.
     @Test
     void movesOutsideTheForwardPathAreRefused() throws Exception {
         String token = token(hr);
-        for (String target : List.of("INTERVIEW", "OFFER", "HIRED", "NEW", "WITHDRAWN", "REJECTED")) {
+        for (String target : List.of("INTERVIEW", "OFFER", "HIRED", "NEW", "WITHDRAWN")) {
             conflict(change(lan.applicationId(), target, "NEW", token), "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
         }
+        // Even a confirming HR_MANAGER skips only the interview, never the screening too.
+        conflict(post(lan.applicationId(), body("OFFER", "NEW", null, true), token),
+                "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
         for (ApplicationStage end : List.of(ApplicationStage.HIRED, ApplicationStage.REJECTED,
                 ApplicationStage.WITHDRAWN)) {
             applications.stage(minh.applicationId(), end);
             for (ApplicationStage target : ApplicationStage.values()) {
-                conflict(change(minh.applicationId(), target.name(), end.name(), token),
-                        "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
+                var response = target == ApplicationStage.REJECTED
+                        ? post(minh.applicationId(), body("REJECTED", end.name(), activeReason, null), token)
+                        : change(minh.applicationId(), target.name(), end.name(), token);
+                conflict(response, "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
             }
         }
         applications.stage(minh.applicationId(), ApplicationStage.INTERVIEW);
@@ -276,12 +294,150 @@ class ApplicationStageChangeIntegrationTest {
         assertThat(stageOf(lan.applicationId())).isEqualTo("SCREENING");
     }
 
+    // Task 381: a rejection from every active stage, by the assigned recruiter, stores the reason's id and its name as
+    // it was; renaming the value later does not change the history, and the value cannot be deleted while a rejection
+    // names it (RESTRICT, so HR gets the catalog's 409).
+    @Test
+    void aRejectionFromEveryActiveStageStoresItsReason() throws Exception {
+        String token = token(primary);
+        for (ApplicationStage from : List.of(ApplicationStage.NEW, ApplicationStage.SCREENING,
+                ApplicationStage.INTERVIEW, ApplicationStage.OFFER)) {
+            var stored = applications.stored(javaPosting, from.name().toLowerCase(java.util.Locale.ROOT) + "@example.test");
+            applications.stage(stored.applicationId(), from);
+            JsonNode body = ok(post(stored.applicationId(), body("REJECTED", from.name(), activeReason, null), token));
+            assertThat(body.path("stage").asString()).isEqualTo("REJECTED");
+            assertThat(body.path("stageName").asString()).isEqualTo("Loại");
+            assertThat(body.path("rejectionReasonId").asString()).isEqualTo(activeReason.toString());
+            assertThat(body.path("rejectionReasonName").asString()).isEqualTo("Chưa phù hợp kỹ năng");
+            assertThat(body.path("interviewSkipped").asBoolean()).isFalse();
+            var event = events(stored.applicationId()).getFirst();
+            assertThat(event.get("stage_before")).isEqualTo(from.name());
+            assertThat(event.get("rejection_reason_id")).isEqualTo(activeReason);
+            assertThat(event.get("rejection_reason_name")).isEqualTo("Chưa phù hợp kỹ năng");
+            assertThat(event.get("interview_skipped")).isEqualTo(false);
+        }
+        jdbc.update("UPDATE recruitment_catalog_items SET name = 'Tên mới' WHERE id = ?", activeReason);
+        assertThat(jdbc.queryForList("SELECT DISTINCT rejection_reason_name FROM application_stage_events "
+                + "WHERE rejection_reason_id = ?", String.class, activeReason)).containsExactly("Chưa phù hợp kỹ năng");
+        var deletion = client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port
+                        + "/api/v1/recruitment-catalogs/REJECTION_REASON/items/" + activeReason))
+                .timeout(Duration.ofSeconds(20)).header("Authorization", "Bearer " + token(hr)).DELETE().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(deletion.statusCode()).as(deletion.body()).isEqualTo(409);
+        assertThat(json.readTree(deletion.body()).path("code").asString()).isEqualTo("RECRUITMENT_CATALOG_ITEM_IN_USE");
+        // Any other change names no reason.
+        ok(change(lan.applicationId(), "SCREENING", "NEW", token));
+        assertThat(events(lan.applicationId()).getFirst().get("rejection_reason_id")).isNull();
+    }
+
+    // Task 381: the reason is required, belongs to rejections only, must exist in the REJECTION_REASON catalog (a value
+    // of another catalog does not count) and must still be offered. Each refusal names the field and writes nothing.
+    @Test
+    void aRejectionNeedsAnActiveValueOfTheRejectionReasonCatalog() throws Exception {
+        String token = token(primary);
+        rejected(post(lan.applicationId(), body("REJECTED", "NEW", null, null), token), "REJECTION_REASON_REQUIRED",
+                "Vui lòng chọn lý do loại.");
+        rejected(post(lan.applicationId(), body("SCREENING", "NEW", activeReason, null), token),
+                "REJECTION_REASON_NOT_ALLOWED", "Chỉ chọn lý do loại khi chuyển hồ sơ sang Loại.");
+        rejected(post(lan.applicationId(), body("REJECTED", "NEW", UUID.randomUUID(), null), token),
+                "INVALID_REJECTION_REASON", "Lý do loại không tồn tại.");
+        rejected(post(lan.applicationId(), body("REJECTED", "NEW", sourceValue, null), token),
+                "INVALID_REJECTION_REASON", "Lý do loại không tồn tại.");
+        rejected(post(lan.applicationId(), body("REJECTED", "NEW", inactiveReason, null), token),
+                "REJECTION_REASON_INACTIVE", "Lý do loại đã ngừng sử dụng, vui lòng chọn lý do khác.");
+        var malformed = post(lan.applicationId(),
+                "{\"targetStage\":\"REJECTED\",\"expectedCurrentStage\":\"NEW\",\"rejectionReasonId\":\"abc\"}", token);
+        assertThat(malformed.statusCode()).as(malformed.body()).isEqualTo(400);
+        assertThat(json.readTree(malformed.body()).path("code").asString()).isEqualTo("INVALID_JSON");
+        // The scope still comes first for a caller outside it, whatever the reason.
+        forbidden(post(lan.applicationId(), body("REJECTED", "NEW", inactiveReason, null), token(otherRecruiter)));
+        assertUnchanged();
+    }
+
+    // Task 381, the story's exception: SCREENING straight to OFFER only for an HR_MANAGER (the role, not ADMIN or a
+    // write permission) who confirms with the JSON value true. The row says so; no other move does.
+    @Test
+    void onlyAConfirmingHrManagerSkipsTheInterview() throws Exception {
+        applications.stage(lan.applicationId(), ApplicationStage.SCREENING);
+        conflict(post(lan.applicationId(), body("OFFER", "SCREENING", null, true), token(primary)),
+                "APPLICATION_INTERVIEW_REQUIRED");
+        conflict(post(lan.applicationId(), body("OFFER", "SCREENING", null, true), token(admin)),
+                "APPLICATION_INTERVIEW_REQUIRED");
+        String hrToken = token(hr);
+        conflict(post(lan.applicationId(), body("OFFER", "SCREENING", null, null), hrToken),
+                "APPLICATION_INTERVIEW_SKIP_UNCONFIRMED");
+        conflict(post(lan.applicationId(), body("OFFER", "SCREENING", null, false), hrToken),
+                "APPLICATION_INTERVIEW_SKIP_UNCONFIRMED");
+        for (String confirm : List.of("\"true\"", "1")) {
+            var response = post(lan.applicationId(), "{\"targetStage\":\"OFFER\",\"expectedCurrentStage\":\"SCREENING\","
+                    + "\"confirmSkipInterview\":" + confirm + "}", hrToken);
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+            assertThat(json.readTree(response.body()).path("code").asString()).isEqualTo("INVALID_JSON");
+        }
+        assertThat(events(lan.applicationId())).isEmpty();
+
+        JsonNode skipped = ok(post(lan.applicationId(), body("OFFER", "SCREENING", null, true), hrToken));
+        assertThat(skipped.path("stage").asString()).isEqualTo("OFFER");
+        assertThat(skipped.path("interviewSkipped").asBoolean()).isTrue();
+        assertThat(skipped.has("rejectionReasonId")).isFalse();
+        var event = events(lan.applicationId()).getFirst();
+        assertThat(event.get("stage_before")).isEqualTo("SCREENING");
+        assertThat(event.get("actor_id")).isEqualTo(hr);
+        assertThat(event.get("interview_skipped")).isEqualTo(true);
+
+        // The confirmation is ignored when nothing is skipped: INTERVIEW → OFFER by the recruiter is no exception.
+        applications.stage(minh.applicationId(), ApplicationStage.INTERVIEW);
+        JsonNode normal = ok(post(minh.applicationId(), body("OFFER", "INTERVIEW", null, true), hrToken));
+        assertThat(normal.path("interviewSkipped").asBoolean()).isFalse();
+    }
+
+    // Task 381: the HR exception needs the role and the normal record access. An HR_MANAGER whose role was narrowed to
+    // the SCOPED grants, and who is on no team, is refused before the exception is even considered.
+    @Test
+    void theHrExceptionStillNeedsAccessToTheApplication() throws Exception {
+        applications.stage(lan.applicationId(), ApplicationStage.SCREENING);
+        String hrToken = token(hr);
+        jdbc.update("UPDATE role_permissions SET permission_code = 'CANDIDATES_WRITE_SCOPED' "
+                + "WHERE role_code = 'HR_MANAGER' AND permission_code = 'CANDIDATES_WRITE_ALL'");
+        try {
+            forbidden(post(lan.applicationId(), body("OFFER", "SCREENING", null, true), hrToken));
+        } finally {
+            jdbc.update("UPDATE role_permissions SET permission_code = 'CANDIDATES_WRITE_ALL' "
+                    + "WHERE role_code = 'HR_MANAGER' AND permission_code = 'CANDIDATES_WRITE_SCOPED'");
+        }
+        assertThat(stageOf(lan.applicationId())).isEqualTo("SCREENING");
+        assertThat(events(lan.applicationId())).isEmpty();
+    }
+
     private HttpResponse<String> change(UUID application, String target, String expected, String token)
             throws Exception {
+        return post(application, body(target, expected, null, null), token);
+    }
+
+    // The body with the given fields; a null reason or confirmation is left out.
+    private String body(String target, String expected, UUID reason, Boolean confirmSkipInterview) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("targetStage", target);
         body.put("expectedCurrentStage", expected);
-        return post(application, json.writeValueAsString(body), token);
+        if (reason != null) body.put("rejectionReasonId", reason);
+        if (confirmSkipInterview != null) body.put("confirmSkipInterview", confirmSkipInterview);
+        return json.writeValueAsString(body);
+    }
+
+    private void rejected(HttpResponse<String> response, String code, String message) {
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+        JsonNode body = json.readTree(response.body());
+        assertThat(body.path("code").asString()).isEqualTo(code);
+        assertThat(body.path("fieldErrors").path("rejectionReasonId").asString()).isEqualTo(message);
+        assertNoStore(response);
+    }
+
+    private UUID catalogValue(String type, String name, boolean active) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO recruitment_catalog_items(id,catalog_type,code,name,sort_order,active,created_at,"
+                + "updated_at) VALUES (?,?,?,?,0,?,?,?)", id, type, id.toString(), name, active, Timestamp.from(NOW),
+                Timestamp.from(NOW));
+        return id;
     }
 
     private HttpResponse<String> post(UUID application, String body, String token) throws Exception {
@@ -324,7 +480,8 @@ class ApplicationStageChangeIntegrationTest {
 
     private List<Map<String, Object>> events(UUID application) {
         return jdbc.queryForList("""
-                SELECT stage_before, stage_after, actor_type, actor_id, reason, occurred_at
+                SELECT stage_before, stage_after, actor_type, actor_id, reason, occurred_at, rejection_reason_id,
+                       rejection_reason_name, interview_skipped
                 FROM application_stage_events WHERE application_id = ? ORDER BY occurred_at
                 """, application);
     }
