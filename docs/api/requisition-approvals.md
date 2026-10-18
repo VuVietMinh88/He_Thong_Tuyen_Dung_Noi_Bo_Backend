@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt), story TKNHTTDNB1-31 (S3-02). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -92,6 +92,17 @@ Mỗi lần gửi duyệt mở một **lượt duyệt** (round). Lượt đầu
 - người gửi, thời điểm gửi và ghi chú.
 
 Phiên bản cấu hình đã niêm phong không bao giờ đổi hay bị xóa (V18), và dòng lịch sử tham chiếu tới nó bằng khóa ngoại, nên dòng này **chính là** bản chụp chuỗi duyệt. HR lưu phiên bản cấu hình mới thì các lượt duyệt đang chạy vẫn theo phiên bản cũ; chỉ lần gửi duyệt sau mới dùng phiên bản mới. Trong lúc chờ duyệt, yêu cầu không sửa được, nên lương và phòng ban đã quyết định số cấp cũng không đổi.
+
+## Lịch sử quyết định
+
+Task 261: mỗi quyết định của một cấp được ghi thêm một dòng vào lịch sử duyệt (`requisition_workflow_events`), cùng transaction với trạng thái mới của yêu cầu. Mỗi dòng ghi:
+
+- người quyết định (`actor_id`) và thời điểm (`occurred_at`, đến micro giây);
+- kết quả: `APPROVED` (duyệt), `REJECTED` (từ chối) hoặc `INFO_REQUESTED` (yêu cầu bổ sung), cùng trạng thái của yêu cầu trước và sau;
+- lượt duyệt (`round_number`) và cấp (`level_number`);
+- nhận xét, giữ nguyên xuống dòng. Từ chối và yêu cầu bổ sung bắt buộc có nhận xét (database cũng kiểm).
+
+Mỗi cấp của một lượt chỉ có một quyết định (`requisition_workflow_events_one_decision_idx`). Tiến độ của lượt (cấp nào đã duyệt, đang chờ cấp nào) không lưu riêng mà tính từ các dòng này: các cấp duyệt lần lượt, lượt còn mở khi mọi quyết định đến giờ đều là duyệt và chưa đủ số cấp.
 
 ## Khóa và đồng thời
 
