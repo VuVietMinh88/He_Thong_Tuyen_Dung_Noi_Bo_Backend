@@ -1,6 +1,6 @@
 # API duyệt yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) TKNHTTDNB1-262 (API quyết định phê duyệt) TKNHTTDNB1-263 (chuyển cấp và hoàn tất phê duyệt) và TKNHTTDNB1-264 (trả yêu cầu bổ sung cho người tạo), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
+Phạm vi TKNHTTDNB1-256 (chọn cấp duyệt theo phòng ban và hạn mức) và TKNHTTDNB1-257 (giữ phiên bản phê duyệt cho yêu cầu đang chạy), story TKNHTTDNB1-30 (S3-01); TKNHTTDNB1-261 (lưu quyết định và nhận xét của từng cấp duyệt) TKNHTTDNB1-262 (API quyết định phê duyệt) TKNHTTDNB1-263 (chuyển cấp và hoàn tất phê duyệt) và TKNHTTDNB1-264 (trả yêu cầu bổ sung cho người tạo), story TKNHTTDNB1-31 (S3-02); TKNHTTDNB1-267 (API tiến độ và lịch sử phê duyệt) và TKNHTTDNB1-268 (bảo vệ lịch sử phê duyệt không bị sửa), story TKNHTTDNB1-32 (S3-03). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Cấu hình luồng phê duyệt (task 254, 255) nằm ở [API cấu hình luồng phê duyệt](approval-flows.md).
 
 Tiêu chí của story S3-01:
 
@@ -171,6 +171,64 @@ Task 261: mỗi quyết định của một cấp được ghi thêm một dòng
 
 Mỗi cấp của một lượt chỉ có một quyết định (`requisition_workflow_events_one_decision_idx`). Tiến độ của lượt (cấp nào đã duyệt, đang chờ cấp nào) không lưu riêng mà tính từ các dòng này: các cấp duyệt lần lượt, lượt còn mở khi mọi quyết định đến giờ đều là duyệt và chưa đủ số cấp.
 
+## Tiến độ và lịch sử duyệt
+
+`GET /requisitions/{id}/approvals` (task 267) trả tiến độ của lượt duyệt mới nhất và toàn bộ lịch sử. Quyền như `GET /requisitions/{id}` (mục "Ai được xem yêu cầu"): 401/403, 404, rồi 403 khi ngoài phạm vi.
+
+```json
+{
+  "requisitionId": "6f0c1f9e-8f3e-4b67-9a39-2c1d3f4e5a6b",
+  "status": "PENDING_APPROVAL",
+  "createdById": "00000000-0000-0000-0000-000000000021",
+  "createdByName": "Trưởng IT",
+  "revision": 2,
+  "round": 1,
+  "flow": {"id": "0d7e…", "version": 1, "name": "Duyệt tuyển dụng phòng kỹ thuật"},
+  "levelCount": 3,
+  "currentLevel": 2,
+  "submittedById": "00000000-0000-0000-0000-000000000021",
+  "submittedByName": "Trưởng IT",
+  "submittedAt": "2026-10-11T03:00:00Z",
+  "levels": [
+    {"level": 1, "stepName": "Cấp 1 · Trưởng phòng Nhân sự", "approverType": "ROLE", "approverUserId": null,
+     "approverRole": "HR_MANAGER", "approverRoleName": "Trưởng phòng Nhân sự", "addedBySalaryLimit": false,
+     "status": "APPROVED", "approverName": "Nguyễn Thị Hoa", "decidedById": "…", "comment": "Đồng ý",
+     "actionDate": "2026-10-11T03:00:30Z"},
+    {"level": 2, "stepName": "Cấp 2 · Giám đốc A", "approverType": "USER", "approverUserId": "…",
+     "approverRole": null, "approverRoleName": null, "addedBySalaryLimit": true, "status": "PENDING",
+     "approverName": "Giám đốc A", "decidedById": null, "comment": null, "actionDate": null},
+    {"level": 3, "stepName": "Cấp 3 · Người duyệt", "approverType": "ROLE", "approverUserId": null,
+     "approverRole": "APPROVER", "approverRoleName": "Người duyệt", "addedBySalaryLimit": true,
+     "status": "NOT_REACHED", "approverName": "Người duyệt", "decidedById": null, "comment": null, "actionDate": null}
+  ],
+  "waitingOn": {"kind": "APPROVAL_LEVEL", "level": 2, "label": "Cấp 2 · Giám đốc A", "hasEligibleApprover": true,
+                "people": [{"userId": "…", "fullName": "Giám đốc A"}]},
+  "actions": {"canDecide": false},
+  "history": [
+    {"id": "…", "revision": 2, "round": 1, "level": 1, "action": "APPROVED", "statusBefore": "PENDING_APPROVAL",
+     "statusAfter": "PENDING_APPROVAL", "actorId": "…", "actorName": "Nguyễn Thị Hoa",
+     "occurredAt": "2026-10-11T03:00:30Z", "comment": "Đồng ý", "flowVersion": null, "levelCount": null,
+     "salaryBasis": null},
+    {"id": "…", "revision": 1, "round": 1, "level": null, "action": "SUBMITTED", "statusBefore": "DRAFT",
+     "statusAfter": "PENDING_APPROVAL", "actorId": "…", "actorName": "Trưởng IT",
+     "occurredAt": "2026-10-11T03:00:00Z", "comment": null, "flowVersion": 1, "levelCount": 3,
+     "salaryBasis": 60000000}
+  ]
+}
+```
+
+- `revision` là số thứ tự của sự kiện mới nhất; gửi lại đúng số này trong `expectedRevision` khi quyết định. Chưa gửi duyệt lần nào thì `revision` là 0, `round`, `flow`, `levelCount`, `currentLevel`, `submitted*`, `waitingOn` là `null`, `levels` và `history` là mảng rỗng.
+- `levels` là các cấp của lượt mới nhất. `status`: `APPROVED`, `REJECTED`, `INFO_REQUESTED` khi cấp đã quyết định; `PENDING` với cấp đang chờ; `NOT_REACHED` với cấp chưa tới. `approverName` là người đã quyết định, hoặc người/vai trò được chuyển tới khi chưa quyết định.
+- `currentLevel` chỉ có khi đang chờ duyệt.
+- `waitingOn` cho biết đang chờ ai: `APPROVAL_LEVEL` kèm những người được quyết định cấp đó lúc này (`people`); `hasEligibleApprover: false` nghĩa là hiện không ai quyết định được (ví dụ người duyệt bị khóa sau khi gửi). `REQUESTER` khi đang chờ bên yêu cầu bổ sung (`people` là người tạo). Đã duyệt hay bị từ chối thì `null`.
+- `actions.canDecide` cho biết người gọi có được quyết định cấp hiện tại không.
+- `history` gồm mọi sự kiện của mọi lượt, mới nhất trước, xếp theo `revision` (hai sự kiện có thể cùng thời điểm). `flowVersion`, `levelCount`, `salaryBasis` chỉ có ở `SUBMITTED`.
+- Tên người được đọc lúc trả, nên tài khoản đổi tên thì hiện tên mới. Ngưỡng lương của cấu hình **không bao giờ** được trả; chỉ có `addedBySalaryLimit`.
+
+## Hộp chờ duyệt
+
+`GET /requisitions/approval-inbox?page=0&size=20` (task 267) trả các yêu cầu đang chờ một cấp mà người gọi **được quyết định lúc này** (cùng quy tắc với quyết định), chờ lâu nhất trước, cùng dạng trang với `GET /requisitions`: `{items, page, size, totalElements, totalPages}`. `page` từ 0, `size` từ 1 đến 100 và `page × size` không quá 2.147.483.647, sai thì 400 `VALIDATION_ERROR`. Người không có quyền ghi yêu cầu tuyển dụng nhận trang rỗng. Quyền ở matcher: `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED`. Thông báo cho người duyệt thuộc Sprint 8, nên hộp chờ duyệt là cách người duyệt tìm việc.
+
 ## Lịch sử không sửa, không xóa
 
 Task 268 ("Lịch sử không sửa và không xoá được"):
@@ -191,7 +249,7 @@ Task 268 ("Lịch sử không sửa và không xoá được"):
 
 | HTTP | `code` | Khi nào |
 |---|---|---|
-|400|`VALIDATION_ERROR`|`comment` quá 2.000 ký tự hoặc chứa ký tự NUL; `{id}` không phải UUID; khi quyết định: `action` thiếu hoặc không phải thao tác hợp lệ, `expectedRevision` thiếu hoặc nhỏ hơn 1 (task 262)|
+|400|`VALIDATION_ERROR`|`comment` quá 2.000 ký tự hoặc chứa ký tự NUL; `{id}` không phải UUID; khi quyết định: `action` thiếu hoặc không phải thao tác hợp lệ, `expectedRevision` thiếu hoặc nhỏ hơn 1 (task 262); hộp chờ duyệt: `page` âm, `size` ngoài 1–100 hoặc `page × size` quá 2.147.483.647 (task 267)|
 |400|`INVALID_JSON`|JSON sai hoặc có trường không được phép|
 |400|`REQUISITION_INCOMPLETE`|Gửi duyệt khi còn thiếu thông tin (`fieldErrors` liệt kê đủ)|
 |400|`NEEDED_BY_IN_PAST`, `INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`, `SALARY_JUSTIFICATION_REQUIRED`|Như khi lưu yêu cầu|
@@ -239,6 +297,26 @@ Ngoài ra người duyệt phải:
 - với cấp chỉ định vai trò: không phải người được một cấp khác của cùng chuỗi chỉ định đích danh. Nhờ vậy cấp chỉ định đích danh luôn còn người duyệt.
 
 `HR_MANAGER` và `ADMIN` không có quyền duyệt thay. Họ chỉ duyệt cấp chỉ định vai trò của họ hoặc tài khoản của họ.
+
+## Ghi chú cho frontend
+
+Các màn hình duyệt ở nhánh `UI` (`ApprovalActionUI.tsx`, `ApprovalHistoryTimeline.tsx`, `ApprovalWorkflowConfigUI.tsx`) chưa được gắn route, nên đổi theo hợp đồng này được ngay:
+
+| Frontend hiện tại | Backend |
+|---|---|
+|`POST /requisitions/{id}/submit` (danh sách gửi backend)|Đúng đường dẫn; body không bắt buộc `{comment}`; trả yêu cầu với `PENDING_APPROVAL`|
+|`POST /requisitions/{id}/approve`, `/reject`; `POST /approvals/{id}/action {action, comment}`|`POST /requisitions/{id}/approvals {action, comment, expectedRevision}`, `action` là `APPROVE`, `REJECT` hoặc `REQUEST_INFO`. Trường lý do tên là `comment`, gửi `reason` sẽ bị `INVALID_JSON`|
+|`ApprovalActionUI.tsx` bắt nhận xét cho mọi thao tác|Nhận xét chỉ bắt buộc khi từ chối và yêu cầu bổ sung|
+|Chưa có nút "Yêu cầu bổ sung"|`action: "REQUEST_INFO"`|
+|`GET /approvals/{id}/history` (mảng `{stepName, approverName, status, comment, actionDate}`)|`GET /requisitions/{id}/approvals`: hiển thị `.levels` (đủ năm trường đó), `status` thêm `INFO_REQUESTED` ("Yêu cầu bổ sung") và `NOT_REACHED` ("Chưa đến lượt"); dùng `.history` cho dòng thời gian qua các lượt; lấy `expectedRevision` từ `.revision`|
+|Trạng thái `PENDING` trong `Requisition.status` và bộ lọc|`PENDING_APPROVAL`; thêm `RETURNED`. `OPEN`, `CLOSED`, `CANCELLED` vẫn trả 400 cho tới story S3-07|
+|Chưa có hộp chờ duyệt|`GET /requisitions/approval-inbox`, cùng dạng trang với danh sách|
+|Nút thao tác|Hiện nút quyết định theo `actions.canDecide`. Gặp 409 `APPROVAL_STATE_CHANGED` hoặc `REQUISITION_NOT_PENDING_APPROVAL` thì báo và tải lại|
+|Cấu hình luồng duyệt (`/approval-workflows/config`)|Dùng [API cấu hình luồng phê duyệt](approval-flows.md): `departmentId`, `salaryThreshold`, `approverUserId` hoặc `approverRole`, `expectedVersion`, UUID thật|
+
+Nhãn trạng thái: `DRAFT` Nháp; `PENDING_APPROVAL` Chờ duyệt; `RETURNED` Cần bổ sung; `APPROVED` Đã duyệt; `REJECTED` Bị từ chối.
+
+Người duyệt chỉ xem yêu cầu qua quyền tham gia duyệt thì vẫn nhận 403 ở `GET /requisitions/{id}/headcount-overrides` và `GET /headcount-plans/remaining` của phòng ban khác. Màn hình chi tiết không nên gọi hai API này khi người xem không phụ trách phòng ban, hoặc phải tự xử lý 403 của chúng thay vì chuyển sang `/unauthorized`.
 
 ## Giả định chờ BA/PO
 

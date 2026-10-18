@@ -150,6 +150,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/requisitions/{id}/submit", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 404),
             // Task 262: deciding is a REQUISITIONS write; the empty body stops a permitted call at 400 (no action).
             endpoint("POST", "/api/v1/requisitions/{id}/approvals", anyOf(REQUISITIONS_WRITE_ALL, REQUISITIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 267: the progress of an unknown requisition is 404; the inbox of every allowed caller is a page.
+            endpoint("GET", "/api/v1/requisitions/{id}/approvals", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/requisitions/approval-inbox", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
             // Task 284: only ALL writers assign; the empty body stops a permitted call at 400 before any lookup.
             endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
