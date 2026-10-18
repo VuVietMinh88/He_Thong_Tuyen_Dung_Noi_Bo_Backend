@@ -7,7 +7,9 @@ API công khai, quota IP, mã/email xác nhận còn thuộc 326–329.
 
 V26 thêm `job_applications` và `application_cvs`. Composite FK giữ đúng tin ↔ requisition.
 Hồ sơ giữ thông tin người nộp, nguồn tùy chọn, thư giới thiệu, snapshot tên tin, thời điểm
-nhận và stage NEW. Không tự gộp ứng viên hoặc unique email toàn hệ thống.
+nhận và stage NEW. Không tự gộp ứng viên hoặc unique email toàn hệ thống. Hồ sơ ứng tuyển vẫn không
+bao giờ bị gộp: từ task 360 (V32), một [hồ sơ ứng viên](candidate-profiles.md) gom các hồ sơ ứng tuyển
+có đúng cùng email đã chuẩn hóa, mỗi hồ sơ ứng tuyển giữ nguyên bản chụp của nó.
 
 Unique `(requisition_id,normalized_email)` không phụ thuộc stage. Chuẩn hóa bằng Java
 Locale.ROOT, không bỏ dấu chấm/`+tag` hoặc dùng lower() theo locale PostgreSQL.
@@ -29,8 +31,12 @@ READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, khô
 - Validate input dù không qua controller; khóa requisition FOR SHARE → tin FOR SHARE →
   nguồn CANDIDATE_SOURCE còn active nếu có.
 - Chỉ nhận PUBLISHED/APPROVED, còn hạn theo BusinessCalendar; kiểm lại ngày sau chờ khóa
-  danh mục bằng cùng mốc ghi vào hồ sơ.
+  danh mục bằng cùng mốc ghi vào hồ sơ, và (task 360) thêm một lần sau liên kết hồ sơ ứng viên,
+  chỗ chờ khóa cuối cùng.
 - Insert hồ sơ và CV atomic; lỗi CV/rollback caller bỏ cả hai; unique chặn nộp đồng thời.
+- Task 360: ngay sau insert hồ sơ (sau bộ chặn trùng), trước CV, `CandidateLinks.link` gắn hồ sơ vào
+  hồ sơ ứng viên của email chuẩn hóa trong cùng transaction; cần READ_COMMITTED, caller không được
+  chạy `store()` trong REPEATABLE READ. Xem [hồ sơ ứng viên](candidate-profiles.md#khóa-và-transaction).
 
 Input: tên 120, email 254, thư giới thiệu 5000 ký tự; văn bản thuần, trim Unicode ngoài cùng.
 Phone giữ số 0 đầu, bỏ dấu phân cách, nhận `+` đầu và 8–15 số; không thêm mã quốc gia.
