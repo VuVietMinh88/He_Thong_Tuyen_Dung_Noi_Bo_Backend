@@ -61,6 +61,7 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true", "app.application-intake.enabled=false",
         "app.interview-invitation.enabled=false", "app.interview-invitation.delivery-enabled=false",
+        "app.offers.enabled=false", "app.offers.delivery-enabled=false",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
         "logging.level.io.zonky.test.db.postgres.embedded=warn"
 })
@@ -105,6 +106,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String EVALUATIONS_READ_SCOPED = "EVALUATIONS_READ_SCOPED";
     private static final String EVALUATIONS_WRITE_ALL = "EVALUATIONS_WRITE_ALL";
     private static final String EVALUATIONS_WRITE_SCOPED = "EVALUATIONS_WRITE_SCOPED";
+    private static final String OFFERS_READ_ALL = "OFFERS_READ_ALL";
+    private static final String OFFERS_READ_SCOPED = "OFFERS_READ_SCOPED";
+    private static final String OFFERS_WRITE_ALL = "OFFERS_WRITE_ALL";
+    private static final String OFFERS_WRITE_SCOPED = "OFFERS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -112,6 +117,22 @@ class ApiAuthorizationMatrixIntegrationTest {
     // so a call that passes authorization stops at 404 or validation instead of changing data.
     private static final List<Endpoint> ENDPOINTS = List.of(
             endpoint("GET", "/api/v1/applications/{id}/interview-participants", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), null, 404),
+            endpoint("POST", "/api/v1/applications/{id}/offers", offerWriter(), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/applications/{id}/offers", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/offers/{id}", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/offers/{id}/preview", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/offers/{id}/history", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/offers/{id}", offerWriter(), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/offers/{id}/submit", offerWriter(), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/offers/{id}/cancel", offerWriter(), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/offers/{id}/send", offerWriter(), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/offers/approvers", offerWriter(), null, 200),
+            endpoint("POST", "/api/v1/offers/{id}/approval", new Rule(List.of(OFFERS_READ_ALL, OFFERS_READ_SCOPED), true,
+                    false, false, List.of(List.of(OFFERS_WRITE_ALL, OFFERS_WRITE_SCOPED)), Set.of("HR_MANAGER", "APPROVER")), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/public/offers/lookup", PUBLIC, INVALID_BODY, 503),
+            endpoint("POST", "/api/v1/public/offers/respond", PUBLIC, INVALID_BODY, 503),
+            endpoint("GET", "/api/v1/public/offers/reply", PUBLIC, null, 200),
+            endpoint("GET", "/api/v1/public/offers/reply.js", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/interviews/me/calendar", panelContext(), null, 200),
             endpoint("GET", "/api/v1/interviews/{id}/cv", panelContext(), null, 404),
             endpoint("GET", "/api/v1/interviews/{id}/questions", panelContext(), null, 404),
@@ -337,7 +358,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             "requisition_headcount_overrides", "requisition_recruiters",
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
             "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events",
-            "interview_question_usage", "hiring_decisions");
+            "interview_question_usage", "hiring_decisions", "offers", "offer_events",
+            "offer_response_tokens", "offer_delivery_outbox");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -1088,6 +1110,12 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Rule allOf(String... codes) { return new Rule(List.of(codes), false, false); }
 
     private static Rule anyOf(String... codes) { return new Rule(List.of(codes), true, false); }
+
+    private static Rule offerWriter() {
+        return new Rule(List.of(OFFERS_READ_ALL, OFFERS_READ_SCOPED), true, false, false,
+                List.of(List.of(OFFERS_WRITE_ALL, OFFERS_WRITE_SCOPED), List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)),
+                Set.of("ADMIN", "HR_MANAGER", "RECRUITER"));
+    }
 
     private static Rule adminWith(String code) { return new Rule(List.of(code), false, true); }
 

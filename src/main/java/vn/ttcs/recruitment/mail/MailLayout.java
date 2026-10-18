@@ -93,6 +93,14 @@ public class MailLayout {
         return plainText(body, year());
     }
 
+    /** Preview uses the same body and layout as SMTP, with one calendar year for both parts. */
+    public Rendered render(MailBody body) {
+        int year = year();
+        return new Rendered(plainText(body, year), html(body, year));
+    }
+
+    public record Rendered(String plainText, String html) { }
+
     String html(MailBody body) {
         return html(body, year());
     }

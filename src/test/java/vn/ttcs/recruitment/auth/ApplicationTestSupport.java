@@ -84,6 +84,9 @@ final class ApplicationTestSupport {
     // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too). The
     // referral attempts and their quota rows (task 351) reference staff accounts only and are deleted with them.
     void reset() {
+        // Offer history is immutable and references applications; this database belongs only to this test suite.
+        jdbc.execute("TRUNCATE offers CASCADE");
+        jdbc.execute("TRUNCATE offer_request_buckets");
         // Tests use disposable databases only. Clear the interview tree and its immutable audit rows before
         // deleting applications/accounts; CASCADE also clears the evaluation children introduced by V56.
         jdbc.execute("TRUNCATE interview_sessions CASCADE");
