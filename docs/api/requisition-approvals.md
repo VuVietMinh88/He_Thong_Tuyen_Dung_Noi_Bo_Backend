@@ -324,6 +324,8 @@ Các màn hình duyệt ở nhánh `UI` (`ApprovalActionUI.tsx`, `ApprovalHistor
 
 Nhãn trạng thái: `DRAFT` Nháp; `PENDING_APPROVAL` Chờ duyệt; `RETURNED` Cần bổ sung; `APPROVED` Đã duyệt; `REJECTED` Bị từ chối; `PAUSED` Tạm dừng; `FILLED` Đã tuyển đủ; `CANCELLED` Đã hủy.
 
+Tạm dừng, mở lại, đóng vì đã tuyển đủ và hủy yêu cầu (task 290) nằm ở [Tạm dừng, đóng và hủy yêu cầu tuyển dụng](requisition-status.md), mục "Ghi chú cho frontend". Sau khi yêu cầu bị hủy lúc đang chờ duyệt, người duyệt bấm quyết định trên trang cũ nhận 409 `REQUISITION_NOT_PENDING_APPROVAL` (tải lại), không bị chuyển sang /unauthorized.
+
 Người duyệt chỉ xem yêu cầu qua quyền tham gia duyệt thì vẫn nhận 403 ở `GET /requisitions/{id}/headcount-overrides` và `GET /headcount-plans/remaining` của phòng ban khác. Màn hình chi tiết không nên gọi hai API này khi người xem không phụ trách phòng ban, hoặc phải tự xử lý 403 của chúng thay vì chuyển sang `/unauthorized`.
 
 ## Giả định chờ BA/PO

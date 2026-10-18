@@ -21,6 +21,12 @@ public enum RequisitionStatusChange {
             RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED, RequisitionStatus.APPROVED,
             RequisitionStatus.PAUSED));
 
+    // Task 290: the @Pattern of RequisitionStatusChangeRequest.status. RequisitionStatusChangeTest checks it lists
+    // every target.
+    public static final String TARGETS = "PAUSED|APPROVED|FILLED|CANCELLED";
+    public static final String TARGETS_MESSAGE = "Trạng thái mới chỉ được là PAUSED (tạm dừng), APPROVED (tiếp tục "
+            + "tuyển sau khi tạm dừng), FILLED (đã tuyển đủ) hoặc CANCELLED (hủy).";
+
     private final RequisitionStatus target;
     private final ApprovalEventType eventType;
     private final boolean requiresReason;
@@ -52,5 +58,15 @@ public enum RequisitionStatusChange {
 
     public boolean allowedFrom(RequisitionStatus status) {
         return from.contains(status);
+    }
+
+    // Task 290: the change whose target is the status HR asked for. Every target belongs to exactly one change.
+    public static RequisitionStatusChange toward(RequisitionStatus target) {
+        for (RequisitionStatusChange change : values()) {
+            if (change.target == target) {
+                return change;
+            }
+        }
+        throw new IllegalArgumentException("No status change leads to " + target);
     }
 }

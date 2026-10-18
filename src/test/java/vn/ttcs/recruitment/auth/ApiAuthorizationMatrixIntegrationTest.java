@@ -154,6 +154,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 267: the progress of an unknown requisition is 404; the inbox of every allowed caller is a page.
             endpoint("GET", "/api/v1/requisitions/{id}/approvals", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/requisitions/approval-inbox", anyOf(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED), null, 200),
+            // Task 290: only REQUISITIONS_WRITE_ALL changes a requisition's status; the empty body stops a permitted
+            // call at 400 before any lookup.
+            endpoint("POST", "/api/v1/requisitions/{id}/status-changes", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             // Task 284: only ALL writers assign; the empty body stops a permitted call at 400 before any lookup.
             endpoint("POST", "/api/v1/requisitions/{id}/assign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/requisitions/{id}/unassign", permission(REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
@@ -305,12 +308,13 @@ class ApiAuthorizationMatrixIntegrationTest {
 
     @Test
     void approvalHistoryHasNoEditOrDeleteRoute() {
-        // Task 268: the approval history is append-only, so no handler may offer to change or remove it.
+        // Task 268: the approval history is append-only, so no handler may offer to change or remove it. Task 290:
+        // nor the status changes, which add to the same history.
         Set<String> editing = new TreeSet<>();
         handlerMapping.getHandlerMethods().forEach((info, handler) -> {
             for (String pattern : info.getPatternValues()) {
                 boolean approval = pattern.contains("/approvals") || pattern.contains("/approval-inbox")
-                        || pattern.contains("/submit");
+                        || pattern.contains("/submit") || pattern.contains("/status-changes");
                 info.getMethodsCondition().getMethods().stream()
                         .filter(method -> method == RequestMethod.PUT || method == RequestMethod.PATCH
                                 || method == RequestMethod.DELETE)
@@ -615,7 +619,14 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.INTERVIEWER, "POST", "/api/v1/job-postings/" + reviewed + "/publish", Map.of("expectedRevision", 3)),
                 // The "posting" fixture has every portal detail, so a submit that slipped through would change it.
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)),
-                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)));
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)),
+                // Task 290: only HR changes a requisition's status; one that slipped through would change its status,
+                // add an event and (task 292) close its posting.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "PAUSED", "reason", "Tạm dừng thay", "expectedRevision", 2)),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "FILLED", "reason", "Đã tuyển thay", "expectedRevision", 2)),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 2)),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/requisitions/" + ready + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 0)),
+                new Attack(Identity.NO_ROLE, "POST", "/api/v1/requisitions/" + requisition + "/status-changes", Map.of("status", "CANCELLED", "reason", "Hủy thay", "expectedRevision", 0)));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -709,7 +720,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID,
                 // Task 310: the review and publication history is never edited or deleted.
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/history",
-                "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history")) {
+                "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history",
+                // Task 290: the frontend's status routes do not exist (POST /requisitions/{id}/status-changes
+                // does), and the candidate count of task 291 is not built yet.
+                "PATCH /api/v1/requisitions/" + UNKNOWN_ID + "/status",
+                "PATCH /api/v1/job-requisitions/" + UNKNOWN_ID + "/status",
+                "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

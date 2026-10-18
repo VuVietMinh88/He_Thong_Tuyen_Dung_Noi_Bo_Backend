@@ -325,7 +325,7 @@ class RequisitionCopyIntegrationTest {
     }
 
     // Task 293: a paused, filled or cancelled requisition is copied like any other (task 279), which is how a finished
-    // one is recruited again. The status is set with SQL until task 290 adds the API.
+    // one is recruited again. The status is set with SQL here (task 290's API reaches it too).
     @ParameterizedTest
     @EnumSource(value = RequisitionStatus.class, names = {"PAUSED", "FILLED", "CANCELLED"})
     void aClosedRequisitionIsCopiedIntoAFreshDraft(RequisitionStatus status) throws Exception {

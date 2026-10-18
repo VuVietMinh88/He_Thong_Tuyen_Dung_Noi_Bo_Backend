@@ -502,7 +502,7 @@ class JobPostingReviewIntegrationTest {
                 .isEqualTo("REVISION_REQUESTED");
     }
 
-    // No API takes a requisition out of APPROVED yet (closing its postings is task 292): SQL moves it back.
+    // Task 290 pauses, fills and cancels requisitions; SQL moves it back here (closing postings is task 292).
     @Test
     void aRequisitionNoLongerApprovedBlocksEveryStep() throws Exception {
         UUID draft = postingIn(JobPostingStatus.DRAFT);
@@ -529,6 +529,25 @@ class JobPostingReviewIntegrationTest {
         assertActions(ok(postings.get(draft, adminToken)), false, false, false, false, false);
         assertThat(jdbc.queryForList("SELECT * FROM job_postings ORDER BY id")).isEqualTo(rowsBefore);
         assertThat(jdbc.queryForList("SELECT * FROM job_posting_events ORDER BY 1")).isEqualTo(eventsBefore);
+    }
+
+    // Task 290: the review buttons follow the requisition like the steps do, so a paused, filled or cancelled
+    // requisition shows none. HR reads both postings: ADMIN wrote and sent them, so ADMIN may never approve them.
+    @ParameterizedTest
+    @EnumSource(RequisitionStatus.class)
+    void reviewButtonsFollowTheRequisitionStatus(RequisitionStatus status) throws Exception {
+        UUID pending = postingIn(JobPostingStatus.PENDING_APPROVAL);
+        UUID approved = postingIn(JobPostingStatus.APPROVED);
+        jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id IN (?, ?)", status.name(),
+                postings.row(pending).get("requisition_id"), postings.row(approved).get("requisition_id"));
+
+        boolean source = switch (status) {
+            case APPROVED -> true;
+            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
+        };
+        // The posting's own status still decides which step it is at; edit and submit stay off for both.
+        assertActions(ok(postings.get(pending, hrToken)), false, false, source, source, false);
+        assertActions(ok(postings.get(approved, hrToken)), false, false, false, source, source);
     }
 
     @ParameterizedTest

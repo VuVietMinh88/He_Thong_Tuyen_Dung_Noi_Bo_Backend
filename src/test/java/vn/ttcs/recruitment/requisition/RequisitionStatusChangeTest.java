@@ -7,6 +7,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,5 +52,31 @@ class RequisitionStatusChangeTest {
         }
         assertThatThrownBy(() -> PAUSE.from().add(RequisitionStatus.DRAFT))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    // Task 290: the body's status is validated against TARGETS, so a new change must be added there too.
+    @Test
+    void targetsPatternListsEveryTarget() {
+        assertThat(RequisitionStatusChange.TARGETS).isEqualTo(Arrays.stream(RequisitionStatusChange.values())
+                .map(change -> change.target().name()).collect(Collectors.joining("|")));
+    }
+
+    @ParameterizedTest
+    @EnumSource(RequisitionStatus.class)
+    void towardFindsTheChangeOfEachTarget(RequisitionStatus target) {
+        RequisitionStatusChange expected = switch (target) {
+            case PAUSED -> PAUSE;
+            case APPROVED -> RESUME;
+            case FILLED -> FILL;
+            case CANCELLED -> CANCEL;
+            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED -> null;
+        };
+
+        if (expected == null) {
+            assertThatThrownBy(() -> RequisitionStatusChange.toward(target))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("No status change leads to " + target);
+        } else {
+            assertThat(RequisitionStatusChange.toward(target)).isEqualTo(expected);
+        }
     }
 }

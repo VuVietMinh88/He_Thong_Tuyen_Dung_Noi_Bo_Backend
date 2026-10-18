@@ -324,7 +324,7 @@ class JobPostingDraftIntegrationTest {
         assertThat(postings.authorsOf(id)).containsExactly(hrId);
     }
 
-    // No API takes a requisition out of APPROVED yet (closing its postings is task 292): SQL moves it to each status.
+    // Task 290 pauses, fills and cancels requisitions; SQL reaches every status here (closing postings is task 292).
     @ParameterizedTest
     @EnumSource(RequisitionStatus.class)
     void aPostingIsSavedOnlyWhileItsRequisitionIsApproved(RequisitionStatus status) throws Exception {

@@ -28,6 +28,8 @@ public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus statu
     // and permission checks of the decision and the publication, and for canApprove also the rule that nobody
     // approves a posting they wrote, edited or last submitted (JobPostingReviewRule). The application deadline is not
     // part of the flags: a passed deadline is explained by its own 409 (JOB_POSTING_DEADLINE_PASSED).
+    // Task 290: every flag also needs the requisition still approved: a paused, filled or cancelled requisition
+    // freezes its postings (409 JOB_POSTING_REQUISITION_NOT_APPROVED).
     public record Actions(boolean canEdit, boolean canSubmit, boolean canApprove, boolean canRequestRevision,
                           boolean canPublish) { }
 
@@ -44,10 +46,10 @@ public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus statu
         Actions actions = new Actions(
                 JobPostingService.EDITABLE_STATUSES.contains(row.status()) && source,
                 JobPostingService.SUBMITTABLE_STATUSES.contains(row.status()) && source,
-                reviewer && JobPostingDecision.APPROVE.from().contains(row.status())
+                reviewer && JobPostingDecision.APPROVE.from().contains(row.status()) && source
                         && JobPostingReviewRule.mayApprove(viewer.id(), authors, row.latestSubmitterId()),
-                reviewer && JobPostingDecision.REQUEST_REVISION.from().contains(row.status()),
-                reviewer && JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(row.status()));
+                reviewer && JobPostingDecision.REQUEST_REVISION.from().contains(row.status()) && source,
+                reviewer && JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(row.status()) && source);
         LastReview lastReview = row.reviewAction() == null ? null : new LastReview(row.reviewAction(),
                 row.reviewComment(), row.reviewActorId(), row.reviewActorName(), row.reviewAt());
         return new JobPostingView(row.id(), row.requisitionId(), row.status(), row.revision(), row.title(),
