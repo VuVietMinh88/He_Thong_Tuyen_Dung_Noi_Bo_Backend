@@ -55,5 +55,9 @@ public class InterviewController {
     public ResponseEntity<List<InterviewConflict>> conflicts(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody InterviewConflictRequest request) { return ok(service.conflicts(jwt, request)); }
 
+    @PostMapping("/api/v1/interviews/bulk/preview")
+    public ResponseEntity<InterviewBulkPreview> previewBulk(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody InterviewBulkRequest request) { return ok(service.previewBulk(jwt, request)); }
+
     private static <T> ResponseEntity<T> ok(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }
