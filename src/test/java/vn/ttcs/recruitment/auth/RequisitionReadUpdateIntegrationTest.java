@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.requisition.RequisitionStatus;
 
 import javax.sql.DataSource;
 import java.net.URI;
@@ -226,6 +227,31 @@ class RequisitionReadUpdateIntegrationTest {
         assertExactFields(expect(request("GET", BASE + "/" + noDeadlineId, null, token), 200));
     }
 
+    // Task 297: overdue (task 298) only while the requisition is still being staffed. The status is set with SQL: V19
+    // allows every status and the table has no trigger. This test cannot read RequisitionListItemView.OVERDUE_STATUSES
+    // (package-private), so it carries its own switch, which a new status also has to pass.
+    @ParameterizedTest
+    @EnumSource(RequisitionStatus.class)
+    void onlyRequisitionsStillBeingStaffedBecomeOverdue(RequisitionStatus status) throws Exception {
+        Map<String, Object> due = payload(positionId, itId);
+        due.put("neededBy", "2026-10-08");
+        UUID id = id(createDraft(due, headToken));
+        jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", status.name(), id);
+        boolean expected = switch (status) {
+            case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED -> true;
+            case REJECTED -> false;
+        };
+
+        clock.set(Instant.parse("2026-10-08T17:30:00Z")); // 00:30 in Vietnam the day after the needed-by date.
+        JsonNode item = expect(request("GET", BASE, null, token("hr@example.test")), 200).path("items").path(0);
+        assertThat(id(item)).isEqualTo(id);
+        assertThat(item.path("status").asText()).isEqualTo(status.name());
+        assertThat(item.path("daysOpen").asLong()).isEqualTo(2);
+        assertThat(item.path("daysUntilNeededBy").asLong()).isEqualTo(-1);
+        assertThat(item.path("overdue").asBoolean()).isEqualTo(expected);
+        assertListItemFields(item);
+    }
+
     @Test
     void scopedCallersSeeOnlyRequisitionsOfTheDepartmentsTheyManageIncludingSubDepartments() throws Exception {
         // All four drafts are created by HR, so the result cannot come from "who created it".
@@ -299,10 +325,15 @@ class RequisitionReadUpdateIntegrationTest {
         assertThat(ids(expect(request("GET", BASE + "?status=DRAFT", null, hrToken), 200))).containsExactly(draft);
         // An empty status is the same as leaving the filter out.
         assertThat(ids(expect(request("GET", BASE + "?status=", null, hrToken), 200))).containsExactly(draft);
+        // Task 297: several statuses at once (RequisitionListFilterIntegrationTest covers the filters in full).
+        assertThat(ids(expect(request("GET", BASE + "?status=DRAFT,APPROVED", null, hrToken), 200)))
+                .containsExactly(draft);
         assertThat(expect(request("GET", BASE + "?size=100", null, hrToken), 200).path("size").asInt()).isEqualTo(100);
 
         // Status codes are case-sensitive, and only statuses that exist are accepted.
-        for (String query : List.of("status=draft", "status=SUBMITTED", "page=abc", "size=1.5", "page=2147483648")) {
+        // Task 297: a department or recruiter that is not a UUID, or a date that is not yyyy-MM-dd, is the same 400.
+        for (String query : List.of("status=draft", "status=SUBMITTED", "page=abc", "size=1.5", "page=2147483648",
+                "departmentId=abc", "recruiterId=x", "startDate=2026-13-01")) {
             var response = request("GET", BASE + "?" + query, null, hrToken);
             JsonNode error = expect(response, 400);
             assertThat(error.path("code").asText()).as(query).isEqualTo("VALIDATION_ERROR");

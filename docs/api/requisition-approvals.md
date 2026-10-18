@@ -227,7 +227,7 @@ Mỗi cấp của một lượt chỉ có một quyết định (`requisition_wo
 
 ## Hộp chờ duyệt
 
-`GET /requisitions/approval-inbox?page=0&size=20` (task 267) trả các yêu cầu đang chờ một cấp mà người gọi **được quyết định lúc này** (cùng quy tắc với quyết định), chờ lâu nhất trước, cùng dạng trang với `GET /requisitions`: `{items, page, size, totalElements, totalPages}`. `page` từ 0, `size` từ 1 đến 100 và `page × size` không quá 2.147.483.647, sai thì 400 `VALIDATION_ERROR`. Người không có quyền ghi yêu cầu tuyển dụng nhận trang rỗng. Quyền ở matcher: `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED`. Thông báo cho người duyệt thuộc Sprint 8, nên hộp chờ duyệt là cách người duyệt tìm việc.
+`GET /requisitions/approval-inbox?page=0&size=20` (task 267) trả các yêu cầu đang chờ một cấp mà người gọi **được quyết định lúc này** (cùng quy tắc với quyết định), chờ lâu nhất trước, cùng dạng trang với `GET /requisitions`: `{items, page, size, totalElements, totalPages}`; mỗi item là 15 trường của yêu cầu, không có `daysOpen`, `daysUntilNeededBy`, `overdue` của danh sách (task 298). `page` từ 0, `size` từ 1 đến 100 và `page × size` không quá 2.147.483.647, sai thì 400 `VALIDATION_ERROR`. Người không có quyền ghi yêu cầu tuyển dụng nhận trang rỗng. Quyền ở matcher: `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED`. Thông báo cho người duyệt thuộc Sprint 8, nên hộp chờ duyệt là cách người duyệt tìm việc.
 
 ## Lịch sử không sửa, không xóa
 
