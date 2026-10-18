@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -21,6 +22,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -85,6 +87,8 @@ class JobPostingPublicViewIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingExpiry expiry;
+    @Autowired private List<ScheduledTaskHolder> schedules;
 
     private JobPostingTestSupport postings;
     private ApprovalTestSupport api;
@@ -289,6 +293,18 @@ class JobPostingPublicViewIntegrationTest {
         assertThat(fieldNames(item(list, hidden))).containsExactlyElementsOf(LIST_ITEM_KEYS);
     }
 
+    // Task 356: the daily job posting expiry never starts by itself in a test, which moves the clock as it needs: the
+    // test settings (src/test/resources/application-default.properties) turn its cron off, so no task is scheduled
+    // although scheduling is on. Tests run the expiry themselves (JobPostingExpiryIntegrationTest).
+    @Test
+    void theDailyExpiryIsNeverScheduledInTests() {
+        assertThat(environment.getProperty("app.job-posting-expiry.cron")).isEqualTo("-");
+        assertThat(schedules).isNotEmpty();
+        for (ScheduledTaskHolder holder : schedules) {
+            assertThat(holder.getScheduledTasks()).isEmpty();
+        }
+    }
+
     // S3-10 AC1: only a published posting reaches candidates; a draft, a posting under review or an approved one that
     // is not published yet answers exactly like an id that does not exist. Task 292: so does a closed one.
     @ParameterizedTest
@@ -301,17 +317,20 @@ class JobPostingPublicViewIntegrationTest {
         var detail = postings.publicDetail(id);
         JsonNode list = ok(postings.publicList(0, 20));
 
-        boolean shown = switch (status) {
+        // Whether the detail opens with applications open (listed too) or with the closed notice; null: 404.
+        Boolean applicationOpen = switch (status) {
             case PUBLISHED -> true;
+            // Task 356: a posting the daily task expired keeps its detail with the closed notice, outside the list.
+            case EXPIRED -> false;
             // Task 355: a posting taken down is never public again.
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> false;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> null;
         };
-        if (shown) {
+        if (applicationOpen != null) {
             assertThat(ok(detail).path("id").asText()).isEqualTo(id.toString());
             // Task 320: before its deadline a published posting takes applications.
-            JobPostingTestSupport.assertApplicationState(ok(detail), true);
-            assertThat(ids(list)).containsExactly(id);
-            assertThat(list.path("totalElements").asLong()).isEqualTo(1);
+            JobPostingTestSupport.assertApplicationState(ok(detail), applicationOpen);
+            assertThat(ids(list)).isEqualTo(applicationOpen ? List.of(id) : List.of());
+            assertThat(list.path("totalElements").asLong()).isEqualTo(applicationOpen ? 1 : 0);
         } else {
             assertThat(postings.error(detail, 404, "JOB_POSTING_NOT_FOUND")).isEqualTo(unknown);
             assertThat(ids(list)).isEmpty();
@@ -669,7 +688,8 @@ class JobPostingPublicViewIntegrationTest {
     // A posting brought to the status through the API: the recruiter writes and sends it (1, 2), HR approves it or
     // asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills its
     // requisition (task 290), which closes it (5). Task 355: a posting taken down is published, then the recruiter
-    // takes it down (5).
+    // takes it down (5). Task 356: an expired posting is published, then the daily task expires it (5) at 00:00 after
+    // its deadline; the clock then goes back, and the posting stays EXPIRED.
     private UUID postingIn(JobPostingStatus status) throws Exception {
         UUID id = draft(false);
         if (status != JobPostingStatus.DRAFT) {
@@ -679,15 +699,22 @@ class JobPostingPublicViewIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
-                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED) {
+                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED
+                || status == JobPostingStatus.EXPIRED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
         if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED
-                || status == JobPostingStatus.UNPUBLISHED) {
+                || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", recruiterToken));
+        }
+        if (status == JobPostingStatus.EXPIRED) {
+            Instant now = clock.instant();
+            clock.set(Instant.parse(JobPostingTestSupport.CLOSES_AT));
+            assertThat(expiry.expire(id)).isTrue();
+            clock.set(now);
         }
         if (status == JobPostingStatus.CLOSED) {
             ok(api.request("POST", "/api/v1/requisitions/" + postings.row(id).get("requisition_id")

@@ -22,7 +22,8 @@ import java.time.LocalDate;
 enum JobPostingApplicability {
     // Listed, and candidates may still apply: the deadline day itself is open until 23:59:59 in the business zone.
     OPEN,
-    // The detail still shows the posting, with a notice instead of the apply form; the list no longer has it.
+    // The detail still shows the posting, with a notice instead of the apply form; the list no longer has it. Task
+    // 356: a published posting past its deadline, before and after the daily task moved it to the status EXPIRED.
     EXPIRED,
     // Drafts, postings under review or approved but not published, closed ones, those taken down (task 355), and every
     // posting whose requisition is not in JobPostingService.SOURCE_STATUSES (a paused one, for example): 404.
@@ -40,7 +41,7 @@ enum JobPostingApplicability {
     }
 
     // Task 304/308 meaning of the deadline: the last day candidates may apply, inclusive. It has passed from 00:00 of
-    // the next day in the business zone.
+    // the next day in the business zone. Task 356: the daily task (JobPostingExpiry) expires a posting by this rule.
     static boolean deadlinePassed(LocalDate deadline, LocalDate today) {
         return deadline.isBefore(today);
     }

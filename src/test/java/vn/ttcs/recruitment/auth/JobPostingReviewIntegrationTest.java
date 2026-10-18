@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -73,6 +74,7 @@ class JobPostingReviewIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingExpiry expiry;
 
     private JobPostingTestSupport postings;
     private ApprovalTestSupport api;
@@ -203,8 +205,9 @@ class JobPostingReviewIntegrationTest {
 
         String refusal = switch (status) {
             case APPROVED -> null;
-            // Task 355: a posting is published once, so one taken down is told it was published.
-            case PUBLISHED, UNPUBLISHED -> "JOB_POSTING_ALREADY_PUBLISHED";
+            // Task 355: a posting is published once, so one taken down is told it was published. Task 356: so is an
+            // expired one.
+            case PUBLISHED, UNPUBLISHED, EXPIRED -> "JOB_POSTING_ALREADY_PUBLISHED";
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED -> "JOB_POSTING_NOT_APPROVED";
             // Task 292: a posting closed with its requisition is told so before anything else.
             case CLOSED -> "JOB_POSTING_CLOSED";
@@ -216,7 +219,7 @@ class JobPostingReviewIntegrationTest {
         } else {
             JsonNode error = postings.error(response, 409, refusal);
             assertThat(error.path("message").asText()).isEqualTo(switch (status) {
-                case PUBLISHED, UNPUBLISHED -> "Tin tuyển dụng đã được xuất bản.";
+                case PUBLISHED, UNPUBLISHED, EXPIRED -> "Tin tuyển dụng đã được xuất bản.";
                 case CLOSED -> CLOSED_WITH_REQUISITION;
                 default -> NOT_APPROVED;
             });
@@ -402,7 +405,7 @@ class JobPostingReviewIntegrationTest {
     @Test
     void postingsUnderReviewOrPublishedAreFrozen() throws Exception {
         for (JobPostingStatus status : List.of(JobPostingStatus.PENDING_APPROVAL, JobPostingStatus.APPROVED,
-                JobPostingStatus.PUBLISHED, JobPostingStatus.UNPUBLISHED)) {
+                JobPostingStatus.PUBLISHED, JobPostingStatus.UNPUBLISHED, JobPostingStatus.EXPIRED)) {
             UUID id = postingIn(status);
             JsonNode view = ok(postings.get(id, adminToken));
             assertThat(view.path("actions").path("canEdit").asBoolean()).as(status.name()).isFalse();
@@ -440,9 +443,11 @@ class JobPostingReviewIntegrationTest {
                 new Refused(JobPostingStatus.DRAFT, "REQUEST_REVISION"),
                 new Refused(JobPostingStatus.REVISION_REQUESTED, "REQUEST_REVISION"),
                 new Refused(JobPostingStatus.PUBLISHED, "REQUEST_REVISION"),
-                // Task 355: a posting taken down is reviewed no more.
+                // Task 355: a posting taken down is reviewed no more. Task 356: nor an expired one.
                 new Refused(JobPostingStatus.UNPUBLISHED, "APPROVE"),
-                new Refused(JobPostingStatus.UNPUBLISHED, "REQUEST_REVISION"))) {
+                new Refused(JobPostingStatus.UNPUBLISHED, "REQUEST_REVISION"),
+                new Refused(JobPostingStatus.EXPIRED, "APPROVE"),
+                new Refused(JobPostingStatus.EXPIRED, "REQUEST_REVISION"))) {
             UUID id = byStatus.get(refused.status());
             JsonNode error = postings.error(postings.decide(id, refused.action(), "Nhận xét", postings.revision(id),
                     hrToken), 409, "JOB_POSTING_NOT_UNDER_REVIEW");
@@ -792,7 +797,8 @@ class JobPostingReviewIntegrationTest {
     // A complete posting brought to the status through the API: ADMIN writes and sends it (revisions 1, 2), HR
     // approves it or asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills
     // its requisition (task 290), which closes it (5). Task 355: a posting taken down is published, then HR takes it
-    // down (5).
+    // down (5). Task 356: an expired posting is published, then the daily task expires it (5) at 00:00 after its
+    // deadline; the clock then goes back, and the posting stays EXPIRED.
     private UUID postingIn(JobPostingStatus status) throws Exception {
         UUID requisition = requisition();
         UUID id = id(postings.created(postings.body(requisition, workLocation, employmentType), adminToken));
@@ -803,11 +809,12 @@ class JobPostingReviewIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
-                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED) {
+                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED
+                || status == JobPostingStatus.EXPIRED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
         if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED
-                || status == JobPostingStatus.UNPUBLISHED) {
+                || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (status == JobPostingStatus.CLOSED) {
@@ -816,6 +823,12 @@ class JobPostingReviewIntegrationTest {
         }
         if (status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", hrToken));
+        }
+        if (status == JobPostingStatus.EXPIRED) {
+            Instant now = clock.instant();
+            clock.set(Instant.parse(JobPostingTestSupport.CLOSES_AT));
+            assertThat(expiry.expire(id)).isTrue();
+            clock.set(now);
         }
         assertThat(postings.row(id).get("status")).isEqualTo(status.name());
         return id;
