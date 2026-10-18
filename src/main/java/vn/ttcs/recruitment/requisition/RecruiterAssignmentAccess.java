@@ -14,10 +14,10 @@ import java.util.UUID;
  * (V17) never counts: after a handover the new recruiter has the requisition and the old one does not.
  * <p>
  * Used by requisition reads (RequisitionService: GET /requisitions, GET /requisitions/{id} and the reads built on it),
- * by job postings (JOB_POSTINGS_*_SCOPED, task 303) and, once it exists, by the candidate module: a recruiter
- * (CANDIDATES_*_SCOPED) sees the candidates and applications of the requisitions this class says they are assigned to,
- * filtered in SQL with ASSIGNED_REQUISITION_IDS for lists and checked with isAssigned for one record; a write about a
- * candidate checks isAssigned while it holds the requisition row lock, which every change of the team takes first.
+ * by job postings (JOB_POSTINGS_*_SCOPED, task 303) and by the candidate module (CandidateAccess.READABLE, task 363):
+ * a recruiter (CANDIDATES_*_SCOPED) sees the candidates and applications of the requisitions this class says they are
+ * assigned to, filtered in SQL with ASSIGNED_REQUISITION_IDS for lists and single records; a write about a candidate
+ * checks isAssigned while it holds the requisition row lock, which every change of the team takes first.
  * <p>
  * It never locks and has no isolation of its own: it reads in the caller's transaction (MANDATORY), so a list sees the
  * team of its own snapshot and a write sees the team as it is under its requisition lock. Reads see a handover from

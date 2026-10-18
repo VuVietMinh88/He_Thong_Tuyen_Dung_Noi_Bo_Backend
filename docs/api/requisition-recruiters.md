@@ -6,7 +6,7 @@ Tiêu chí của story:
 
 - "Phân công một recruiter chính và nhiều recruiter hỗ trợ": đã có (283, 284).
 - "Có ghi lịch sử chuyển giao khi đổi người phụ trách": đã có (286, mục "Lịch sử phân công").
-- "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao": phần yêu cầu tuyển dụng đã có (285: recruiter đang được phân công xem được yêu cầu, mất quyền ngay khi bàn giao, mục "Recruiter xem yêu cầu được phân công"); phần hồ sơ ứng viên chờ module ứng viên, sẽ dùng cùng quy tắc `RecruiterAssignmentAccess`. Tiêu chí này vì vậy chưa đạt đủ.
+- "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao": phần yêu cầu tuyển dụng đã có (285: recruiter đang được phân công xem được yêu cầu, mất quyền ngay khi bàn giao, mục "Recruiter xem yêu cầu được phân công"); phần hồ sơ ứng viên: quy tắc đọc đã có (363, dùng cùng `RecruiterAssignmentAccess`), API đọc chờ task 361 và 362. Tiêu chí này vì vậy chưa đạt đủ.
 
 ## Quyền
 
@@ -133,7 +133,7 @@ Người có `REQUISITIONS_READ_SCOPED` đang là recruiter chính hoặc hỗ t
 - Quyền xem theo mã quyền: người được phân công mất vai trò RECRUITER nhưng còn `REQUISITIONS_READ_SCOPED` từ vai trò khác vẫn xem được; không còn quyền đọc nào thì 403, dù dòng phân công vẫn còn.
 - Quy tắc nằm ở `RecruiterAssignmentAccess` (gói `requisition`): yêu cầu được giao cho một người là yêu cầu có dòng của người đó trong `requisition_recruiters`, vai trò chính hay hỗ trợ đều được. Danh sách yêu cầu và tin tuyển dụng dùng truy vấn con `ASSIGNED_REQUISITION_IDS` trong câu SQL; một yêu cầu dùng `isAssigned`, được viết bằng chính truy vấn con đó, nên danh sách và chi tiết không thể trả khác nhau. Nó đọc trong transaction của người gọi (bắt buộc có transaction) và không khóa gì.
 
-**Dành cho module ứng viên.** Khi có module ứng viên, recruiter (`CANDIDATES_*_SCOPED`) chỉ xem ứng viên và hồ sơ ứng tuyển của yêu cầu mình đang được phân công, và phải dùng `RecruiterAssignmentAccess`: danh sách lọc bằng `ASSIGNED_REQUISITION_IDS` trong câu SQL, một bản ghi kiểm bằng `isAssigned`, thao tác ghi về một ứng viên kiểm `isAssigned` khi đang giữ khóa dòng yêu cầu (mọi lần đổi nhóm đều khóa dòng đó trước). Còn chờ BA/PO: "được phân công" theo yêu cầu tuyển dụng hay theo chức danh (backend: theo yêu cầu, V16), và ứng viên nộp vào nhiều yêu cầu thì recruiter thấy cả hồ sơ hay chỉ đơn ứng tuyển vào yêu cầu của mình (câu hỏi 19).
+**Dành cho module ứng viên.** Module ứng viên có từ task 363 (quy tắc đọc; API hồ sơ là task 361, CV là task 362). Recruiter (`CANDIDATES_*_SCOPED`) chỉ xem ứng viên và hồ sơ ứng tuyển của yêu cầu mình đang được phân công, qua đoạn SQL `CandidateAccess.READABLE`, dựng trên `ASSIGNED_REQUISITION_IDS` của lớp này và `DepartmentRepository.MANAGED_DEPARTMENT_IDS` (trưởng phòng ban của yêu cầu cũng xem được): danh sách lọc bằng `... AND CandidateAccess.READABLE` trong câu SQL, một bản ghi kiểm bằng `CandidateAccess.findApplication` (cùng đoạn SQL, không dùng `isAssigned`); thao tác ghi về một ứng viên kiểm `isAssigned` khi đang giữ khóa dòng yêu cầu (mọi lần đổi nhóm đều khóa dòng đó trước). Xem [ai được xem hồ sơ ứng viên](candidate-profiles.md#ai-được-xem-task-363). Còn chờ BA/PO: "được phân công" theo yêu cầu tuyển dụng hay theo chức danh (backend: theo yêu cầu, V16), và ứng viên nộp vào nhiều yêu cầu thì recruiter thấy cả hồ sơ hay chỉ đơn ứng tuyển vào yêu cầu của mình (câu hỏi 19).
 
 ## Ai được phân công
 

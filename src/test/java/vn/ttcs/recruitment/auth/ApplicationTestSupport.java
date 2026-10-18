@@ -67,8 +67,10 @@ final class ApplicationTestSupport {
     // Every application table, children first, then both quotas. Call it before JobPostingTestSupport.reset() or
     // ApprovalTestSupport.reset(): they delete postings, requisitions and accounts but not applications, and the
     // applications' RESTRICT keys would make them fail. The candidate profiles (task 360) go first: a profile with a
-    // link cannot be deleted, and nothing else deletes a profile.
+    // link cannot be deleted, and nothing else deletes a profile. The access log (task 363) has no keys but rejects
+    // DELETE (append-only, V33); TRUNCATE fires no row trigger.
     void reset() {
+        jdbc.execute("TRUNCATE candidate_access_events");
         jdbc.update("DELETE FROM candidate_applications");
         jdbc.update("DELETE FROM candidates");
         jdbc.update("DELETE FROM application_email_outbox");

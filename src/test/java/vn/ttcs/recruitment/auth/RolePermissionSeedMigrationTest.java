@@ -91,11 +91,13 @@ class RolePermissionSeedMigrationTest {
                     "INTERVIEWS_READ_SCOPED",
                     "EVALUATIONS_READ_SCOPED", "EVALUATIONS_WRITE_SCOPED",
                     "NOTIFICATIONS_READ_SCOPED"),
+            // Task 363 (V33_1): CANDIDATES_READ_SCOPED instead of the workbook's R (CANDIDATES_READ_ALL), until BA/PO
+            // answer questions 3 and 25(4).
             "APPROVER", internalRole(
                     "ORGANIZATION_READ_ALL",
                     "REQUISITIONS_READ_SCOPED", "REQUISITIONS_WRITE_SCOPED",
                     "JOB_POSTINGS_READ_ALL",
-                    "CANDIDATES_READ_ALL",
+                    "CANDIDATES_READ_SCOPED",
                     "EVALUATIONS_READ_ALL",
                     "OFFERS_READ_SCOPED", "OFFERS_WRITE_SCOPED",
                     "REPORTS_READ_ALL"),
@@ -191,6 +193,23 @@ class RolePermissionSeedMigrationTest {
                 .containsExactlyInAnyOrder(
                         tuple("HR_MANAGER", "HEADCOUNT_PLANS_READ_ALL"),
                         tuple("HR_MANAGER", "HEADCOUNT_PLANS_WRITE_ALL"));
+    }
+
+    @Test
+    void onlyTheHrManagerAndAdminReadEveryCandidate() {
+        // Task 363 (V33_1): the approver reads candidates in its own scope only, like every other internal role.
+        // HR_MANAGER and ADMIN keep reading every candidate until BA/PO answer questions 6 and 25(4).
+        assertThat(jdbc.queryForList("SELECT role_code, permission_code FROM role_permissions"
+                        + " WHERE permission_code LIKE 'CANDIDATES!_READ!_%' ESCAPE '!'"))
+                .extracting("role_code", "permission_code")
+                .containsExactlyInAnyOrder(
+                        tuple("ADMIN", "CANDIDATES_READ_ALL"),
+                        tuple("HR_MANAGER", "CANDIDATES_READ_ALL"),
+                        tuple("RECRUITER", "CANDIDATES_READ_SCOPED"),
+                        tuple("HIRING_MANAGER", "CANDIDATES_READ_SCOPED"),
+                        tuple("INTERVIEWER", "CANDIDATES_READ_SCOPED"),
+                        tuple("APPROVER", "CANDIDATES_READ_SCOPED"),
+                        tuple("CANDIDATE", "CANDIDATES_READ_SCOPED"));
     }
 
     @Test
