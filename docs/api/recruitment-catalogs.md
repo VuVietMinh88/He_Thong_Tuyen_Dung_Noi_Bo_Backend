@@ -35,6 +35,8 @@ Loại khác (kể cả `candidate_source`, `candidate-sources`) trả **404** `
 |name|Tên hiển thị; bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 255 ký tự|
 |active|Boolean bắt buộc; false nghĩa là ngừng dùng giá trị này|
 
+Ký tự bị bỏ ở đầu/cuối `code` và `name` gồm khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060. Ký tự ở giữa được giữ; giới hạn độ dài đếm sau khi bỏ. Vì vậy `OTHER` kèm một ký tự như vậy ở cuối vẫn là mã `OTHER` và bị báo trùng mã. Giá trị không có ký tự nhìn thấy được bị coi là trống: HTTP 400 `VALIDATION_ERROR`.
+
 Body không có `type` và `sortOrder`:
 
 - Loại danh mục lấy từ URL. PUT không chuyển được giá trị sang loại khác; gọi PUT với `{type}` khác loại của giá trị trả 404 `RECRUITMENT_CATALOG_ITEM_NOT_FOUND`.
