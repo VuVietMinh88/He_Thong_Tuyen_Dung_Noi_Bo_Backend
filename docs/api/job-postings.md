@@ -1,11 +1,11 @@
 # API tin tuyển dụng
 
-Phạm vi TKNHTTDNB1-302 (lưu bản nháp và thông tin công khai), TKNHTTDNB1-303 (API tạo, sửa bản nháp), story TKNHTTDNB1-38 (S3-09). URL dùng tiền tố `/api/v1`, header `Authorization: Bearer …`; mọi response JSON thành công và các lỗi `JOB_POSTING_*` dùng `Cache-Control: no-store`.
+Phạm vi TKNHTTDNB1-302 (lưu bản nháp và thông tin công khai), TKNHTTDNB1-303 (API tạo, sửa bản nháp), TKNHTTDNB1-304 (kiểm tra dữ liệu trước khi lưu), story TKNHTTDNB1-38 (S3-09). URL dùng tiền tố `/api/v1`, header `Authorization: Bearer …`; mọi response JSON thành công và các lỗi `JOB_POSTING_*` dùng `Cache-Control: no-store`.
 
 Tiêu chí của story S3-09:
 
-- "Nội dung mô tả công việc được kế thừa từ yêu cầu, sửa lại được cho phù hợp ngôn ngữ tuyển dụng": đã có (303). Tin chép mô tả công việc và yêu cầu ứng viên của yêu cầu một lần khi tạo, rồi chỉ sửa trên tin; yêu cầu không bao giờ bị ghi.
-- "Khai báo địa điểm, hình thức làm việc, hạn nhận hồ sơ, có hiển thị mức lương hay không": đã có (303). Task 304 thêm kiểm tra hạn nộp không ở quá khứ, giá trị danh mục còn dùng và văn bản thuần.
+- "Nội dung mô tả công việc được kế thừa từ yêu cầu, sửa lại được cho phù hợp ngôn ngữ tuyển dụng": đã có (303, 304). Tin chép mô tả công việc và yêu cầu ứng viên của yêu cầu một lần khi tạo, rồi chỉ sửa trên tin; yêu cầu không bao giờ bị ghi (task 304 kiểm bằng test, mục "Sửa JD của tin không đổi JD của yêu cầu").
+- "Khai báo địa điểm, hình thức làm việc, hạn nhận hồ sơ, có hiển thị mức lương hay không": đã có (303, 304). Task 304 kiểm hạn nộp không ở quá khứ, giá trị danh mục còn dùng và văn bản thuần (mục "Kiểm tra dữ liệu trước khi lưu").
 - "Chỉ yêu cầu ở trạng thái Đã duyệt mới tạo được tin": đã có (303), mục "Tạo tin từ yêu cầu đã duyệt".
 
 Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308–310) chưa có: hiện mọi tin đều là bản nháp (`DRAFT`).
@@ -89,19 +89,19 @@ UUID trong ví dụ chỉ minh họa. Body tối thiểu là `{"requisitionId": 
 | Trường | Quy tắc |
 |---|---|
 |requisitionId|Bắt buộc ("Vui lòng chọn yêu cầu tuyển dụng đã duyệt."). UUID của một yêu cầu tuyển dụng; không có yêu cầu đó thì 400 `INVALID_JOB_POSTING_REQUISITION` với `fieldErrors.requisitionId` "Yêu cầu tuyển dụng không tồn tại."|
-|title|Không bắt buộc. Tối đa 255 ký tự, không chứa ký tự NUL. Không gửi, `null` hoặc chỉ có khoảng trắng thì lấy **tên chức danh** của yêu cầu|
-|jobDescription|Không bắt buộc. Tối đa 10.000 ký tự, không chứa ký tự NUL. Không gửi, `null` hoặc chỉ có khoảng trắng thì **chép** mô tả công việc của yêu cầu|
+|title|Không bắt buộc. Tối đa 255 ký tự, văn bản thuần **trên một dòng** (mục "Chỉ nhận văn bản thuần"); khoảng trắng ở hai đầu bị bỏ. Không gửi, `null` hoặc chỉ có khoảng trắng thì lấy **tên chức danh** của yêu cầu|
+|jobDescription|Không bắt buộc. Tối đa 10.000 ký tự, văn bản thuần, được xuống dòng và dùng tab. Không gửi, `null` hoặc chỉ có khoảng trắng thì **chép** mô tả công việc của yêu cầu|
 |candidateRequirements|Như `jobDescription`, chép yêu cầu ứng viên của yêu cầu|
-|benefits|Không bắt buộc. Tối đa 10.000 ký tự, không chứa ký tự NUL. Không bao giờ chép từ yêu cầu; trống thì lưu `null`|
-|workLocationId|Không bắt buộc. UUID của một giá trị danh mục `WORK_LOCATION` (địa điểm làm việc, [API danh mục tuyển dụng](recruitment-catalogs.md)); không có hoặc thuộc danh mục khác thì 400 `INVALID_JOB_POSTING_WORK_LOCATION`|
-|employmentTypeId|Không bắt buộc. UUID của một giá trị danh mục `EMPLOYMENT_TYPE` (hình thức làm việc); không có hoặc thuộc danh mục khác thì 400 `INVALID_JOB_POSTING_EMPLOYMENT_TYPE`|
-|applicationDeadline|Không bắt buộc. Hạn nộp hồ sơ dạng `yyyy-MM-dd`, tính cả ngày hạn; ngày không tồn tại (`2026-02-30`) là `INVALID_JSON`. Task 304 thêm quy tắc không trước ngày hôm nay|
+|benefits|Không bắt buộc. Tối đa 10.000 ký tự, văn bản thuần như `jobDescription`. Không bao giờ chép từ yêu cầu; trống thì lưu `null`|
+|workLocationId|Không bắt buộc. UUID của một giá trị danh mục `WORK_LOCATION` (địa điểm làm việc, [API danh mục tuyển dụng](recruitment-catalogs.md)); không có hoặc thuộc danh mục khác thì 400 `INVALID_JOB_POSTING_WORK_LOCATION`; đã ngừng sử dụng (`active = false`) thì 400 `JOB_POSTING_WORK_LOCATION_INACTIVE`|
+|employmentTypeId|Không bắt buộc. UUID của một giá trị danh mục `EMPLOYMENT_TYPE` (hình thức làm việc); không có hoặc thuộc danh mục khác thì 400 `INVALID_JOB_POSTING_EMPLOYMENT_TYPE`; đã ngừng sử dụng thì 400 `JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE`|
+|applicationDeadline|Không bắt buộc. Hạn nộp hồ sơ dạng `yyyy-MM-dd`, tính cả ngày hạn; ngày không tồn tại (`2026-02-30`) là `INVALID_JSON`. Không được trước hôm nay theo giờ Việt Nam: 400 `JOB_POSTING_DEADLINE_IN_PAST` (mục "Hạn nộp hồ sơ")|
 |showSalary|Không bắt buộc. `true` thì ứng viên sẽ thấy lương đề xuất đã duyệt của yêu cầu; không gửi hoặc `null` là `false`|
 
 Kế thừa nội dung:
 
-- Tin giữ **bản sao riêng** của tiêu đề, mô tả công việc và yêu cầu ứng viên. Backend đọc yêu cầu bằng một truy vấn JDBC chỉ lấy các cột cần chép và không bao giờ ghi vào yêu cầu, nên sửa tin sau này không đổi yêu cầu đã duyệt. Văn bản được chép đúng từng ký tự, kể cả xuống dòng và thụt đầu dòng.
-- Văn bản có nội dung trong body được giữ nguyên như người dùng nhập. Gửi văn bản thì thay phần kế thừa tương ứng, nên frontend có thể tạo tin với nội dung đã sửa ngay lần lưu đầu.
+- Tin giữ **bản sao riêng** của tiêu đề, mô tả công việc và yêu cầu ứng viên. Backend đọc yêu cầu bằng một truy vấn JDBC chỉ lấy các cột cần chép và không bao giờ ghi vào yêu cầu, nên sửa tin sau này không đổi yêu cầu đã duyệt. Văn bản được chép giữ nguyên từng ký tự, kể cả thụt đầu dòng và dòng trống; từ task 304, xuống dòng kiểu Windows (`\r\n`) hoặc Mac cũ (`\r`) được đổi thành `\n`. Phần chép sang không bị kiểm văn bản thuần (mục "Nội dung kế thừa có thẻ HTML").
+- Văn bản có nội dung trong body được lưu như người dùng nhập, sau khi tiêu đề bỏ khoảng trắng ở hai đầu và xuống dòng đổi thành `\n` (task 304). Gửi văn bản thì thay phần kế thừa tương ứng, nên frontend có thể tạo tin với nội dung đã sửa ngay lần lưu đầu.
 - Chức danh, phòng ban, số lượng và lương **không** chép sang tin: chúng được đọc từ yêu cầu ở mỗi lần xem, vì yêu cầu đã duyệt không sửa được nữa.
 - Bản nháp lưu được khi chưa có địa điểm, hình thức làm việc, hạn nộp. Gửi duyệt (task 308) mới bắt buộc ba chi tiết này.
 
@@ -110,14 +110,15 @@ Trường ngoài hợp đồng, kể cả `id`, `status`, `revision`, `createdBy
 Thứ tự kiểm tra:
 
 1. Quyền ở `SecurityConfiguration` (401 nếu chưa đăng nhập, 403 nếu thiếu quyền ghi tin).
-2. Body: `INVALID_JSON`, rồi từng trường (`VALIDATION_ERROR` với mọi trường sai trong `fieldErrors`): thiếu `requisitionId`, văn bản quá dài hoặc chứa ký tự NUL.
+2. Body: `INVALID_JSON`, rồi từng trường (`VALIDATION_ERROR` với mọi trường sai trong `fieldErrors`): thiếu `requisitionId`, văn bản quá dài hoặc không phải văn bản thuần.
 3. Khóa tài khoản người gọi rồi phiên; kiểm hạn token, phiên, quyền ghi **và** quyền đọc tin (401 `SESSION_INVALID` hoặc 403), trước mọi tra cứu.
 4. Khóa dòng yêu cầu tuyển dụng (`FOR NO KEY UPDATE`) rồi kiểm lại người gọi; không có yêu cầu thì 400 `INVALID_JOB_POSTING_REQUISITION` (lỗi form của `requisitionId`, như mã không tồn tại là 404 trước 403). Câu khóa chỉ đọc bảng yêu cầu, tên chức danh (tiêu đề mặc định) đọc bằng truy vấn con trên dòng đã khóa: nếu trong lúc chờ khóa có người lưu yêu cầu sang chức danh khác, yêu cầu vẫn được tìm thấy với chức danh mới và trả lỗi theo trạng thái (bước 6), không thành "không tồn tại".
 5. Phạm vi: người `SCOPED` không được phân công yêu cầu này thì 403 `FORBIDDEN`.
 6. Yêu cầu không ở trạng thái `APPROVED`: 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
 7. Yêu cầu đã có tin: 409 `JOB_POSTING_ALREADY_EXISTS`.
-8. Địa điểm rồi hình thức làm việc, nếu có gửi, phải là giá trị của đúng danh mục: 400 `INVALID_JOB_POSTING_WORK_LOCATION`, rồi `INVALID_JOB_POSTING_EMPLOYMENT_TYPE`. Giá trị được đọc và khóa `FOR SHARE`.
-9. Kiểm lại người gọi và phạm vi lần nữa (bước 8 có thể phải chờ HR đang sửa danh mục), rồi lưu. Người gọi trở thành người soạn đầu tiên của tin.
+8. Hạn nộp hồ sơ, nếu có gửi, không trước hôm nay theo giờ Việt Nam: 400 `JOB_POSTING_DEADLINE_IN_PAST` (task 304).
+9. Địa điểm làm việc, nếu có gửi, phải là giá trị của đúng danh mục (400 `INVALID_JOB_POSTING_WORK_LOCATION`) và còn dùng (400 `JOB_POSTING_WORK_LOCATION_INACTIVE`, task 304); rồi hình thức làm việc như vậy (`INVALID_JOB_POSTING_EMPLOYMENT_TYPE`, `JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE`). Giá trị được đọc và khóa `FOR SHARE`.
+10. Kiểm lại người gọi và phạm vi lần nữa (bước 9 có thể phải chờ HR đang sửa danh mục), rồi lưu. Người gọi trở thành người soạn đầu tiên của tin.
 
 Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi nào cũng không lưu gì.
 
@@ -192,14 +193,14 @@ Tên chức danh, phòng ban, giá trị danh mục và người tạo được 
 | Trường | Quy tắc |
 |---|---|
 |expectedRevision|Bắt buộc ("Thiếu số phiên bản tin tuyển dụng đang xem."), số nguyên từ 1 ("Số phiên bản tin tuyển dụng không hợp lệ."). Là `revision` của tin mà người soạn đang xem|
-|title|Bắt buộc ("Tiêu đề tin không được để trống."), tối đa 255 ký tự, không chứa ký tự NUL|
-|jobDescription|Bắt buộc ("Mô tả công việc không được để trống."), tối đa 10.000 ký tự, không chứa ký tự NUL|
+|title|Bắt buộc ("Tiêu đề tin không được để trống."), tối đa 255 ký tự, văn bản thuần trên một dòng như khi tạo|
+|jobDescription|Bắt buộc ("Mô tả công việc không được để trống."), tối đa 10.000 ký tự, văn bản thuần như khi tạo|
 |candidateRequirements|Bắt buộc ("Yêu cầu ứng viên không được để trống."), như `jobDescription`|
 |benefits, workLocationId, employmentTypeId, applicationDeadline|Như khi tạo, không bắt buộc|
 |showSalary|Bắt buộc ("Vui lòng chọn có hiển thị mức lương hay không.")|
 
 - `PUT` **thay toàn bộ** nội dung: trường không bắt buộc mà không gửi hoặc gửi `null` bị xóa, nên giao diện phải gửi lại mọi trường đang có trên form. Nhờ vậy bản nháp vẫn lưu được trong lúc viết dở.
-- Văn bản chỉ có khoảng trắng được coi như không gửi: tiêu đề, mô tả công việc, yêu cầu ứng viên nhận lời nhắn "không được để trống", quyền lợi được lưu `null`. Không có bước kế thừa lại từ yêu cầu khi sửa.
+- Văn bản chỉ có khoảng trắng (khoảng trắng nào được tính: mục "Kiểm tra dữ liệu trước khi lưu") được coi như không gửi: tiêu đề, mô tả công việc, yêu cầu ứng viên nhận lời nhắn "không được để trống", quyền lợi được lưu `null`. Không có bước kế thừa lại từ yêu cầu khi sửa.
 - `requisitionId` không đổi được (gửi lên là `INVALID_JSON`), cùng mọi trường ngoài hợp đồng như khi tạo.
 - `expectedRevision` khác `revision` hiện tại của tin trả 409 `JOB_POSTING_CHANGED` và không lưu gì: một tab khác hoặc người khác đã lưu tin sau khi người này tải nó. Giao diện tải lại tin rồi cho người dùng lưu lại.
 - Lưu thành công thì `revision` tăng 1, `updatedAt` là thời điểm lưu; `createdById`, `createdAt` giữ nguyên.
@@ -216,10 +217,78 @@ Thứ tự kiểm tra:
 7. Tin ở trạng thái sửa được (`DRAFT`), nếu không thì 409 `JOB_POSTING_NOT_EDITABLE`.
 8. `expectedRevision` đúng `revision` hiện tại, nếu không thì 409 `JOB_POSTING_CHANGED`.
 9. Yêu cầu nguồn vẫn `APPROVED`, nếu không thì 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
-10. Địa điểm rồi hình thức làm việc như bước 8 của tạo (400).
+10. Hạn nộp, rồi địa điểm và hình thức làm việc như bước 8, 9 của tạo (400).
 11. Kiểm lại người gọi và phạm vi, rồi lưu; người gọi được ghi là người soạn của tin.
 
 Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi nào cũng không đổi dòng nào.
+
+## Kiểm tra dữ liệu trước khi lưu (task 304)
+
+Kết quả Jira: "Kiểm tra thông tin cần thiết và hạn ứng tuyển; cập nhật JD trên tin không làm sửa JD nguồn." Mọi lần lưu tin (`POST` tạo và `PUT` sửa) chạy cùng các quy tắc dưới đây trước khi ghi. Lỗi nào cũng không lưu gì, không tăng `revision` và không ghi thêm người soạn. Task 304 không thêm API, migration hay mã quyền.
+
+| Trường | Sai thế nào | HTTP / mã | Lời nhắn (`fieldErrors.<trường>`) |
+|---|---|---|---|
+|title|Thiếu hoặc chỉ có khoảng trắng (khi sửa; khi tạo thì kế thừa)|400 `VALIDATION_ERROR`|"Tiêu đề tin không được để trống."|
+|title|Quá 255 ký tự|400 `VALIDATION_ERROR`|"Tiêu đề tin tối đa 255 ký tự."|
+|title|Không phải văn bản thuần trên một dòng (thẻ HTML, xuống dòng, tab, ký tự điều khiển, chỉ có ký tự vô hình)|400 `VALIDATION_ERROR`|"Tiêu đề tin phải là văn bản thuần trên một dòng, có ký tự nhìn thấy được, không chứa thẻ HTML."|
+|jobDescription|Thiếu hoặc chỉ có khoảng trắng (khi sửa; khi tạo thì kế thừa)|400 `VALIDATION_ERROR`|"Mô tả công việc không được để trống."|
+|jobDescription|Quá 10.000 ký tự|400 `VALIDATION_ERROR`|"Mô tả công việc tối đa 10.000 ký tự."|
+|jobDescription|Không phải văn bản thuần (được xuống dòng và dùng tab)|400 `VALIDATION_ERROR`|"Mô tả công việc phải là văn bản thuần có ký tự nhìn thấy được, không chứa thẻ HTML."|
+|candidateRequirements|Như `jobDescription`|400 `VALIDATION_ERROR`|"Yêu cầu ứng viên không được để trống.", "Yêu cầu ứng viên tối đa 10.000 ký tự.", "Yêu cầu ứng viên phải là văn bản thuần có ký tự nhìn thấy được, không chứa thẻ HTML."|
+|benefits|Quá 10.000 ký tự hoặc không phải văn bản thuần (không bắt buộc)|400 `VALIDATION_ERROR`|"Quyền lợi tối đa 10.000 ký tự.", "Quyền lợi phải là văn bản thuần có ký tự nhìn thấy được, không chứa thẻ HTML."|
+|showSalary|Thiếu (khi sửa)|400 `VALIDATION_ERROR`|"Vui lòng chọn có hiển thị mức lương hay không."|
+|expectedRevision|Thiếu hoặc nhỏ hơn 1 (khi sửa)|400 `VALIDATION_ERROR`|"Thiếu số phiên bản tin tuyển dụng đang xem." hoặc "Số phiên bản tin tuyển dụng không hợp lệ."|
+|applicationDeadline|Ngày không tồn tại hoặc sai định dạng (`2026-02-30`, `30/11/2026`)|400 `INVALID_JSON`|Không có `fieldErrors`|
+|applicationDeadline|Trước hôm nay theo giờ Việt Nam|400 `JOB_POSTING_DEADLINE_IN_PAST`|"Hạn nộp hồ sơ không được trước ngày hôm nay."|
+|workLocationId|Không tồn tại hoặc thuộc danh mục khác|400 `INVALID_JOB_POSTING_WORK_LOCATION`|"Địa điểm làm việc không tồn tại."|
+|workLocationId|Đã ngừng sử dụng (`active = false`)|400 `JOB_POSTING_WORK_LOCATION_INACTIVE`|"Địa điểm làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác."|
+|employmentTypeId|Không tồn tại hoặc thuộc danh mục khác|400 `INVALID_JOB_POSTING_EMPLOYMENT_TYPE`|"Hình thức làm việc không tồn tại."|
+|employmentTypeId|Đã ngừng sử dụng|400 `JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE`|"Hình thức làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác."|
+
+`VALIDATION_ERROR` liệt kê **mọi** trường sai của body trong `fieldErrors`, với `message` chung "Vui lòng kiểm tra dữ liệu đã nhập.". Các lỗi theo nghiệp vụ (hạn nộp, danh mục) chỉ được kiểm khi body đã hợp lệ, mỗi lần chỉ trả lỗi đầu tiên theo thứ tự hạn nộp, địa điểm, hình thức làm việc, và dùng cùng một câu ở `message` và ở `fieldErrors` của trường đó:
+
+```json
+{
+  "code": "JOB_POSTING_DEADLINE_IN_PAST",
+  "message": "Hạn nộp hồ sơ không được trước ngày hôm nay.",
+  "fieldErrors": {
+    "applicationDeadline": "Hạn nộp hồ sơ không được trước ngày hôm nay."
+  }
+}
+```
+
+Trước khi kiểm, backend chuẩn hóa văn bản: tiêu đề bỏ mọi khoảng trắng ở hai đầu (kể cả khoảng trắng không ngắt `U+00A0`, tab và xuống dòng), bốn văn bản đổi xuống dòng `\r\n` và `\r` thành `\n`; thụt đầu dòng, tab và dòng trống bên trong được giữ nguyên. Văn bản chỉ còn khoảng trắng thông thường (dấu cách, tab, xuống dòng, cùng các khoảng trắng Unicode mà `String.isBlank()` của Java bỏ qua, như `U+3000`) được coi như không gửi: khi tạo thì kế thừa từ yêu cầu (quyền lợi lưu `null`), khi sửa chỉ nhận lời nhắn "không được để trống", không kèm lời nhắn văn bản thuần. Riêng `jobDescription`, `candidateRequirements` và `benefits` chỉ gồm khoảng trắng không ngắt (`U+00A0`, `U+2007`, `U+202F`) hoặc ký tự độ rộng 0 (`U+200B`) **không** được coi là trống: cả khi tạo lẫn khi sửa, chúng nhận lời nhắn văn bản thuần (không có ký tự nhìn thấy được), không được kế thừa và không được lưu `null`. Tiêu đề chỉ có khoảng trắng không ngắt thì vẫn coi như không gửi, vì bước trên đã bỏ chúng; tiêu đề chỉ có `U+200B` nhận lời nhắn văn bản thuần. Độ dài được đếm sau bước này, theo ký tự chứ không theo byte: tiêu đề 255 chữ "Đ" vẫn hợp lệ.
+
+Người không có quyền ghi tin (ví dụ HIRING_MANAGER) nhận 403 trước mọi kiểm tra body. Recruiter qua được matcher (`JOB_POSTINGS_WRITE_SCOPED`) và body được kiểm (`@Valid`) trước khi service xét phạm vi, nên recruiter ngoài nhóm gửi body sai vẫn nhận 400 của body, giống [API yêu cầu tuyển dụng](requisitions.md); body hợp lệ thì nhận 403 phạm vi trước lỗi hạn nộp hay danh mục.
+
+### Hạn nộp hồ sơ
+
+- **Hôm nay** là ngày hiện tại theo **múi giờ nghiệp vụ** `app.business-zone` (mặc định `Asia/Ho_Chi_Minh`, UTC+7, như ngày cần người của yêu cầu ở task 248), không phải ngày UTC hay múi giờ của JVM. Ví dụ lúc `2026-10-11T17:30:00Z` ở Việt Nam đã là 00:30 ngày 12/10, nên `applicationDeadline = "2026-10-11"` bị từ chối dù theo UTC vẫn đang là ngày 11/10.
+- **Hôm nay được phép** (hạn nộp tính cả ngày hạn); không có ngày xa nhất (`9999-12-31` vẫn lưu được). Bản nháp được để trống hạn nộp; gửi duyệt (task 308) mới bắt buộc có.
+- **So ở mỗi lần lưu** với ngày hiện tại. Bản nháp có hạn nộp đã qua vẫn đọc được như cũ, nhưng `PUT` lại (kể cả gửi nội dung y hệt) bị từ chối cho tới khi chọn ngày từ hôm nay trở đi hoặc để trống. Tin không tự bị sửa khi qua ngày.
+- Hạn nộp **không liên quan** tới ngày cần người (`neededBy`) của yêu cầu: hai ngày không được so với nhau, và hạn nộp không điền sẵn từ `neededBy`.
+- "Hôm nay" được đọc sau khi đã khóa dòng yêu cầu (tạo) hoặc dòng tin (sửa), nên request phải chờ các khóa này qua 00:00 thì so với ngày mới. Ngày được so **trước** khi khóa `FOR SHARE` giá trị danh mục, vì lỗi hạn nộp được báo trước lỗi danh mục có chủ ý. Nếu request so ngày xong rồi phải chờ khóa danh mục qua 00:00, hoặc qua 00:00 ngay trước lúc commit, ngày vừa lưu có thể đã là hôm qua tính theo lúc commit; lần lưu sau và lần gửi duyệt (task 308) sẽ kiểm lại.
+- Giao diện nên chặn sẵn ngày trước hôm nay (theo giờ Việt Nam) trên ô chọn ngày, nhưng backend là nơi kiểm cuối cùng. Trong code, `JobPostingService` so với `BusinessCalendar.today()`.
+
+### Chỉ nhận văn bản thuần
+
+`title`, `jobDescription`, `candidateRequirements` và `benefits` sẽ hiện cho ứng viên trên cổng tuyển dụng công khai (task 309), nên chỉ nhận **văn bản thuần**, không nhận HTML, để tránh stored XSS. Backend dùng lại quy tắc `@PlainText` của [trang giới thiệu công ty](company-profile.md) (mục "Chỉ nhận văn bản thuần, không nhận HTML") và trả 400 `VALIDATION_ERROR` khi văn bản:
+
+- có `<` đứng **ngay trước** chữ cái Latin, `/`, `!` hoặc `?`, tức là thứ trình duyệt hiểu là thẻ, thẻ đóng, chú thích hoặc khai báo HTML: `<b>`, `</p>`, `<!-- -->`, `<?xml`;
+- có ký tự điều khiển, kể cả ký tự NUL (PostgreSQL không lưu được). `jobDescription`, `candidateRequirements`, `benefits` được dùng xuống dòng `\n` và tab; `title` phải nằm trên một dòng, không có tab;
+- có ký tự ngắt dòng/ngắt đoạn Unicode `U+2028`, `U+2029`, hoặc ký tự điều khiển hướng chữ `U+202A`–`U+202E`, `U+2066`–`U+2069` (làm chữ hiện theo thứ tự khác thứ tự đã gõ);
+- không có ký tự nào nhìn thấy được, ví dụ chỉ gồm khoảng trắng độ rộng 0 `U+200B`;
+- có nửa emoji đứng lẻ (UTF-16 surrogate lẻ, chỉ gửi được bằng escape JSON).
+
+Vẫn hợp lệ vì trình duyệt không coi là HTML: `lương < 20 triệu`, `<3`, `C++ <= 5 năm`; các văn bản này được lưu đúng như gửi. Frontend vẫn phải hiển thị mọi văn bản của tin dạng chữ (`textContent`, `{{ }}`), không dùng `v-html`, `innerHTML` hay `dangerouslySetInnerHTML`.
+
+### Sửa JD của tin không đổi JD của yêu cầu
+
+Tin giữ bản sao riêng của mô tả công việc và yêu cầu ứng viên (V21, task 302). Code của tin đọc và khóa yêu cầu nguồn bằng một truy vấn JDBC chỉ lấy vài cột (`JobPostingSourceRepository.lockSource`) và không bao giờ nạp entity `RecruitmentRequisition`, nên không có đối tượng nào để Hibernate tự ghi ngược vào yêu cầu. Test `editingTheJobDescriptionOfThePostingNeverChangesTheRequisition` (`JobPostingValidationIntegrationTest`) kiểm điều này: toàn bộ dòng yêu cầu (kể cả `updated_at`), lịch sử duyệt và nhóm recruiter của yêu cầu giống hệt trước khi tạo tin, sau khi tạo và sau ba lần sửa mô tả công việc; `GET /requisitions/{id}` vẫn trả mô tả gốc, và sao chép yêu cầu (`POST /requisitions/{id}/copy`) vẫn chép mô tả gốc.
+
+### Nội dung kế thừa có thẻ HTML
+
+API yêu cầu tuyển dụng chỉ chặn ký tự NUL, nên mô tả công việc hay yêu cầu ứng viên của yêu cầu có thể chứa thẻ HTML hoặc xuống dòng kiểu Windows. Khi tạo tin, phần kế thừa **không** bị kiểm văn bản thuần, vì recruiter chưa đọc được yêu cầu để gõ lại (task 285): backend chép nó (chỉ đổi xuống dòng thành `\n`) và tạo tin vẫn trả 201. Bản nháp giữ nguyên văn bản đó. Lần `PUT` gửi lại văn bản có thẻ thì nhận 400 với `fieldErrors.jobDescription` (hoặc `candidateRequirements`): người soạn phải sửa phần có thẻ trước khi lưu lại được, và trước khi gửi duyệt (task 308 kiểm lại văn bản đã lưu). Văn bản gửi trong body khi tạo vẫn bị kiểm như khi sửa.
 
 ## Khóa và đồng thời
 
@@ -227,18 +296,21 @@ Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi
 - Mỗi lần chờ khóa, token có thể hết hạn hay quyền có thể bị gỡ, nên người gọi được kiểm lại sau mỗi khóa (quyền đọc lại từ database): token hết hạn, phiên bị thu hồi hay tài khoản bị khóa trả 401 `SESSION_INVALID`; bị gỡ quyền trả 403; bị bỏ khỏi nhóm recruiter trả 403. Không lưu gì.
 - Hai lần tạo tin cho cùng một yêu cầu chạy lần lượt nhờ khóa dòng yêu cầu; lần sau trả 409 `JOB_POSTING_ALREADY_EXISTS`. Ràng buộc unique `job_postings_requisition_id_key` là lớp chặn cuối.
 - Hai lần lưu cùng một tin chạy lần lượt nhờ khóa dòng tin; lần sau mang `expectedRevision` cũ nên trả 409 `JOB_POSTING_CHANGED`, không ghi đè thay đổi của lần trước.
-- Giá trị danh mục được khóa `FOR SHARE` tới khi lưu xong: HR không xóa hay ngừng dùng được giá trị đó giữa lúc kiểm và lúc lưu. Một lần xóa commit trong lúc thao tác đang chờ được thấy và trả 400 `INVALID_JOB_POSTING_*`, không phải 500 từ khóa ngoại.
+- Giá trị danh mục được khóa `FOR SHARE` tới khi lưu xong: HR không xóa hay ngừng dùng được giá trị đó giữa lúc kiểm và lúc lưu. Một lần xóa commit trong lúc thao tác đang chờ được thấy và trả 400 `INVALID_JOB_POSTING_*`, không phải 500 từ khóa ngoại; một lần ngừng sử dụng (`active = false`) commit trong lúc chờ trả 400 `JOB_POSTING_*_INACTIVE` (task 304).
 - Yêu cầu tuyển dụng chỉ được đọc qua JDBC (không qua entity `RecruitmentRequisition`), nên code của tin không thể vô tình ghi vào yêu cầu. Bị khóa trong lúc tạo hay sửa tin, yêu cầu vẫn không đổi `updatedAt` hay bất kỳ cột nào.
 
 ## Lỗi
 
 | HTTP | `code` | Khi nào |
 |---|---|---|
-|400|`VALIDATION_ERROR`|Body: thiếu `requisitionId` (tạo), thiếu `expectedRevision`, `title`, `jobDescription`, `candidateRequirements`, `showSalary` (sửa), văn bản quá dài hoặc chứa ký tự NUL; lỗi theo trường nằm trong `fieldErrors`. Tham số: `{id}` không phải UUID, `status` sai, `page` âm, `size` ngoài 1–100, `page × size` vượt 2.147.483.647|
+|400|`VALIDATION_ERROR`|Body: thiếu `requisitionId` (tạo), thiếu `expectedRevision`, `title`, `jobDescription`, `candidateRequirements`, `showSalary` (sửa), văn bản quá dài hoặc không phải văn bản thuần (task 304); lỗi theo trường nằm trong `fieldErrors`. Tham số: `{id}` không phải UUID, `status` sai, `page` âm, `size` ngoài 1–100, `page × size` vượt 2.147.483.647|
 |400|`INVALID_JSON`|JSON sai hoặc thiếu body; UUID hay ngày sai định dạng (ví dụ `2026-02-30`); có trường ngoài hợp đồng, kể cả `requisitionId` khi sửa|
 |400|`INVALID_JOB_POSTING_REQUISITION`|Không có yêu cầu tuyển dụng với `requisitionId`; `fieldErrors.requisitionId`|
 |400|`INVALID_JOB_POSTING_WORK_LOCATION`|`workLocationId` không phải giá trị của danh mục `WORK_LOCATION` (không tồn tại hoặc thuộc danh mục khác); `fieldErrors.workLocationId`|
 |400|`INVALID_JOB_POSTING_EMPLOYMENT_TYPE`|`employmentTypeId` không phải giá trị của danh mục `EMPLOYMENT_TYPE`; `fieldErrors.employmentTypeId`|
+|400|`JOB_POSTING_DEADLINE_IN_PAST`|`applicationDeadline` trước hôm nay theo giờ Việt Nam ("Hạn nộp hồ sơ không được trước ngày hôm nay."); `fieldErrors.applicationDeadline` (task 304)|
+|400|`JOB_POSTING_WORK_LOCATION_INACTIVE`|Địa điểm làm việc đã ngừng sử dụng ("Địa điểm làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác."); `fieldErrors.workLocationId` (task 304)|
+|400|`JOB_POSTING_EMPLOYMENT_TYPE_INACTIVE`|Hình thức làm việc đã ngừng sử dụng ("Hình thức làm việc đã ngừng sử dụng, vui lòng chọn giá trị khác."); `fieldErrors.employmentTypeId` (task 304)|
 |401|`UNAUTHORIZED` / `SESSION_INVALID`|Token sai, hết hạn, phiên bị thu hồi, tài khoản bị khóa, kể cả khi điều đó xảy ra trong lúc chờ khóa|
 |403|`FORBIDDEN`|Thiếu quyền ghi tin; có quyền ghi nhưng thiếu quyền đọc tin; `JOB_POSTINGS_READ_ALL` đơn lẻ; recruiter với yêu cầu hoặc tin không được phân công; route không khai báo (ví dụ `POST /job-postings/draft`, `DELETE` hay `PATCH /job-postings/{id}`)|
 |404|`JOB_POSTING_NOT_FOUND`|Không có tin với `{id}` ("Không tìm thấy tin tuyển dụng.")|
@@ -270,14 +342,14 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`)
 |`saveDraft` gửi `POST /job-postings/draft` với id do client tạo (`jp-draft-…`)|Lần lưu đầu `POST /job-postings` (201, server cấp UUID); các lần sau `PUT /job-postings/{id}` kèm `expectedRevision`. `/job-postings/draft` trả 403 (không khai báo). Không bao giờ gửi `id` (task 300)|
 |"Đăng tin" gửi `POST /job-postings` với `status: 'PUBLISHED'`|Chỉ lưu bản nháp; gửi duyệt là `POST /job-postings/{id}/submit` của task 308, người soạn không tự xuất bản (task 300)|
 |Body là cả `JobPostingData`|`POST`: `requisitionId` và tùy chọn `title`, `jobDescription`, `candidateRequirements`, `benefits`, `workLocationId`, `employmentTypeId`, `applicationDeadline`, `showSalary`. `PUT`: như vậy nhưng không có `requisitionId`, thêm `expectedRevision`. Trường khác trả `INVALID_JSON` (task 300)|
-|`requirements`, `deadline`, `workLocation` (chuỗi), `employmentType` (mã), `isSalaryNegotiable` (ngược nghĩa)|`candidateRequirements`, `applicationDeadline`, `workLocationId`/`employmentTypeId` lấy từ `GET /recruitment-catalogs/{WORK_LOCATION\|EMPLOYMENT_TYPE}/items?active=true` (tên trả về ở `…Name`), `showSalary` (`true` là hiện lương) (task 300)|
+|`requirements`, `deadline`, `workLocation` (chuỗi), `employmentType` (mã), `isSalaryNegotiable` (ngược nghĩa)|`candidateRequirements`, `applicationDeadline` (không trước hôm nay theo giờ Việt Nam; backend là nơi kiểm cuối cùng, task 304), `workLocationId`/`employmentTypeId` lấy từ `GET /recruitment-catalogs/{WORK_LOCATION\|EMPLOYMENT_TYPE}/items?active=true` (tên trả về ở `…Name`), `showSalary` (`true` là hiện lương) (task 300)|
 |Hạn nộp điền sẵn từ `req.neededBy`|Để trống; hạn nộp và ngày cần người là hai việc khác nhau (task 301)|
 |Lương nhập được theo triệu, USD, `salaryType`|`salaryMin`/`salaryMax` là lương đề xuất đã duyệt, đồng VND, **chỉ đọc**; chỉ `showSalary` sửa được; không có tiền tệ hay kiểu lương (task 300)|
 |`positionTitle`, phòng ban, số lượng, cấp bậc sửa được|`positionName`, `departmentName`, `headcount` chỉ đọc; không có cấp bậc (task 300)|
 |Khối `catch` giả thành công, tên người cứng ("Trần Thị Thu Hà")|Bỏ; hiện `message` của lỗi, gắn `fieldErrors` (`title`, `jobDescription`, `candidateRequirements`, `benefits`, `workLocationId`, `employmentTypeId`, `applicationDeadline`, `showSalary`, `requisitionId`, `expectedRevision`) vào ô tương ứng; dùng `createdByName`|
 |Route và menu tin tuyển dụng dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')` (`JOB_POSTINGS_READ_*`)|Mọi màn hình nội bộ của tin (danh sách, chi tiết, form) dựa vào `JOB_POSTINGS_WRITE_ALL` hoặc `JOB_POSTINGS_WRITE_SCOPED` (`can('edit','job_posting')`). HIRING_MANAGER và APPROVER (chỉ `JOB_POSTINGS_READ_ALL`) không được thấy các link này, nếu không sẽ bị 403 và bị đưa sang `/unauthorized` (task 300)|
 
-Hiện nút sửa theo `actions.canEdit`. Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Nhãn trạng thái: `DRAFT` Nháp.
+Hiện nút sửa theo `actions.canEdit`. Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Ô chọn địa điểm và hình thức chỉ liệt kê giá trị còn dùng (`?active=true`); tin đang giữ giá trị đã ngừng dùng thì báo người soạn chọn giá trị khác (lỗi `JOB_POSTING_*_INACTIVE`). Mô tả công việc kế thừa có thẻ HTML phải được sửa trước lần lưu kế tiếp (lỗi ở `fieldErrors.jobDescription`). Nhãn trạng thái: `DRAFT` Nháp.
 
 QA cần chuẩn bị: V10 không tạo sẵn giá trị danh mục, nên HR phải tạo giá trị `WORK_LOCATION` và `EMPLOYMENT_TYPE` trước; HR phải phân công recruiter (`POST /requisitions/{id}/assign`) trước khi recruiter thấy hay tạo được tin.
 
@@ -285,7 +357,8 @@ QA cần chuẩn bị: V10 không tạo sẵn giá trị danh mục, nên HR ph�
 
 Dùng hai bảng của V21 (task 302): `job_postings` và `job_posting_authors`, xem [database](../database/README.md). Task 303 không thêm migration và không thêm mã quyền: dùng `JOB_POSTINGS_*` có sẵn từ V3 và `requisition_recruiters` của V16 làm phạm vi `SCOPED`.
 
-- Địa điểm và hình thức làm việc là khóa ngoại thường (`ON DELETE RESTRICT`, không `DEFERRABLE`) tới `recruitment_catalog_items`; database không biết loại danh mục, nên API kiểm loại bằng `RecruitmentCatalogItemRepository.findActiveForShare` (đọc kèm `FOR SHARE`). Task 303 chỉ từ chối giá trị không tồn tại hoặc thuộc danh mục khác; giá trị đã ngừng dùng (`active = false`) vẫn được nhận cho tới task 304.
+- Địa điểm và hình thức làm việc là khóa ngoại thường (`ON DELETE RESTRICT`, không `DEFERRABLE`) tới `recruitment_catalog_items`; database không biết loại danh mục, nên API kiểm loại bằng `RecruitmentCatalogItemRepository.findActiveForShare` (đọc kèm `FOR SHARE`). Task 303 từ chối giá trị không tồn tại hoặc thuộc danh mục khác; từ task 304, giá trị đã ngừng dùng (`active = false`) cũng bị từ chối khi lưu, còn tin đã giữ giá trị đó vẫn đọc được.
+- Task 304 không thêm migration: hạn nộp so với hôm nay và giá trị danh mục còn dùng thay đổi theo thời gian, nên không viết được bằng CHECK; API kiểm ở mỗi lần lưu. Quy tắc văn bản thuần nằm ở `JobPostingCreateRequest`, `JobPostingRequest` (`@PlainText` của gói `companyprofile`) và `JobPostingText` (chuẩn hóa xuống dòng, bỏ khoảng trắng ở hai đầu tiêu đề).
 - Tin không lưu số tiền lương. Chức danh, phòng ban, số lượng và lương đề xuất đọc từ yêu cầu bằng một câu SQL chung cho chi tiết, danh sách và response của mọi thao tác ghi (`JobPostingReadRepository.SELECT_ROW`).
 - Code của tin nằm ở gói `vn.ttcs.recruitment.jobposting`. Trạng thái của yêu cầu được tạo tin là `JobPostingService.SOURCE_STATUSES` (`APPROVED`); trạng thái của tin còn sửa được là `JobPostingService.EDITABLE_STATUSES` (`DRAFT`). Khi thêm trạng thái mới cho yêu cầu hay cho tin, `JobPostingSourceStatusTest` và `JobPostingStatusTest` không biên dịch cho tới khi trạng thái đó được xếp nhóm.
 
@@ -299,5 +372,9 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - mỗi yêu cầu chỉ có một tin;
 - không có trạng thái Từ chối cho tin; người duyệt sẽ dùng "yêu cầu chỉnh sửa" (task 308);
 - chỉ bản nháp sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); gỡ hay đóng tin khi đóng yêu cầu là task 292;
+- bản nháp lưu được khi chưa có địa điểm, hình thức làm việc, hạn nộp; gửi duyệt (task 308) mới bắt buộc;
+- hạn nộp không trước hôm nay theo giờ Việt Nam, tính cả ngày hạn; không giới hạn ngày xa nhất; không so với ngày cần người của yêu cầu;
+- văn bản của tin chỉ nhận văn bản thuần (không HTML); mô tả công việc kế thừa có thẻ HTML được giữ trong nháp và phải sửa trước khi lưu lại hoặc gửi duyệt;
+- địa điểm và hình thức làm việc lấy từ danh mục dùng chung; giá trị đã ngừng dùng chặn lưu tin (và gửi duyệt, task 308) nhưng tin đang giữ nó vẫn đọc được;
 - lương công khai là lương đề xuất đã duyệt của yêu cầu (tối thiểu, tối đa), chỉ hiện khi chọn, mặc định không hiện; tin không nhập được mức lương khác;
 - trường của tin: tiêu đề (mặc định tên chức danh), quyền lợi (không bắt buộc); không có kỹ năng, cấp bậc, kênh đăng.
