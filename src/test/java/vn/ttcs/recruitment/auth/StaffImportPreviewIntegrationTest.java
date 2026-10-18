@@ -207,6 +207,39 @@ class StaffImportPreviewIntegrationTest {
                 .containsExactly("B2 REQUIRED");
     }
 
+    // strip() kept a non-breaking space (U+00A0, U+2007, U+202F), U+0085, U+180E and zero-width characters (U+200B,
+    // U+FEFF, U+2060), so a cell made only of them was not empty and a required one passed the preview. Such a cell is
+    // empty now, and these characters around a visible value are removed. The characters are built from code points.
+    @Test
+    void cellsWithoutAVisibleCharacterAreEmptyAndInvisibleCharactersAroundValuesAreRemoved() throws Exception {
+        String nbsp = Character.toString(0x00A0);
+        String zeroWidth = Character.toString(0x200B);
+        byte[] file = staffFile(
+                row("a@example.com", nbsp, "RECRUITER", zeroWidth, new String(new int[]{0x0085, 0x180E}, 0, 2),
+                        new String(new int[]{0xFEFF, 0x202F, 0x2060}, 0, 3)),
+                row(nbsp + "b@example.com" + zeroWidth, nbsp + "Bình" + nbsp, zeroWidth + "RECRUITER" + nbsp,
+                        nbsp + "HR" + zeroWidth, nbsp + "0912345678" + nbsp, Character.toString(0x2007) + "Chuyên viên"
+                                + Character.toString(0x202F)));
+
+        JsonNode rows = rows(expectOk(upload(adminToken, "vo-hinh.xlsx", file)));
+
+        JsonNode first = rows.get(0);
+        assertThat(first.path("fullName").isNull()).isTrue();
+        assertThat(first.path("departmentCode").isNull()).isTrue();
+        assertThat(first.path("phone").isNull()).isTrue();
+        assertThat(first.path("displayTitle").isNull()).isTrue();
+        assertThat(first.path("valid").asBoolean()).isFalse();
+        assertThat(first.path("errors")).extracting(error -> error.path("cell").asText() + " " + error.path("code").asText())
+                .containsExactly("B2 REQUIRED");
+        JsonNode second = rows.get(1);
+        assertThat(second.path("email").asText()).isEqualTo("b@example.com");
+        assertThat(second.path("fullName").asText()).isEqualTo("Bình");
+        assertThat(second.path("roles")).extracting(JsonNode::asText).containsExactly("RECRUITER");
+        assertThat(second.path("departmentCode").asText()).isEqualTo("HR");
+        assertThat(second.path("phone").asText()).isEqualTo("0912345678");
+        assertThat(second.path("displayTitle").asText()).isEqualTo("Chuyên viên");
+    }
+
     @Test
     void numericAndBooleanCellsAreReadAsTheTextExcelShows() throws Exception {
         byte[] file = xlsx(workbook -> fill(workbook.createSheet("Nhân sự"),

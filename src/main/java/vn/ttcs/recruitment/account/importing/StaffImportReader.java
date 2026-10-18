@@ -163,10 +163,11 @@ public class StaffImportReader {
                 .toList();
     }
 
-    // The cell as Excel shows it, without leading and trailing white space; null when nothing else is left. Both
-    // follow Character.isWhitespace (strip), the rule POST /accounts uses for @NotBlank, so a cell that holds only a
-    // Unicode space such as U+2003 is empty here too. String.trim() would keep it, and the row would pass the
-    // "required" check with a name nobody can see. A formula is refused, never evaluated.
+    // The cell as Excel shows it, without the characters nobody can see around it; null when no visible character is
+    // left, so a required cell like that is reported as empty. strip() was not enough: it keeps the non-breaking spaces
+    // U+00A0, U+2007, U+202F, which text pasted from Word or a web page often holds, U+0085, U+180E and zero-width
+    // characters such as U+200B or U+FEFF, so a row passed the "required" check with a name nobody can see.
+    // A formula is refused, never evaluated.
     private static String text(Cell cell, DataFormatter formatter) {
         if (cell == null) {
             return null;
@@ -176,8 +177,33 @@ public class StaffImportReader {
                     "Ô " + cell.getAddress().formatAsString() + " đang dùng công thức. Chỉ nhập giá trị: "
                             + "sao chép rồi dán dạng giá trị (Paste Values) trước khi tải lên.");
         }
-        String shown = formatter.formatCellValue(cell).strip();
-        return shown.isEmpty() ? null : shown;
+        return visibleText(formatter.formatCellValue(cell));
+    }
+
+    // The text without the characters that are not visible at both ends, or null when none is visible. The characters
+    // inside the text are kept.
+    private static String visibleText(String value) {
+        int start = 0;
+        int end = value.length();
+        while (start < end && !isVisible(value.codePointAt(start))) {
+            start += Character.charCount(value.codePointAt(start));
+        }
+        while (end > start && !isVisible(value.codePointBefore(end))) {
+            end -= Character.charCount(value.codePointBefore(end));
+        }
+        return start == end ? null : value.substring(start, end);
+    }
+
+    // Not visible: every space and line break of Java (isWhitespace) and of Unicode, the non-breaking ones included
+    // (isSpaceChar), control characters, format characters (Unicode type Cf, for example U+200B, U+FEFF, U+2060), and
+    // U+0085, U+180E, which PostgreSQL counts as spaces.
+    private static boolean isVisible(int character) {
+        return !Character.isWhitespace(character)
+                && !Character.isSpaceChar(character)
+                && !Character.isISOControl(character)
+                && Character.getType(character) != Character.FORMAT
+                && character != 0x0085
+                && character != 0x180E;
     }
 
     private static ApiException headerInvalid(String detail) {
