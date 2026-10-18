@@ -34,7 +34,8 @@ public class Account {
     @Column(nullable = false)
     private String fullName;
 
-    @Column(length = 20)
+    // Unique since V38 (user_accounts_phone_key); NULL may repeat.
+    @Column(length = 20, unique = true)
     private String phone;
 
     @Column(length = 120)
@@ -163,6 +164,12 @@ public class Account {
 
     public void removeRole(Role role) {
         roles.remove(role);
+    }
+
+    // Changes the managed collection in place, so only the roles that differ are deleted or inserted.
+    public void replaceRoles(Set<Role> next) {
+        roles.retainAll(next);
+        roles.addAll(next);
     }
 
     public UUID getId() { return id; }

@@ -44,6 +44,7 @@ Mở `.env` và điền:
 |---|---|
 | `DB_URL` | `jdbc:postgresql://localhost:5432/recruitment` nếu database tên `recruitment` |
 | `DB_USERNAME`, `DB_PASSWORD` | Tài khoản PostgreSQL sở hữu database |
+| `APP_MIGRATION_LINEAGE` | `s5` cho DB mới; DB cũ chọn `s5` hoặc `feedback` theo [lịch sử V26](database/migration-lineages.md) |
 | `AUTH_JWT_SECRET` | Chuỗi Base64 của ít nhất 32 byte ngẫu nhiên để ký token |
 | `BOOTSTRAP_ADMIN_ENABLED` | `true` trong lần đầu với database chưa có tài khoản |
 | `BOOTSTRAP_ADMIN_EMAIL` | Email Admin đầu tiên |
@@ -82,11 +83,11 @@ Dừng container, giữ dữ liệu:
 docker compose --env-file .env -f devops/docker/compose.yaml down
 ```
 
-Flyway tự tạo bảng từ `database/migrations/` khi chạy lần đầu; không chạy SQL thủ công trước Flyway. Dùng database dành riêng cho dự án mới. Nhiệm vụ này không tự chạy migration trên database làm việc của bạn.
+Flyway tự tạo/nâng cấp bảng từ lịch sử được chọn bằng `APP_MIGRATION_LINEAGE` và thư mục SQL dùng chung. Database mới mặc định dùng `s5`; database cũ phải chọn theo [lịch sử đã chạy](database/migration-lineages.md), không theo tên nhánh Java. Không chạy SQL thủ công trước Flyway. Kiểm thử nâng cấp trên bản sao đã sao lưu trước khi dùng database có dữ liệu.
 
 ## 5. Chạy API
 
-Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Khi nâng cấp, Flyway bổ sung các migration còn thiếu tới V13 (reset token, quyền, activation token, phòng ban/hồ sơ, khóa hành chính, chức danh/dải lương, quyền xem dải lương, khung năng lực, ngân hàng câu hỏi phỏng vấn, danh mục tuyển dụng dùng chung, trang giới thiệu công ty, ảnh đại diện, yêu cầu tuyển dụng nháp); giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
+Luồng đặt lại mật khẩu và [tạo tài khoản/kích hoạt](api/accounts.md) dùng SMTP: xem [cấu hình mail](api/password-reset.md). Mặc định gửi tới mail catcher local127.0.0.1:1025. File `devops/docker/compose.mail.yaml` chạy riêng Mailpit, không khởi động/thay đổi PostgreSQL. Flyway bổ sung các chức năng còn thiếu theo lineage đã chọn; giữ `.env` hiện có và sao lưu DB trước khi nâng cấp.
 
 [Khóa/mở khóa tài khoản](api/account-locking.md) dùng Bearer Admin và không cần SMTP. Sau khi mở khóa, người dùng phải đăng nhập lại vì phiên cũ đã thu hồi. Không hạ về backend cũ bỏ qua trạng thái khóaV6 khi còn tài khoản bị khóa; cần xử lý kế hoạch tương thích trước rollback.
 

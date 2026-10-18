@@ -177,16 +177,18 @@ class RecruitmentCatalogMigrationTest {
             // The delete API relies on PostgreSQL refusing to delete a value that is still referenced (task 229).
             // ON DELETE CASCADE / SET NULL / SET DEFAULT would silently delete or blank the referencing rows
             // instead, and a DEFERRABLE key could fail only at commit. V21 job_postings references WORK_LOCATION and
-            // EMPLOYMENT_TYPE values; V26 adds the application's CANDIDATE_SOURCE. All use RESTRICT keys.
+            // EMPLOYMENT_TYPE values; V26 adds the application's CANDIDATE_SOURCE. V40 adds the stage event's
+            // REJECTION_REASON, and V41 adds the screening tag's composite CANDIDATE_TAG reference. All use RESTRICT.
             // This guard fails as soon as a migration adds an unsafe one.
             assertThat(unsafeCatalogReferences(jdbc)).isEmpty();
-            // All three known keys exist, so the empty list above really covers them.
+            // All five known keys exist, so the empty list above really covers them, including the composite key.
             assertThat(jdbc.queryForList("""
                     SELECT conname FROM pg_constraint
                     WHERE contype = 'f' AND confrelid = 'recruitment_catalog_items'::regclass
                     ORDER BY conname
                     """, String.class))
-                    .containsExactly("application_screening_tags_tag_id_catalog_type_fkey", "application_stage_events_rejection_reason_id_fkey",
+                    .containsExactly("application_screening_tags_tag_id_catalog_type_fkey",
+                            "application_stage_events_rejection_reason_id_fkey",
                             "job_applications_source_id_fkey", "job_postings_employment_type_id_fkey",
                             "job_postings_work_location_id_fkey");
 

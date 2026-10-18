@@ -31,7 +31,7 @@ PUT lặp lại trên tài khoản đang khóa giữ người, thời điểm v�
 
 Sau khi transaction thành công, login bị từ chối; các access token và refresh token cũ không còn dùng được. Mọi phiên chưa bị thu hồi của **tài khoản đích** được thu hồi; phiên người khác giữ nguyên. Reset link chưa dùng bị vô hiệu hóa. API không đổi mật khẩu, vai trò, thông tin hồ sơ, trạng thái kích hoạt hay khóa 15 phút do nhập sai.
 
-`handoverWarning` là lời nhắc luôn trả khi khóa. Backend chưa có module vị trí tuyển dụng nên chưa truy vấn số lượng/danh sách vị trí thực tế hoặc thực hiện bàn giao. Frontend hiển thị lời nhắc; nghiệp vụ xác định vị trí cần bàn giao còn phụ thuộc module đó.
+`handoverWarning` là lời nhắc luôn trả khi khóa; response khóa không liệt kê hoặc tự bàn giao công việc. Frontend dùng [API công việc cần bàn giao](account-handover.md) để xem danh sách thực tế và thực hiện bàn giao yêu cầu tuyển dụng, phòng ban trước hoặc sau khi khóa.
 
 ## DELETE /accounts/{id}/lock
 
@@ -61,3 +61,5 @@ Lỗi login khi bị khóa vẫn dùng thông báo xác thực chung; không ti�
 V6 thêm ba cột nullable: `admin_locked_at`, `admin_lock_reason` kiểu VARCHAR(500), `admin_locked_by` kiểu UUID tham chiếu tài khoản người khóa. Cả ba phải cùng `NULL` hoặc cùng có giá trị; DB kiểm lý do không trống. Tài khoản cũ mặc định không bị khóa hành chính. Không sửa V1–V5, không cần tạo database hay sao chép lại `.env`.
 
 Sao lưu trước khi khởi động backend mới; Flyway tự áp dụng V6 và các migration còn thiếu. Kiểm thử tự động dùng PostgreSQL tạm. Không hạ về bản backend cũ bỏ qua trạng thái khóa mới khi còn tài khoản đang khóa; cần kế hoạch tương thích và kiểm tra dữ liệu trước rollback.
+
+Xem và bàn giao các yêu cầu tuyển dụng và phòng ban của tài khoản trước hoặc sau khi khóa: [API công việc cần bàn giao](account-handover.md).

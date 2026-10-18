@@ -193,4 +193,35 @@ public class DepartmentRepository {
                 row.getObject("parent_id", UUID.class), row.getObject("manager_user_id", UUID.class),
                 row.getString("manager_full_name"), row.getBoolean("active"), row.getTimestamp("created_at").toInstant());
     }
+
+    // A department whose manager is the account being handed over (feedback item 10).
+    public record ManagedDepartment(UUID departmentId, String code, String name, boolean active) { }
+
+    // The departments this user manages directly, for handing their management over before the account is locked:
+    // every active one, and an inactive one that still has open requisitions of its own (OPEN_REQUISITION_STATUSES).
+    // Deactivating a department does not close its requisitions, and its manager still reads them in scope and, holding
+    // the role, still decides their HIRING_MANAGER and RECRUITER levels (the active flag is ignored there, see
+    // findManagedDepartmentIds). An inactive department without open requisitions of its own is not listed: usually
+    // nothing is left to hand over, but an inactive parent still gives its manager the scope of the departments below
+    // it, which only PUT /departments/{id} moves then. Unlike findManagedDepartmentIds, the departments below them are
+    // not listed: each has a manager of its own, and handing a department over also moves the scope of everything
+    // below it.
+    public List<ManagedDepartment> findManagedBy(UUID userId) {
+        return jdbc.query("""
+                SELECT d.id, d.code, d.name, d.active FROM departments d
+                WHERE d.manager_user_id = :userId
+                  AND (d.active OR EXISTS (SELECT 1 FROM recruitment_requisitions r
+                                           WHERE r.department_id = d.id AND r.status IN (:statuses)))
+                ORDER BY d.code, d.id
+                """, new MapSqlParameterSource("userId", userId).addValue("statuses", OPEN_REQUISITION_STATUSES),
+                (row, number) -> new ManagedDepartment(row.getObject("id", UUID.class), row.getString("code"),
+                        row.getString("name"), row.getBoolean("active")));
+    }
+
+    // Feedback item 10: gives the department another manager and changes nothing else, for handing the departments of
+    // an account over (DepartmentManagerHandover). The caller holds the tree lock and the row (lockForWrite).
+    public void updateManager(UUID id, UUID managerUserId) {
+        jdbc.update("UPDATE departments SET manager_user_id = :managerUserId WHERE id = :id",
+                new MapSqlParameterSource("id", id).addValue("managerUserId", managerUserId));
+    }
 }

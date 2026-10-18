@@ -68,9 +68,11 @@ Admin gửi đầy đủ trạng thái mới của các trường được phép
 
 Phòng ban mới phải tồn tại và `active=true`. Có thể giữ nguyên phòng ban cũ đã ngừng áp dụng khi chỉ sửa thông tin khác; gán mới vào phòng ngừng áp dụng hoặc UUID không tồn tại trả **400 `INVALID_DEPARTMENT`**. [API phòng ban 195–196](departments.md) cung cấp danh sách/cây, tạo/sửa và ngừng áp dụng trên schema của 194. Không tự tạo phòng ban từ tên do người dùng nhập.
 
-Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md).
+Email là định danh đăng nhập, giữ nguyên trong API này; đổi email cần luồng xác minh riêng. `email`, `roles`, `enabled`, mật khẩu, `id` và mọi trường lạ đều trả **400 `INVALID_JSON`** thay vì bị bỏ qua. API không thay mật khẩu, vai trò, phiên hoặc token kích hoạt. Thu hồi/gán vai trò dùng [API riêng](account-roles.md): `PUT /accounts/{id}/roles` thay cả bộ vai trò trong một request, kèm bộ vai trò trang đã tải trong `expectedRoles` để không ghi đè thay đổi của người khác (trang Sửa tài khoản gọi API này sau khi lưu thông tin cơ bản, chỉ khi bộ vai trò thay đổi), còn `PUT`/`DELETE /accounts/{id}/roles/{role}` thêm hoặc bỏ từng vai trò.
 
-Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
+Số điện thoại không được trùng với tài khoản khác ở bất kỳ trạng thái nào, giống [hồ sơ cá nhân](profile.md): số đã thuộc một tài khoản không phải `{id}` (so sánh sau khi đổi `+84` thành 0) trả **409 `PHONE_ALREADY_EXISTS`** với `fieldErrors.phone`, no-store, và không ghi trường nào (kể cả họ tên, phòng ban). Giữ nguyên số hiện có của tài khoản đích hoặc xóa số luôn hợp lệ. Message không nêu tài khoản đang dùng số đó. Hai lần lưu cùng một số cùng lúc thì một lần nhận 409 này nhờ ràng buộc unique của V38.
+
+Thành công **200** với `AccountView`, no-store. Dữ liệu không hợp lệ **400**, tài khoản đích không tồn tại **404**, thiếu quyền **403**, số điện thoại đã được dùng **409**. Server khóa tài khoản theo thứ tự UUID rồi kiểm lại phiên và quyền Admin; quyền bị thu hồi trong lúc chờ khóa sẽ bị từ chối, không ghi tài khoản đích. CORS cho phépPUT từ các origin đã cấu hình.
 
 ## POST /accounts
 
@@ -99,6 +101,27 @@ Thành công **201**, `Cache-Control: no-store`:
 ```
 
 Tài khoản chưa được đăng nhập cho đến khi kích hoạt. SMTP gửi email UTF8 gồm liên kết kích hoạt và mật khẩu tạm. Response không trả mật khẩu, token hoặc hash. Email trùng, kể cả khác chữ hoa/khoảng trắng hay hai Admin tạo đồng thời, trả **409 `EMAIL_ALREADY_EXISTS`** với thông báo tiếng Việt và không ghi đè tài khoản/gửi email lần hai. DB unique constraint xử lý trường hợp cạnh tranh sau precheck.
+
+Email kích hoạt có tiêu đề `Kích hoạt tài khoản — Hệ thống tuyển dụng nội bộ`, người gửi `MAIL_FROM`, `Reply-To` là email hỗ trợ `MAIL_SUPPORT_EMAIL`, và gồm hai phần cùng nội dung, `text/plain` rồi `text/html`, như [email đặt lại mật khẩu](password-reset.md#nội-dung-email). Phần văn bản giữ nguyên các dòng trước đây, rồi tới dòng `-- ` và footer hỗ trợ:
+
+```text
+Tài khoản nội bộ của bạn đã được tạo.
+
+Email đăng nhập: interviewer@example.com
+Mật khẩu tạm: <24 ký tự>
+
+Kích hoạt trong 24 giờ; liên kết chỉ dùng được một lần:
+https://internal-hire.com/activate-account?token=<43 ký tự>
+
+Sau khi kích hoạt, đăng nhập và đổi mật khẩu trong tài khoản của bạn.
+
+--
+Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.
+Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.
+© 2026 Hệ thống tuyển dụng nội bộ
+```
+
+Phần HTML hiện email đăng nhập và mật khẩu tạm trong ô chữ đơn cách để dễ sao chép, nút "Kích hoạt tài khoản" kèm URL đầy đủ, footer có liên kết `mailto:`; mọi giá trị đều được escape. Email mời khi [import nhân sự](account-import.md) dùng cùng mẫu. Cấu hình footer và logo: [Footer email](../deployment/domain-and-mail.md#5-footer-email).
 
 Các lỗi: **400** dữ liệu sai/role không hợp lệ; **401** thiếu/hết phiên; **403** thiếu quyền Admin; **503 `ACCOUNT_EMAIL_UNAVAILABLE`** gửi email thất bại. Khi503, transaction rollback tài khoản/vai trò/token để có thể thử tạo lại.
 

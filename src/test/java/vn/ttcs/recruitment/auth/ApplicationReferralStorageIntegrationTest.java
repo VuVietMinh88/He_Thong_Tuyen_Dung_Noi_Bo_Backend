@@ -50,8 +50,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Task 350 (story S4-07, "Hồ sơ được gắn nhãn nguồn Giới thiệu nội bộ và tên người giới thiệu"): the storage boundary
  * of a referral, ReferralApplicationStorage.store, over real PostgreSQL without HTTP. It stores the application through
  * TRAN DUC LUONG's ApplicationStorageService.store in the caller's transaction, then the referral row of V36; it locks
- * the requisition FOR NO KEY UPDATE itself before the storage (the 321 rule). The confirmation worker never runs (poll
- * delay of an hour); no referral API exists yet (task 351), so the referrer is any staff account.
+ * the requisition FOR NO KEY UPDATE through the common posting gate (the 321 rule). The confirmation worker never
+ * runs (poll delay of an hour); this storage-boundary test uses a staff account without the HTTP layer.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
@@ -177,27 +177,28 @@ class ApplicationReferralStorageIntegrationTest {
         assertThat(count("candidate_applications")).isEqualTo(2);
     }
 
-    // A paused requisition, a closed posting, a posting past its deadline and an unknown posting answer store()'s 404
-    // and store nothing at all.
+    // Hidden/unknown postings answer 404; past deadline/EXPIRED answer 409. Neither stores anything.
     @ParameterizedTest
-    @ValueSource(strings = {"PAUSED", "CLOSED", "PAST_DEADLINE", "UNKNOWN"})
-    void aPostingThatTakesNoApplicationsIs404AndStoresNothing(String state) {
+    @ValueSource(strings = {"PAUSED", "CLOSED", "UNPUBLISHED", "EXPIRED", "PAST_DEADLINE", "UNKNOWN"})
+    void aPostingThatTakesNoApplicationsIsRefusedAndStoresNothing(String state) {
         UUID target = posting;
         switch (state) {
             case "PAUSED" -> jdbc.update("UPDATE recruitment_requisitions SET status = 'PAUSED' WHERE id = ?", requisition);
-            case "CLOSED" -> jdbc.update("UPDATE job_postings SET status = 'CLOSED' WHERE id = ?", posting);
+            case "CLOSED", "UNPUBLISHED", "EXPIRED" -> jdbc.update("UPDATE job_postings SET status = ? WHERE id = ?", state, posting);
             case "PAST_DEADLINE" -> jdbc.update("UPDATE job_postings SET application_deadline = ? WHERE id = ?",
                     LocalDate.of(2026, 10, 14), posting);
             case "UNKNOWN" -> target = UUID.randomUUID();
             default -> throw new IllegalArgumentException(state);
         }
         UUID unavailable = target;
+        boolean expired = state.equals("PAST_DEADLINE") || state.equals("EXPIRED");
 
         assertThatThrownBy(() -> store(unavailable, submission(EMAIL), applications.pdf(), declaration()))
                 .isInstanceOfSatisfying(ApiException.class, error -> {
-                    assertThat(error.getStatus().value()).isEqualTo(404);
-                    assertThat(error.getCode()).isEqualTo("JOB_POSTING_NOT_FOUND");
-                    assertThat(error.getMessage()).isEqualTo("Tin tuyển dụng không còn nhận hồ sơ.");
+                    assertThat(error.getStatus().value()).isEqualTo(expired ? 409 : 404);
+                    assertThat(error.getCode()).isEqualTo(expired ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+                    assertThat(error.getMessage()).isEqualTo(expired
+                            ? "Tin tuyển dụng đã hết hạn nộp hồ sơ." : "Không tìm thấy tin tuyển dụng.");
                 });
         assertNothingStored();
     }
@@ -341,13 +342,13 @@ class ApplicationReferralStorageIntegrationTest {
         assertThat(declaration).doesNotContain(NOTE).contains("redacted");
     }
 
-    // The 321 rule, whoever calls the storage: the requisition is locked FOR NO KEY UPDATE before store(). A raw
+    // The 321 rule, whoever calls the storage: the gate locks the requisition FOR NO KEY UPDATE. A raw
     // connection holds the posting row, the next row store() needs after the requisition; the referral then waits
     // inside store() (pg_blocking_pids names the raw connection), holding the requisition so firmly that a FOR SHARE
-    // NOWAIT from a third connection fails (55P03); store()'s own FOR SHARE alone would let it through. Released, the
+    // NOWAIT from a third connection fails (55P03); FOR SHARE alone would let it through. Released, the
     // referral completes.
     @Test
-    void theReferralLocksTheRequisitionForNoKeyUpdateBeforeTheStorage() throws Exception {
+    void theReferralStorageUsesTheGatesNoKeyUpdateRequisitionLock() throws Exception {
         ValidatedCv cv = applications.pdf();
         byte[] hash = hash();
         try (var blocker = dataSource.getConnection(); var probe = dataSource.getConnection();

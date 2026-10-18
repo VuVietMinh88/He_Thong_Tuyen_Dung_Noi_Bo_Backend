@@ -62,8 +62,8 @@ public class AccountProvisioningService {
     /**
      * Creates one account like POST /accounts and also saves its department, phone and display title. The staff
      * import calls this once per row from code without a transaction, so every row gets its own transaction: a row
-     * that fails here (email taken or department stopped in the meantime, invitation not sent) rolls back alone.
-     * Every check runs before the invitation email is sent, so a row refused by a check sends no email.
+     * that fails here (email or phone taken or department stopped in the meantime, invitation not sent) rolls back
+     * alone. Every check runs before the invitation email is sent, so a row refused by a check sends no email.
      */
     @Transactional
     public AccountController.CreatedAccount create(Jwt jwt, CreateAccountRequest request, NewAccountProfile profile) {
@@ -72,6 +72,11 @@ public class AccountProvisioningService {
         UUID departmentId = profile.departmentCode() == null ? null : activeDepartmentId(profile.departmentCode());
         if (accounts.existsByEmail(request.email())) {
             throw new DuplicateEmailException();
+        }
+        // Like the email, a phone number belongs to one account of any status. Checked before a password is made or
+        // an email is sent.
+        if (profile.phone() != null && accounts.existsByPhone(profile.phone())) {
+            throw new PhoneAlreadyUsedException();
         }
         // Generated credentials meet the existing password policy; only BCrypt is persisted.
         String temporaryPassword = "A7" + generator.create().substring(0, 22);
@@ -82,7 +87,7 @@ public class AccountProvisioningService {
         try {
             accounts.saveAndFlush(account);
         } catch (DataIntegrityViolationException exception) {
-            // The unique constraint is decisive when different admins race after the precheck.
+            // The unique constraints are decisive when different admins race after the prechecks.
             for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
                 if (cause instanceof ConstraintViolationException violation
                         && "23505".equals(violation.getSQLState())
@@ -90,7 +95,7 @@ public class AccountProvisioningService {
                     throw new DuplicateEmailException();
                 }
             }
-            throw exception;
+            throw PhoneAlreadyUsedException.translate(exception);
         }
         String activationToken = generator.create();
         activationTokens.insert(account.getId(), generator.hash(activationToken), now, now.plus(activationTtl));

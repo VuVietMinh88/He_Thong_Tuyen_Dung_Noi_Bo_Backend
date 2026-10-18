@@ -1,5 +1,6 @@
 package vn.ttcs.recruitment.account.profile;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -7,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.account.PhoneAlreadyUsedException;
 import vn.ttcs.recruitment.account.avatar.AvatarRepository;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
@@ -69,9 +71,22 @@ public class ProfileService {
             throw AuthenticationFailureException.sessionInvalid();
         }
         requirePermission(userId, "SELF_PROFILE_WRITE");
+        // Keeping one's own number or clearing it never conflicts. Any other account with the number, whatever its
+        // status, keeps it; the answer does not say which account that is.
+        String phone = request.phone();
+        if (phone != null && !phone.equals(account.getPhone()) && accounts.existsByPhoneAndIdNot(phone, userId)) {
+            throw new PhoneAlreadyUsedException();
+        }
 
         // Identity comes only from the verified JWT; this method never accepts a target user id.
-        account.updateProfile(request.fullName(), request.phone(), request.displayTitle());
+        account.updateProfile(request.fullName(), phone, request.displayTitle());
+        // Write now: a save of the same number racing after the check above breaks V38's unique constraint here,
+        // where it becomes the 409, instead of at commit outside this method.
+        try {
+            accounts.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw PhoneAlreadyUsedException.translate(exception);
+        }
         return response(account);
     }
 

@@ -132,7 +132,7 @@ Khi có module ứng viên, ví dụ:
 
 ### Nguồn hiện tại: hồ sơ ứng tuyển của task 325
 
-V26 thêm `job_applications`. `ApplicationPipelineSource` thay stub cũ và đếm hồ sơ thật theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Task 325 chỉ tạo NEW; chưa có API chuyển giai đoạn hay tiếp nhận công khai. Khi có hồ sơ NEW đã lưu, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`.
+`ApplicationPipelineSource` đếm hồ sơ thật trong `job_applications` theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Backend đã có API nhận hồ sơ công khai, giới thiệu và chuyển giai đoạn. Khi còn hồ sơ active, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`. Không còn bean nguồn giả `NoCandidateModulePipelineSource`.
 
 ### Xác nhận khi đóng
 
@@ -164,7 +164,7 @@ Chủ của bảng: `RequisitionStatusChange.checksActivePipeline` (ghim bởi `
 
 ### Dành cho module ứng viên
 
-Từ 325, `ApplicationPipelineSource` là nguồn thật duy nhất và `ApplicationStorageService` khóa yêu cầu `FOR SHARE` trước khi thêm hồ sơ NEW. Các thao tác ghi hồ sơ tiếp theo phải giữ hợp đồng sau:
+`ApplicationPipelineSource` là nguồn thật duy nhất. `ApplicationStorageService` dùng `JobPostingApplicationGate`: khóa yêu cầu `FOR NO KEY UPDATE`, rồi tin `FOR SHARE` trước khi thêm hồ sơ NEW. Nộp công khai và giới thiệu dùng cùng bước kiểm này. Các thao tác ghi hồ sơ phải giữ hợp đồng sau:
 
 - "Đang trong quy trình" là hồ sơ ứng tuyển vào yêu cầu chưa ở trạng thái cuối; module tự định nghĩa các bước.
 - Chạy trong transaction của người gọi: khi đổi trạng thái là dưới khóa dòng yêu cầu (`FOR NO KEY UPDATE`, READ COMMITTED), khi đọc là snapshot `REPEATABLE_READ` chỉ đọc. Nguồn chỉ đọc và không khóa gì, nên sau khóa dòng yêu cầu không có gì phải chờ.
@@ -408,4 +408,4 @@ Các quy tắc trên là giả định của backend, chờ BA/PO xác nhận. G
 - đã tuyển đủ hoặc hủy: mọi tin chưa đóng của yêu cầu (kể cả nháp, chờ duyệt) chuyển "Đã đóng" vĩnh viễn, giữ người và thời điểm xuất bản; lý do của yêu cầu được chép vào lịch sử tin (task 292);
 - người đóng yêu cầu không cần quyền tin tuyển dụng (task 292);
 - hủy khi đang chờ duyệt kết thúc lượt duyệt; người duyệt của cấp đang chờ vẫn xem được yêu cầu và tiến độ, bấm quyết định trên trang cũ thì nhận 409 để tải lại; người của cấp chưa tới không xem được; cấp đang chờ hiện "Chưa đến lượt", chưa có trạng thái riêng cho cấp bị dừng;
-- ứng viên đang xử lý (task 291): "đang trong quy trình" là hồ sơ ứng tuyển chưa ở trạng thái cuối, do module ứng viên định nghĩa; chỉ đã tuyển đủ và hủy cần xác nhận, tạm dừng không; xác nhận không được lưu, lý do đóng vẫn bắt buộc; chỉ Trưởng phòng Nhân sự và ADMIN (`REQUISITIONS_WRITE_ALL`) xem số ứng viên đang xử lý, trưởng bộ phận và recruiter được phân công thì không; ứng viên còn lại sau khi đóng có xác nhận chưa được xử lý gì; hiện nguồn luôn trả 0 (chưa có dữ liệu ứng viên) nên đóng yêu cầu không bị chặn cho tới khi có module ứng viên; xác nhận là cờ đúng/sai, không gắn với số ứng viên đã thấy (câu hỏi 20 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).
+- ứng viên đang xử lý (task 291): "đang trong quy trình" là hồ sơ ứng tuyển chưa ở trạng thái cuối, do module ứng viên định nghĩa; chỉ đã tuyển đủ và hủy cần xác nhận, tạm dừng không; xác nhận không được lưu, lý do đóng vẫn bắt buộc; chỉ Trưởng phòng Nhân sự và ADMIN (`REQUISITIONS_WRITE_ALL`) xem số ứng viên đang xử lý, trưởng bộ phận và recruiter được phân công thì không; ứng viên còn lại sau khi đóng có xác nhận chưa được xử lý gì; nguồn đếm hồ sơ thật theo giai đoạn, nên đóng yêu cầu bị chặn khi còn hồ sơ active và chưa xác nhận; xác nhận là cờ đúng/sai, không gắn với số ứng viên đã thấy (câu hỏi 20 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)).

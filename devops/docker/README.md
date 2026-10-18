@@ -59,7 +59,7 @@ Theo [tài liệu image PostgreSQL chính thức](https://hub.docker.com/_/postg
 .\mvnw.cmd spring-boot:run '-Dspring-boot.run.jvmArguments=-Duser.timezone=UTC'
 ```
 
-Flyway đọc `database/migrations/` đã được Maven đóng gói, tự tạo/nâng schema. Giữ nguyên V1–V6 và các migration đã chạy; không sửa SQL lịch sử chỉ để đổi repo hoặc đổi cấu hình kết nối. Kiểm tra `http://localhost:8080/api/health` hoặc `http://localhost:8080/api/v1/health`.
+Flyway đọc lịch sử SQL được chọn bởi `APP_MIGRATION_LINEAGE` trong JAR, tự tạo/nâng schema. Database mới dùng `s5`; database cũ chọn `s5` hoặc `feedback` theo [hướng dẫn migration](../../docs/database/migration-lineages.md). Giữ nguyên mọi migration đã chạy; không sửa SQL lịch sử chỉ để đổi repo hoặc đổi cấu hình kết nối. Kiểm tra `http://localhost:8080/api/health` hoặc `http://localhost:8080/api/v1/health`.
 
 Frontend chạy trong repo Frontend, đặt `VITE_API_BASE_URL=http://localhost:8080/api/v1`. Backend đặt `CORS_ALLOWED_ORIGINS` đúng origin Frontend, ví dụ `http://localhost:5173`; URL reset/activation email cũng trỏ đến Frontend.
 

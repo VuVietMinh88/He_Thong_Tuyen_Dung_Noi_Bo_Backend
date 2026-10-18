@@ -14,6 +14,7 @@ import vn.ttcs.recruitment.security.PermissionService;
 
 import java.time.Clock;
 import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -45,6 +46,24 @@ public class AccountRoleService {
             throw new SelfAdminRevocationException();
         }
         target.removeRole(role);
+        return AccountRolesResponse.from(target);
+    }
+
+    // The request is the complete set: roles missing from it are revoked and new ones granted in one transaction,
+    // so the account never ends up half changed. expectedRoles is compared under the target row lock, so a set built
+    // from an outdated view cannot undo a change another administrator committed meanwhile. The caller holds ADMIN
+    // (checked after the locks), so a set without ADMIN for the caller's own account would revoke it. Both refusals
+    // happen before anything is written.
+    @Transactional
+    public AccountRolesResponse replace(Jwt jwt, UUID id, Set<Role> roles, Set<Role> expectedRoles) {
+        Account target = requireTargetForAdministration(jwt, id);
+        if (!target.getRoles().equals(expectedRoles)) {
+            throw new AccountRolesChangedException();
+        }
+        if (!roles.contains(Role.ADMIN) && id.equals(UUID.fromString(jwt.getSubject()))) {
+            throw new SelfAdminRevocationException();
+        }
+        target.replaceRoles(roles);
         return AccountRolesResponse.from(target);
     }
 

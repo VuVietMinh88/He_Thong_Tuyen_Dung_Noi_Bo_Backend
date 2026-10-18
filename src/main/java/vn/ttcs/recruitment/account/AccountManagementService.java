@@ -1,5 +1,6 @@
 package vn.ttcs.recruitment.account;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -92,10 +93,20 @@ public class AccountManagementService {
                 throw new InvalidDepartmentException();
             }
         }
+        // Same rule as PUT /profile: the number may stay on this account but not be taken from another one, whatever
+        // that account's status. Nothing is written when it is refused.
+        if (request.phone() != null && accounts.existsByPhoneAndIdNot(request.phone(), id)) {
+            throw new PhoneAlreadyUsedException();
+        }
         target.updateProfile(request.fullName(), request.phone(), request.displayTitle());
         target.assignDepartment(request.departmentId());
-        // JDBC reads do not trigger JPA auto-flush; persist first so the returned DTO reflects this update.
-        accounts.flush();
+        // JDBC reads do not trigger JPA auto-flush; persist first so the returned DTO reflects this update. A save of
+        // the same number racing after the check above breaks V38's unique constraint here and becomes the 409.
+        try {
+            accounts.flush();
+        } catch (DataIntegrityViolationException exception) {
+            throw PhoneAlreadyUsedException.translate(exception);
+        }
         return search.findById(id, now).orElseThrow(AccountNotFoundException::new);
     }
 

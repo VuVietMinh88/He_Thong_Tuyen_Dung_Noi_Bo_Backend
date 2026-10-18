@@ -294,15 +294,16 @@ class JobPostingPublicViewIntegrationTest {
     }
 
     // Task 356: the daily job posting expiry never starts by itself in a test, which moves the clock as it needs: the
-    // test settings (src/test/resources/application-default.properties) turn its cron off, so no task is scheduled
-    // although scheduling is on. Tests run the expiry themselves (JobPostingExpiryIntegrationTest).
+    // test settings (src/test/resources/application-default.properties) turn its cron off, so no expiry task is
+    // scheduled while application workers remain enabled. Tests run the expiry themselves (JobPostingExpiryIntegrationTest).
     @Test
     void theDailyExpiryIsNeverScheduledInTests() {
         assertThat(environment.getProperty("app.job-posting-expiry.cron")).isEqualTo("-");
         assertThat(schedules).isNotEmpty();
         for (ScheduledTaskHolder holder : schedules) {
-            assertThat(holder.getScheduledTasks()).noneMatch(task -> task.getTask().getRunnable().toString()
-                    .equals(JobPostingExpiry.class.getName() + ".runDaily"));
+            assertThat(holder.getScheduledTasks())
+                    .noneMatch(task -> task.getTask().getRunnable().toString()
+                            .equals(JobPostingExpiry.class.getName() + ".runDaily"));
         }
     }
 

@@ -23,6 +23,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.mail.MailParts;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -182,7 +183,9 @@ class StaffImportIntegrationTest {
                 .containsExactlyInAnyOrder(anId, binhId);
         assertThat(recipients()).containsExactlyInAnyOrder("an@example.com", "binh@example.com");
         String invitation = invitationTo("an@example.com");
-        assertThat(invitation).contains("Kích hoạt trong 24 giờ");
+        // The same activation email as POST /accounts, with the support footer.
+        assertThat(invitation).contains("Kích hoạt trong 24 giờ",
+                "Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.");
         // The response never carries the credentials that only the invited person may see.
         assertThat(body.toString()).doesNotContain(temporaryPassword(invitation), activationToken(invitation));
     }
@@ -543,7 +546,7 @@ class StaffImportIntegrationTest {
     private static String invitationTo(String email) throws Exception {
         for (MimeMessage message : SMTP.messages()) {
             if (message.getAllRecipients()[0].toString().equals(email)) {
-                return message.getContent().toString();
+                return MailParts.text(message);
             }
         }
         throw new AssertionError("No invitation to " + email);

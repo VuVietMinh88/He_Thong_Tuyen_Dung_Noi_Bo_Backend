@@ -15,6 +15,11 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     boolean existsByEmail(String email);
 
+    // Phone numbers are stored normalized (ProfileValidation.normalizePhone), so an exact match finds equal numbers.
+    boolean existsByPhone(String phone);
+
+    boolean existsByPhoneAndIdNot(String phone, UUID id);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select account from Account account where account.email = :email")
     Optional<Account> findByEmailForUpdate(@Param("email") String email);

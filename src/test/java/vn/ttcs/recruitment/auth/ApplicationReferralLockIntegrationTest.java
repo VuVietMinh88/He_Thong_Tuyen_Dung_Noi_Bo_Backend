@@ -31,11 +31,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Task 351 (story S4-07): the referral's locks over real HTTP and PostgreSQL. The writer locks the caller's account,
  * then its session, then the requisition FOR NO KEY UPDATE (the 321 rule), and checks the caller again after every
- * wait; TRAN DUC LUONG's store() then locks the posting FOR SHARE. Lock waits are observed with pg_blocking_pids and
+ * wait through the shared posting gate; storage locks the posting FOR SHARE. Lock waits are observed with pg_blocking_pids and
  * NOWAIT probes from other connections, never with sleeps; every await fails loudly after 1.5 s (inside the 2 s
  * lock_timeout), and the HTTP paths are warmed up first. One referral is read at a time here
- * (app.referral.max-concurrent=1), so a second one meets the busy gate. The writer's own requisition lock mode shows
- * only with two referrals at once: ApplicationReferralIntegrationTest.twoReferrersBehindAPublicIntakeBothSucceed.
+ * (app.referral.max-concurrent=1), so a second one meets the busy gate. Two referrals are also checked by
+ * ApplicationReferralIntegrationTest.twoReferrersBehindASharedRowLockBothSucceed.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
@@ -115,9 +115,8 @@ class ApplicationReferralLockIntegrationTest {
 
     // A closure behind a referral. A raw connection holds the posting row; the referral takes the account, the session
     // and the requisition FOR NO KEY UPDATE, then waits in store() on that row; a share lock on the requisition is
-    // refused at once (NOWAIT), so the referral's transaction holds it more strongly than FOR SHARE (by then
-    // ReferralApplicationStorage has locked it FOR NO KEY UPDATE too, so this does not show the writer's own lock
-    // mode); a closure (warmed up on another requisition) queues behind the referral's backend. Once the row is free,
+    // refused at once (NOWAIT), proving the gate's FOR NO KEY UPDATE; a closure (warmed up on another requisition)
+    // queues behind the referral's backend. Once the row is free,
     // the referral answers 201, then the closure counts the new application and asks for confirmation (409), so no
     // application is closed unseen.
     @Test
@@ -218,8 +217,7 @@ class ApplicationReferralLockIntegrationTest {
         assertThat(outcomes()).containsExactly("REFUSED");
     }
 
-    // The same while the referral waits in store() on the posting row: the check after store() answers 403 and the
-    // application it had written is rolled back.
+    // The same while the referral waits on the posting: the gate callback answers 403 before storing candidate data.
     @Test
     void aPermissionRemovedDuringThePostingWaitAnswers403() throws Exception {
         try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
@@ -244,6 +242,32 @@ class ApplicationReferralLockIntegrationTest {
         }
         assertThat(applicationsOf(posting)).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM job_applications WHERE normalized_email = ?", Integer.class,
+                EMAIL)).isZero();
+        assertThat(outcomes()).containsExactly("REFUSED");
+    }
+
+    @Test
+    void aTokenThatExpiresDuringThePostingWaitAnswers401WithoutWritingCandidateData() throws Exception {
+        try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
+            blocker.setAutoCommit(false);
+            try (var hold = blocker.prepareStatement("SELECT 1 FROM job_postings WHERE id = ? FOR UPDATE")) {
+                hold.setObject(1, posting);
+                hold.executeQuery().close();
+            }
+            Future<HttpResponse<String>> referral;
+            try {
+                referral = executor.submit(() -> applications.refer(token, posting, EMAIL));
+                applications.awaitWaiterOf(ApplicationTestSupport.backendPid(blocker));
+                clock.set(ApplicationTestSupport.NOW.plus(TokenService.ACCESS_TOKEN_TTL).plusSeconds(1));
+            } finally {
+                blocker.rollback();
+            }
+            var response = referral.get(10, TimeUnit.SECONDS);
+            status(response, 401);
+            assertThat(json.readTree(response.body()).get("code").asString()).isEqualTo("SESSION_INVALID");
+        }
+        assertThat(applicationsOf(posting)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM candidates WHERE normalized_email = ?", Integer.class,
                 EMAIL)).isZero();
         assertThat(outcomes()).containsExactly("REFUSED");
     }

@@ -77,22 +77,37 @@ public class JobPostingApplicationGate {
      */
     @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = ApiException.class)
     public OpenJobPosting requireOpen(UUID postingId) {
+        return requireOpen(postingId, () -> { });
+    }
+
+    // Authenticated referrals pass a check of their already-locked account/session and current permissions. Each
+    // lock can wait, so refresh the caller before interpreting the row or allowing storage to continue.
+    @Transactional(propagation = Propagation.MANDATORY, noRollbackFor = ApiException.class)
+    public OpenJobPosting requireOpen(UUID postingId, Runnable callerCheck) {
         requireLockingTransaction();
         // The requisition of a posting never changes, so it is read before any lock, and locked first.
         UUID requisitionId = postings.findRequisitionIdById(postingId).orElseThrow(JobPostingService::notFound);
         // No API deletes a requisition (V21 RESTRICT), so the posting's requisition is always there.
-        RequisitionStatus requisition = sources.lockStatusForApplication(requisitionId)
-                .orElseThrow(JobPostingService::notFound);
-        var posting = reads.lockForApplication(postingId).orElseThrow(JobPostingService::notFound);
+        var lockedRequisition = sources.lockStatusForApplication(requisitionId);
+        callerCheck.run();
+        RequisitionStatus requisition = lockedRequisition.orElseThrow(JobPostingService::notFound);
+        var lockedPosting = reads.lockForApplication(postingId);
+        callerCheck.run();
+        var posting = lockedPosting.orElseThrow(JobPostingService::notFound);
         // After both locks: a wait past 00:00 in the business zone sees the new date.
         LocalDate today = calendar.today();
         return switch (JobPostingApplicability.of(posting.status(), requisition, posting.applicationDeadline(),
                 today)) {
             case OPEN -> new OpenJobPosting(postingId, requisitionId, posting.applicationDeadline());
-            case EXPIRED -> throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_EXPIRED",
-                    "Tin tuyển dụng đã hết hạn nộp hồ sơ.");
+            case EXPIRED -> throw expired();
             case NOT_PUBLIC -> throw JobPostingService.notFound();
         };
+    }
+
+    // Shared by the intake's early check and storage's final deadline checks after waits on their own rows.
+    public static ApiException expired() {
+        return new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_EXPIRED",
+                "Tin tuyển dụng đã hết hạn nộp hồ sơ.");
     }
 
     // A programming error of the caller, refused before any SQL. In REPEATABLE READ or SERIALIZABLE, a row changed

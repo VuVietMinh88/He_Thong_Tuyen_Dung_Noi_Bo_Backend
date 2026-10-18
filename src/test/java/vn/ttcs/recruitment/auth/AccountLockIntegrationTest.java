@@ -628,7 +628,10 @@ class AccountLockIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
-        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+        if (method.equals("POST") && path.equals("/api/v1/auth/forgot-password")) {
+            // The browser id the frontend sends; a new browser each time, so the per-browser limit never applies.
+            builder.header("X-Device-Id", UUID.randomUUID().toString());
+        } else if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
             builder.header("X-Device-Id", deviceId);
         }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }

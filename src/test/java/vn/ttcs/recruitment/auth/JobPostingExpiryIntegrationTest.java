@@ -163,17 +163,19 @@ class JobPostingExpiryIntegrationTest {
         employmentType = postings.catalogValue(EMPLOYMENT_TYPE, "FULL_TIME", "Toàn thời gian", true, START);
     }
 
-    // The scheduler is on (SchedulingConfiguration) and holds exactly one cron task, the daily run that
-    // JobPostingExpirySchedule registers, with the cron of the settings in the business zone (CronTrigger.equals
-    // compares both). This context's cron never matches a date: the trigger has no next run, so the scheduler has
-    // queued nothing. Run by hand, the task is the daily run: it logs its count.
+    // The scheduler is on (SchedulingConfiguration) and holds exactly one JobPostingExpiry daily task alongside
+    // the application workers. JobPostingExpirySchedule registers that task with the configured cron in the business
+    // zone (CronTrigger.equals compares both). This context's expiry cron never matches a date: its trigger has no
+    // next run, so no expiry run is queued. Run by hand, the task is the daily run: it logs its count.
     @Test
     void theDailyRunIsScheduledInTheBusinessZone(CapturedOutput output) {
         List<ScheduledTask> tasks = new ArrayList<>();
         schedules.forEach(holder -> tasks.addAll(holder.getScheduledTasks()));
 
-        assertThat(tasks).filteredOn(task -> task.getTask().getRunnable().toString()
-                .equals(JobPostingExpiry.class.getName() + ".runDaily")).singleElement().satisfies(task -> {
+        assertThat(tasks)
+                .filteredOn(task -> task.getTask().getRunnable().toString()
+                        .equals(JobPostingExpiry.class.getName() + ".runDaily"))
+                .singleElement().satisfies(task -> {
             assertThat(task.nextExecution()).isNull();
             assertThat(task.getTask()).isInstanceOfSatisfying(CronTask.class, cron -> {
                 assertThat(cron.getExpression()).isEqualTo("0 0 0 31 2 *");

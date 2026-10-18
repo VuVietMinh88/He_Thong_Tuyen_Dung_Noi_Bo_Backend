@@ -36,23 +36,19 @@ import java.util.UUID;
  * an administrator lock, a logout or a role change waits for this write; then the token, the session and
  * SELF_PROFILE_WRITE are checked again (401 SESSION_INVALID, 403);</li>
  * <li>the candidate's email must not be the caller's own (400 REFERRAL_SELF_NOT_ALLOWED);</li>
- * <li>the posting's requisition, read without a lock (a posting never changes requisition): unknown posting, 404;</li>
- * <li>the requisition FOR NO KEY UPDATE (the 321 rule for every write that makes an application active, never FOR
- * SHARE: two referrals that both got a share lock, say next to a public intake's, would each wait for the other's in
- * the storage's FOR NO KEY UPDATE, a deadlock), then the caller is checked again, since the request may have
- * waited;</li>
  * <li>a new tracking code: 32 SecureRandom bytes, Base64URL without padding, stored as SHA-256 of the bytes (as
  * PostgresApplicationReceiptWriter);</li>
- * <li>ReferralApplicationStorage.store (task 350), joining this transaction: its own requisition lock is then a no-op,
- * and TRAN DUC LUONG's store() locks the posting FOR SHARE, checks APPROVED/PUBLISHED/deadline (404), runs the shared
- * duplicate rule (409), links the candidate and writes the CV; then the referral row;</li>
+ * <li>ReferralApplicationStorage.store (task 350), joining this transaction: the shared posting gate locks the
+ * requisition FOR NO KEY UPDATE then the posting FOR SHARE. A callback checks the caller after each wait before
+ * checking APPROVED/PUBLISHED/deadline (404 unavailable, 409 expired). Storage runs the shared duplicate rule (409),
+ * links the candidate and writes the CV; then the referral row. The callback runs again after catalog/candidate waits;</li>
  * <li>the caller is checked again (store() may have waited on the posting);</li>
  * <li>the candidate's confirmation is queued exactly as the receipt writer queues it (encrypted payload, joined
  * enqueue): the candidate receives the tracking code and the withdrawal link by email, the referrer never sees them.
  * The confirmation worker adds the referral paragraph at send time (ApplicationReferralLookup).</li>
  * </ol>
  * The referrer is the authenticated caller, never a form field. Not PostgresApplicationReceiptWriter.accept: it forces
- * REQUIRES_NEW, so its store()'s FOR SHARE would wait on this transaction's own requisition lock until lock_timeout.
+ * REQUIRES_NEW, which would separate the application from the referral transaction.
  * The token bytes are zeroed in finally.
  */
 @Component
@@ -109,22 +105,14 @@ public class ApplicationReferralWriter {
             throw new ApiException(HttpStatus.BAD_REQUEST, "REFERRAL_SELF_NOT_ALLOWED", "Không thể tự giới thiệu chính mình.",
                     Map.of("email", "Không thể tự giới thiệu chính mình."));
         }
-        // 3. The posting's requisition, without a lock; unknown: the answer store() gives.
-        var requisitions = jdbc.query("SELECT requisition_id FROM job_postings WHERE id = ?",
-                (row, number) -> row.getObject(1, UUID.class), form.postingId());
-        if (requisitions.isEmpty()) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "JOB_POSTING_NOT_FOUND", "Tin tuyển dụng không còn nhận hồ sơ.");
-        }
-        // 4. The 321 rule, then the caller again after the wait.
-        jdbc.query("SELECT 1 FROM recruitment_requisitions WHERE id = ? FOR NO KEY UPDATE",
-                (row, number) -> row.getInt(1), requisitions.getFirst());
-        requireStillReferrer(jwt, referrer);
-        // 5.-6. The application, its CV, its candidate link and the referral row, in this transaction.
+        // 3. The application, its CV, candidate link and referral row share the gate and this transaction. The
+        // callback refreshes time-dependent session/token validity and current permissions after every lock wait.
         StoredApplication stored = referrals.store(form.postingId(), form.submission(), cv, hash,
-                new ReferralApplicationStorage.ReferralDeclaration(referrer.id(), form.note(), true));
-        // 7. store() may have waited on the posting lock.
+                new ReferralApplicationStorage.ReferralDeclaration(referrer.id(), form.note(), true),
+                () -> requireStillReferrer(jwt, referrer));
+        // 4. One final caller check before enqueueing the confirmation.
         requireStillReferrer(jwt, referrer);
-        // 8. The candidate's confirmation, as the intake queues it; the stored values are what the 201 shows.
+        // 5. The candidate's confirmation, as the intake queues it; the stored values are what the 201 shows.
         var saved = jdbc.queryForMap("""
                 SELECT a.full_name, a.posting_title, r.note
                 FROM job_applications a JOIN application_referrals r ON r.application_id = a.id WHERE a.id = ?

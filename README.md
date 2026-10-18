@@ -27,11 +27,20 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - pom.xml, mvnw, mvnw.cmd, .mvn/: build từ repo root.
 - src/main/java/vn/ttcs/recruitment/: application, account, auth, security, health và các module được thêm theo task.
 - src/main/resources/: cấu hình; src/test/java/: unit/integration tests.
-- database/migrations/: SQL được Maven đóng gói vào db/migration trong JAR.
+- database/migrations/: lịch sử S5 và các bước bổ sung, đóng gói vào db/migration.
+- database/migrations-feedback/: lịch sử feedback và các bước bổ sung, đóng gói vào db/migration-feedback.
+- database/migrations-shared/: migration mới từ V55 dùng chung cho cả hai lịch sử.
 - docs/: hợp đồng API, architecture, database và cách chạy. devops/docker/: PostgreSQL local tùy chọn.
+
+## Chọn lịch sử database khi chạy bản backend thống nhất
+
+Một backend chứa cả tính năng ứng viên/Sprint 5 và feedback/auth. Với database mới, dùng `APP_MIGRATION_LINEAGE=s5` (mặc định). Với database đã có dữ liệu, chọn `s5` hoặc `feedback` theo tên script V26 trong `flyway_schema_history`; không đổi lựa chọn sau khi V26 đã chạy. Backend giữ nguyên SQL cũ và chỉ chạy các bước còn thiếu để hai lịch sử đạt cùng cấu trúc.
+
+Xem [bảng đối chiếu và cách nâng cấp database](docs/database/migration-lineages.md) trước khi nối bản này với database cũ. Không đổi tên SQL đã chạy, dùng `repair` hoặc bật out-of-order để bỏ qua xung đột.
 
 ## Tài liệu API đang có
 
+- [account-handover](docs/api/account-handover.md)
 - [account-import](docs/api/account-import.md)
 - [account-locking](docs/api/account-locking.md)
 - [account-roles](docs/api/account-roles.md)

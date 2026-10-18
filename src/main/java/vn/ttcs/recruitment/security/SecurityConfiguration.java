@@ -66,8 +66,9 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
+        // Login and forgot-password both identify the browser through X-Device-Id.
         configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization", "X-Device-Id"));
-        // Expose download filenames and browser-login lock duration to the allowed frontend.
+        // Expose download filenames and the wait time for either browser limit to the allowed frontend.
         configuration.setExposedHeaders(List.of("Content-Disposition", "Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -131,6 +132,27 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*").access(AuthorizationManagers.allOf(
                                 AuthorityAuthorizationManager.hasRole("ADMIN"),
                                 AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/accounts/*/roles").access(AuthorizationManagers.allOf(
+                                AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        // Feedback item 10: the work an account still holds, shown by the lock dialog. Like the lock,
+                        // plus REQUISITIONS_READ_ALL because it lists requisitions of every department;
+                        // AccountHandoverService checks all three again.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/accounts/*/handover-items")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL")))
+                        // Feedback item 10: hands the requisitions of an account over to other recruiters, and its
+                        // departments to other managers. Like the list above, plus REQUISITIONS_WRITE_ALL, the
+                        // permission of assigning recruiters; AccountHandoverService checks all four again after its
+                        // locks, and ORGANIZATION_WRITE_ALL too when the body has departments.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/accounts/*/handover")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("ADMIN"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_REQUISITIONS_WRITE_ALL")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/accounts", "/api/v1/accounts/*")
                                 .hasAuthority("PERM_USER_ADMIN_READ_ALL")
                         .requestMatchers(HttpMethod.GET, "/api/v1/departments", "/api/v1/departments/*")

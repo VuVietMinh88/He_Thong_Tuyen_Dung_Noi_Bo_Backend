@@ -31,6 +31,7 @@ target/
 # Local tooling and agent memory
 .cache/
 .agent-memory/
+.local/
 .local-notes/
 .agents/
 .codex/

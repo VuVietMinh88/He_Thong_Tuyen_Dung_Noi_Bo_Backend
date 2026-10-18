@@ -85,8 +85,42 @@ Thiếu SPF/DKIM, email mời và đặt lại mật khẩu dễ vào mục Spam
 2. Trên Frontend thật, dùng "Quên mật khẩu" với một tài khoản có email thật mà bạn kiểm soát. API luôn trả thông báo chung, nên phải xem hộp thư để biết thư đã đến.
 3. Mở thư: người gửi là `support@internal-hire.com`, link bắt đầu bằng `https://internal-hire.com/reset-password?token=`. Xem tiêu đề thư (Show original) để chắc SPF và DKIM đều `PASS`.
 4. Nếu không nhận được thư: kiểm tra mục Spam, log Backend (chỉ ghi loại lỗi SMTP, không ghi mật khẩu), host/cổng/kiểu mã hóa và mật khẩu trong `.env`.
+5. Khi thử lại nhiều lần, nhớ giới hạn theo trình duyệt: mỗi trình duyệt chỉ gửi được 5 yêu cầu quên mật khẩu trong một cửa sổ 15 phút. Sau đó trang hiện thời gian chờ đếm ngược (429 `PASSWORD_RESET_DEVICE_LOCKED`); đây không phải lỗi mail. Chờ hết thời gian, hoặc dùng trình duyệt khác hay cửa sổ ẩn danh, rồi mới thử lại. Một tài khoản cũng chỉ nhận một thư mỗi 60 giây. Xem [giới hạn theo trình duyệt](../api/password-reset.md#giới-hạn-theo-trình-duyệt).
 
-## 5. Bảo mật
+## 5. Footer email
+
+Email đặt lại mật khẩu và email mời kích hoạt tài khoản (kể cả email gửi khi import nhân sự từ Excel) có chung một footer hỗ trợ do `MailLayout` (gói `vn.ttcs.recruitment.mail`) tạo. Mỗi email có hai phần cùng nội dung:
+
+- `text/plain` UTF-8: giữ nguyên từng dòng của email cũ (liên kết `...?token=`, `Mật khẩu tạm: ...`), sau đó là dòng phân cách chữ ký `-- ` (hai gạch và một dấu cách) và footer;
+- `text/html` UTF-8: khung rộng 560px với CSS inline; đầu thư là tên công ty dạng chữ (hoặc logo nếu đã cấu hình), liên kết là một nút bấm kèm URL đầy đủ bên dưới, footer chữ xám 12px có liên kết `mailto:` (và `tel:` khi có hotline). Mọi giá trị chèn vào HTML đều được escape.
+
+Footer với cấu hình mặc định:
+
+```text
+Cần hỗ trợ? Liên hệ Bộ phận Nhân sự qua email support@internal-hire.com.
+Email này được gửi tự động từ Hệ thống tuyển dụng nội bộ.
+© 2026 Hệ thống tuyển dụng nội bộ
+```
+
+Khi có hotline, câu đầu thêm ` hoặc số điện thoại <số>`. Năm lấy theo `app.business-zone` (giờ Việt Nam). `Reply-To` là email hỗ trợ, nên người nhận bấm "Trả lời" sẽ viết tới hộp thư hỗ trợ. Người gửi (`MAIL_FROM`) và tiêu đề thư không đổi.
+
+| Biến | Mặc định | Ghi chú |
+|---|---|---|
+| `MAIL_COMPANY_NAME` | `Hệ thống tuyển dụng nội bộ` | 1–120 ký tự, không có ký tự điều khiển; hiện ở đầu thư, câu "gửi tự động" và dòng ©. Đặt giống `VITE_COMPANY_NAME` của Frontend |
+| `MAIL_SUPPORT_TEAM` | `Bộ phận Nhân sự` | Cùng quy tắc với tên công ty; giống `VITE_SUPPORT_TEAM` |
+| `MAIL_SUPPORT_EMAIL` | `support@internal-hire.com` | Một địa chỉ email, tối đa 254 ký tự; cũng là `Reply-To`. Giống `VITE_SUPPORT_EMAIL` |
+| `MAIL_SUPPORT_PHONE` | trống | Trống thì không hiện hotline. Nếu có: 6–20 ký tự gồm chữ số (ít nhất 6), khoảng trắng và `+ ( ) . -`. Giống `VITE_SUPPORT_PHONE` |
+| `MAIL_LOGO` | trống | Trống thì đầu thư là tên công ty dạng chữ. Nếu có: chỉ nhận `classpath:` (ví dụ `classpath:mail/logo.png`) hoặc `file:` trên chính máy chủ, không ghi tên máy (ví dụ `file:/opt/ttcs/mail-logo.png`); file PNG hoặc JPEG, tối đa 200 KB |
+
+**Logo.** Hiện chưa có file logo chính thức (`logo.png` của Frontend chỉ là ảnh gradient tạm), nên mặc định email không có logo. Khi có file, đặt `MAIL_LOGO`: Backend đọc và kiểm tra file một lần lúc khởi động, rồi gắn vào mỗi email dưới dạng ảnh inline (`Content-ID: <company-logo>`, HTML dùng `<img src="cid:company-logo">`). Không dùng ảnh tải từ URL ngoài: nhiều trình đọc thư (Outlook, Gmail) chặn ảnh từ xa, và ở máy dev URL chỉ là localhost. Vì vậy `MAIL_LOGO` dạng `http:`, `https:`, `jar:` hay đường dẫn không có tiền tố bị từ chối: Backend không tải gì qua mạng khi khởi động. Thay file logo thì khởi động lại Backend.
+
+Giá trị sai (tên rỗng, quá 120 ký tự hoặc bị lỗi mã, email hay số điện thoại sai định dạng, logo không bắt đầu bằng `classpath:`/`file:`, không tồn tại, không phải PNG/JPEG hoặc lớn hơn 200 KB) làm Backend dừng ngay khi khởi động; thông báo lỗi nêu tên biến.
+
+**Chữ có dấu trong `.env`.** Spring đọc `.env` (và `application.properties`) như file properties mã ISO-8859-1, nên chữ tiếng Việt phải viết dạng escape Unicode, ví dụ `MAIL_SUPPORT_TEAM=B\u1ed9 ph\u1eadn Nh\u00e2n s\u1ef1`. Nếu không đổi tên, để dòng ở dạng chú thích như trong `.env.example` để dùng mặc định. Viết chữ có dấu trực tiếp (file `.env` lưu UTF-8) thì mỗi chữ có dấu bị đọc thành hai, ba ký tự lạ, ví dụ `Công ty` thành `CÃ´ng ty`; Backend nhận ra tên bị lỗi mã như vậy và dừng khi khởi động. Biến môi trường của hệ điều hành hoặc của Docker Compose (`environment:`) không đi qua file properties; nếu đặt chữ có dấu ở đó, gửi một email thử sau khi triển khai để kiểm tra. `devops/vps/compose.yaml` hiện chưa đặt các biến này, nên VPS dùng giá trị mặc định.
+
+Kiểm tra: gửi "Quên mật khẩu" và tạo một tài khoản thử, mở thư ở cả chế độ HTML và văn bản (Mailpit có tab HTML và Text): footer, liên kết `mailto:` và nút bấm phải đúng, link vẫn bắt đầu bằng URL Frontend đã cấu hình. Footer và `Reply-To` không thay cho DKIM/DMARC: hai bản ghi này vẫn **chưa có** (mục 3), nên thư vẫn dễ vào Spam cho tới khi bổ sung.
+
+## 6. Bảo mật
 
 - Không commit `.env`, không gửi mật khẩu hộp thư qua chat hay đặt trong tài liệu. Nếu lỡ để lộ, đổi mật khẩu trong ServerPoint ngay.
 - Máy dev và test tự động không dùng SMTP thật; test dùng máy chủ SMTP giả trên `127.0.0.1`.
