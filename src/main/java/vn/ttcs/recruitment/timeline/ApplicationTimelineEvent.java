@@ -9,11 +9,11 @@ import java.util.UUID;
 /**
  * Task 403 (story S5-07): one event of exactly one application's timeline, read by ApplicationTimelineRepository from
  * the table that already records it. id is stable and names its source ("submission:", "stage:", "email:", "notice:",
- * "note:" or "rating:" followed by the source row's UUID); occurredAt is the time that source saved. Ids and staff
+ * "note:", "rating:", "interview:" or "evaluation:" followed by the source row's UUID); occurredAt is the time that source saved. Ids and staff
  * display names only: no candidate data, no staff email, no mail payload, Message-ID or tracking secret.
  * <p>
- * Interviews and interview evaluations have no source table yet, so they have no type: a stage change to INTERVIEW
- * is only a stage change. toString leaves internal text and names out.
+ * Interview and evaluation events expose only their recorded metadata; a stage change to INTERVIEW is still only
+ * a stage change. toString leaves internal text and names out.
  */
 public record ApplicationTimelineEvent(String id, Type type, UUID applicationId, Instant occurredAt, Actor actor,
                                        Details details) {
@@ -37,7 +37,14 @@ public record ApplicationTimelineEvent(String id, Type type, UUID applicationId,
         SCREENING_NOTE_ADDED,
         // The current shared rating (application_screening_ratings, one row per application, overwritten by every
         // rating): its value and who saved it when. Earlier values are not kept, so this is not a rating history.
-        SCREENING_RATING_SNAPSHOT
+        SCREENING_RATING_SNAPSHOT,
+        // Immutable interview_events rows; details use the recorded round/time, never current room or meeting link.
+        INTERVIEW_SCHEDULED,
+        INTERVIEW_RESCHEDULED,
+        INTERVIEW_CANCELLED,
+        // Immutable evaluation_events rows, never drafts, scores, comments or conclusions.
+        EVALUATION_SUBMITTED,
+        EVALUATION_REOPENED
     }
 
     public enum ActorType { CANDIDATE, STAFF, SYSTEM }
@@ -54,7 +61,8 @@ public record ApplicationTimelineEvent(String id, Type type, UUID applicationId,
     }
 
     // What the event recorded; the event's type names which record it is.
-    public sealed interface Details permits Submission, StageChange, EmailSent, ScreeningNote, RatingSnapshot { }
+    public sealed interface Details permits Submission, StageChange, EmailSent, ScreeningNote, RatingSnapshot,
+            InterviewChange, EvaluationChange { }
 
     // The posting title stored with the application when it was received (V26 snapshot, written by staff).
     public record Submission(String postingTitle) implements Details { }
@@ -100,6 +108,15 @@ public record ApplicationTimelineEvent(String id, Type type, UUID applicationId,
     public record RatingSnapshot(int value) implements Details {
         @Override public String toString() { return "RatingSnapshot[value redacted]"; }
     }
+
+    // The round name and scheduled times as recorded by this event, even after later rescheduling or cancellation.
+    public record InterviewChange(UUID interviewId, String roundName, Instant startsAt, Instant endsAt)
+            implements Details {
+        @Override public String toString() { return "InterviewChange[" + interviewId + ", details redacted]"; }
+    }
+
+    // A submission or reopening occurred; the caller must use the evaluation API's separate rules to read a form.
+    public record EvaluationChange(UUID interviewId, UUID formId) implements Details { }
 
     @Override
     public String toString() {
