@@ -114,6 +114,9 @@ public final class ApprovalRound {
         }
         int level = currentLevel();
         return switch (action) {
+            // Task 263: the round moves to the next level, and after the last one the requisition is approved.
+            case APPROVE -> new ApprovalOutcome(ApprovalEventType.APPROVED, level, RequisitionStatus.PENDING_APPROVAL,
+                    level == levelCount() ? RequisitionStatus.APPROVED : RequisitionStatus.PENDING_APPROVAL);
             case REJECT -> new ApprovalOutcome(ApprovalEventType.REJECTED, level, RequisitionStatus.PENDING_APPROVAL,
                     RequisitionStatus.REJECTED);
         };
