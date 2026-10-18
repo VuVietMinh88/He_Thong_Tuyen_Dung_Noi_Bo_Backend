@@ -24,7 +24,7 @@ For a referral, the submission actor is the staff member recorded as its
 referrer; a directly submitted application has a candidate actor. The referral
 note is not exposed by this endpoint.
 The event ID prefixes (`submission:`, `stage:`, `email:`, `notice:`, `note:`,
-`rating:`) distinguish identical UUIDs from different sources.
+`rating:`, `interview:`, `evaluation:`) distinguish identical UUIDs from different sources.
 
 | Type | Source and meaning |
 | --- | --- |
@@ -33,6 +33,11 @@ The event ID prefixes (`submission:`, `stage:`, `email:`, `notice:`, `note:`,
 | `EMAIL_SENT` | Confirmation or withdrawal notice with `status=SENT` and a recorded `sent_at`. |
 | `SCREENING_NOTE_ADDED` | An append-only internal screening note with its author and time. |
 | `SCREENING_RATING_SNAPSHOT` | The current shared screening score and its last update time. |
+| `INTERVIEW_SCHEDULED` | An interview was created; the round name and times are the values recorded then. |
+| `INTERVIEW_RESCHEDULED` | An interview was edited; the round name and times are the resulting recorded values. |
+| `INTERVIEW_CANCELLED` | An interview was cancelled; its recorded round name and times remain visible. |
+| `EVALUATION_SUBMITTED` | An evaluator submitted a form; only its IDs, actor and event time appear. |
+| `EVALUATION_REOPENED` | A submitted form was reopened; this does not reveal its current contents or status. |
 
 `details` depends on `type`; consumers should branch on that field:
 
@@ -43,6 +48,8 @@ The event ID prefixes (`submission:`, `stage:`, `email:`, `notice:`, `note:`,
 | `EMAIL_SENT` | `mail` (`APPLICATION_CONFIRMATION`, `CANDIDATE_WITHDRAWAL`, `RECRUITER_WITHDRAWAL`), `recipient` (`type`, `id`, `displayName`) |
 | `SCREENING_NOTE_ADDED` | `content` |
 | `SCREENING_RATING_SNAPSHOT` | `value` (integer 1–5) |
+| `INTERVIEW_SCHEDULED`, `INTERVIEW_RESCHEDULED`, `INTERVIEW_CANCELLED` | `interviewId`, `roundName`, `startsAt`, `endsAt` |
+| `EVALUATION_SUBMITTED`, `EVALUATION_REOPENED` | `interviewId`, `formId` |
 
 For example, the note item below belongs only to the requested application:
 
@@ -75,11 +82,18 @@ The timeline therefore labels the one surviving value as a snapshot. It does
 not reconstruct old scores or treat that score as an interview evaluation.
 Tags are current selections and are not presented as historical events.
 
-Interview scheduling and interview evaluation modules are not implemented in
-this backend yet. Their events must be integrated when those source modules
-exist. Entering the `INTERVIEW` stage does not mean an interview was scheduled
-or held. This delivery does not complete those two source requirements of
-the parent story, and introduces no fabricated events.
+Interview and evaluation events come from the append-only `interview_events`
+and `evaluation_events` tables (shared migrations V55/V56). Editing a schedule
+does not rewrite a previous event's round name or times. Entering the `INTERVIEW`
+stage alone never creates a scheduling event. Creating or saving a draft
+evaluation produces no timeline event. Submission and reopening events remain
+as history even if the form is later reopened or submitted again.
+
+These events expose metadata only. The timeline does not return interview
+rooms, meeting links, cancellation/edit reasons, evaluation scores, comments,
+conclusions or peer draft state. A `formId` is a reference, not permission to
+open the form: the separate evaluation API checks panel membership and its own
+visibility rules. Current staff display names still apply to event actors.
 
 Successful reads return `Cache-Control: no-store` and write a `PROFILE` access
 audit for the disclosed application in the same transaction. Existing records
@@ -89,5 +103,6 @@ returns 403 before record lookup; an unknown application returns 404.
 Invalid pagination or a malformed UUID returns 400.
 
 The route is read-only. No candidate-facing or referrer endpoint gains access
-to this internal DTO. No SQL migration, email send, or background worker is
-introduced; both existing Flyway lineages retain their histories unchanged.
+to this internal DTO. Reading it sends no email and starts no worker. The new
+source modules add shared migrations V55/V56; both existing Flyway lineages
+retain their historical SQL unchanged.

@@ -193,6 +193,15 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         error(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":1,\"reason\":\"Lặp lại\"}", recruiterToken), 409, "INTERVIEW_CANCELLED");
     }
 
+    @Test
+    void anyPreviousSubmissionLocksScheduleEvenAfterEvaluationIsReopened() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        jdbc.update("UPDATE interview_sessions SET ever_submitted_at=? WHERE id=?", Timestamp.from(ApplicationTestSupport.NOW), UUID.fromString(id));
+        var update = schedule(START.plusSeconds(3600), panel, "Room"); update.put("expectedVersion", 0);
+        error(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), recruiterToken), 409, "INTERVIEW_EVALUATION_SUBMITTED");
+        error(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\"Hủy\"}", recruiterToken), 409, "INTERVIEW_EVALUATION_SUBMITTED");
+        assertThat(count("interview_events")).isEqualTo(1);
+    }
 
     @Test
     void cancellationAfterWithdrawalOrPausedRequisitionStillFreesBookedResources() throws Exception {
