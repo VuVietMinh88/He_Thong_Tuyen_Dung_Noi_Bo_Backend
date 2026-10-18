@@ -1,6 +1,6 @@
 # API cổng việc làm công khai
 
-Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm) và TKNHTTDNB1-316 (giới hạn dữ liệu trả ra trên cổng công khai), story TKNHTTDNB1-40 (S4-01); TKNHTTDNB1-320 (xây dựng API chi tiết tin tuyển dụng công khai), story TKNHTTDNB1-41 (S4-02). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
+Phạm vi TKNHTTDNB1-314 (xây dựng API công khai danh sách việc làm), TKNHTTDNB1-315 (xử lý bộ lọc và tìm kiếm nội dung việc làm) và TKNHTTDNB1-316 (giới hạn dữ liệu trả ra trên cổng công khai), story TKNHTTDNB1-40 (S4-01); TKNHTTDNB1-320 (xây dựng API chi tiết tin tuyển dụng công khai) và TKNHTTDNB1-321 (kiểm tra khả năng ứng tuyển theo trạng thái tin), story TKNHTTDNB1-41 (S4-02). URL dùng tiền tố `/api/v1`, **không** cần tài khoản; mọi response (kể cả lỗi) dùng `Cache-Control: no-store`. Đây là hợp đồng cho các trang công khai của frontend (task 312, 313, 318, 319). Hai API do task 309 (story S3-10) làm ra cùng bản xem trước của người soạn, xem [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md#xem-trước); trạng thái của tin và việc xuất bản cũng ở tài liệu đó.
 
 ## Tổng quan
 
@@ -129,7 +129,7 @@ Story S4-02 (TKNHTTDNB1-41): ứng viên xem chi tiết một tin tuyển dụng
 |2. Nút ứng tuyển nổi bật, thân thiện di động|Frontend (task 318). Backend cho biết khi nào hiện nút: `applicationOpen`, `applicationClosesAt` (task 320)|Không có test backend|
 |3. Tin hết hạn hiện thông báo thay cho form|Task 320: tin đã xuất bản qua hạn trả **200** cùng nội dung, kèm `applicationOpen: false`, thay vì 404 (`JobPostingApplicability`)|`aPublishedPostingLeavesTheListAfterItsDeadlineAndItsDetailSaysItExpired`, `JobPostingPortalRuleIntegrationTest`, `JobPostingApplicabilityTest`|
 
-Chặn nộp hồ sơ vào tin hết hạn ở phía server (task 321) và API nộp hồ sơ (task 326, story S4-03) không thuộc task 320.
+Chặn nộp hồ sơ vào tin hết hạn ở phía server là task 321 (mục "Kiểm tra khả năng ứng tuyển"); API nộp hồ sơ (task 326, story S4-03) không thuộc story này.
 
 ### Ba trường hợp
 
@@ -183,7 +183,59 @@ Ví dụ tin hạn 30/11/2026:
 |`2026-11-30T16:59:59Z`|23:59:59 ngày 30/11|Có tin|200, `applicationOpen: true`|
 |`2026-11-30T17:00:00Z`|00:00 ngày 1/12|Không có tin|200, cùng nội dung, `applicationOpen: false`|
 
-Trạng thái trong database vẫn là `PUBLISHED`: thông báo hết hạn đi theo ngày, không cần tác vụ nào chạy. Tin hết hạn vẫn mở được bằng liên kết, không giới hạn thời gian, cho tới khi yêu cầu nguồn được đóng (tin chuyển `CLOSED`, task 292) hoặc bị tạm dừng (404 cho tới khi mở lại); câu hỏi 22. `applicationOpen` là trạng thái lúc đọc: API nộp hồ sơ (task 326) phải tự kiểm lại khi nhận hồ sơ.
+Trạng thái trong database vẫn là `PUBLISHED`: thông báo hết hạn đi theo ngày, không cần tác vụ nào chạy. Tin hết hạn vẫn mở được bằng liên kết, không giới hạn thời gian, cho tới khi yêu cầu nguồn được đóng (tin chuyển `CLOSED`, task 292) hoặc bị tạm dừng (404 cho tới khi mở lại); câu hỏi 22. `applicationOpen` là trạng thái lúc đọc: API nộp hồ sơ (task 326) kiểm lại khi nhận hồ sơ bằng `JobPostingApplicationGate.requireOpen` (task 321, mục "Kiểm tra khả năng ứng tuyển").
+
+## Kiểm tra khả năng ứng tuyển (task 321)
+
+Task 321 (Jira: "Kiểm tra khả năng ứng tuyển theo trạng thái tin"): chặn nộp hồ sơ vào tin đã hết hạn hoặc chưa xuất bản, và xử lý tin hết hạn sau khi trang đã được mở. API nộp hồ sơ là task 326 (story S4-03) và chưa có, nên task 321 làm sẵn bước kiểm phía server mà task 326 phải gọi, `JobPostingApplicationGate.requireOpen(postingId)`, dùng được ngay. Task 321 không thêm hay đổi API HTTP nào, không thêm migration, không thêm mã quyền.
+
+| Yêu cầu của task 321 | Làm ở đâu | Test |
+|---|---|---|
+|Chặn ứng tuyển vào tin đã hết hạn|`requireOpen` trả 409 `JOB_POSTING_EXPIRED` "Tin tuyển dụng đã hết hạn nộp hồ sơ."|`JobPostingApplicationGateIntegrationTest.anApplicationSentAfterMidnightIsRefusedThoughThePageWasOpenedBefore`, `JobPostingPortalRuleIntegrationTest`|
+|Chặn ứng tuyển vào tin chưa xuất bản hoặc không còn công khai|`requireOpen` trả 404 `JOB_POSTING_NOT_FOUND`, giống chi tiết tin và id không tồn tại|`JobPostingPortalRuleIntegrationTest` (mọi trạng thái tin), `aPausedRequisitionTakesNoApplicationsUntilItIsResumed`, `anApplicationQueuedBehindTheClosureOfItsRequisitionIsNotFound`, `anUnknownPostingIsNotFound`|
+|Tin hết hạn sau khi trang đã mở|Kiểm lại lúc nhận hồ sơ, không dựa vào `applicationOpen` của trang; "hôm nay" đọc **sau** khi khóa|`anApplicationSentAfterMidnightIsRefusedThoughThePageWasOpenedBefore`, `anApplicationThatWaitsPastMidnightUsesTheNewDate`|
+|Tin hoặc yêu cầu bị đổi trong lúc hồ sơ đang được nhận|Khóa dòng yêu cầu (`FOR NO KEY UPDATE`) rồi dòng tin (`FOR SHARE`) tới khi hồ sơ commit|`anOpenPostingPassesAndHoldsBothRowsUntilTheApplicationCommits`, `anApplicationQueuedBehindTheClosureOfItsRequisitionIsNotFound`|
+
+### Cùng một quy tắc với chi tiết tin
+
+`requireOpen` dùng đúng quy tắc của chi tiết tin (`JobPostingApplicability`, task 320), nên trang và server không bao giờ nói khác nhau về một tin ở cùng một thời điểm:
+
+| Trường hợp | Chi tiết tin (task 320) | `requireOpen` (task 321) |
+|---|---|---|
+|Đang nhận hồ sơ (`OPEN`)|200, `applicationOpen: true`|Cho qua, trả `OpenJobPosting(postingId, requisitionId, applicationDeadline)`|
+|Hết hạn (`EXPIRED`): đã xuất bản, yêu cầu còn `APPROVED`, hạn nộp đã qua theo giờ Việt Nam|200, `applicationOpen: false`|409 `JOB_POSTING_EXPIRED` "Tin tuyển dụng đã hết hạn nộp hồ sơ."|
+|Không công khai (`NOT_PUBLIC`): nháp, chờ duyệt, cần chỉnh sửa, đã duyệt chưa xuất bản, đã đóng (`CLOSED`), yêu cầu không còn `APPROVED` (ví dụ tạm dừng), id không tồn tại|404|404 `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng."|
+
+Ví dụ tin hạn 30/11/2026: trang mở lúc 23:59:59 giờ Việt Nam (`2026-11-30T16:59:59Z`) có `applicationOpen: true`; ứng viên bấm gửi lúc 00:00:00 ngày 1/12 (`2026-11-30T17:00:00Z`) thì nhận 409, dù trong database tin vẫn `PUBLISHED`: hết hạn đi theo ngày, không cần tác vụ nào chạy trước.
+
+### Khóa và thời điểm
+
+`requireOpen` chạy **trong transaction của người gọi** (`Propagation.MANDATORY`), theo thứ tự:
+
+1. Đọc id yêu cầu của tin (không bao giờ đổi), chưa khóa gì. Không có tin: 404.
+2. Khóa dòng yêu cầu `FOR NO KEY UPDATE` (`JobPostingSourceRepository.lockStatusForApplication`), rồi khóa dòng tin `FOR SHARE` (`JobPostingReadRepository.lockForApplication`): yêu cầu trước tin, như mọi thao tác ghi tin. Hai câu SQL riêng, mỗi câu chỉ đọc một bảng: sau khi chờ khóa, PostgreSQL đọc lại dòng bị khóa nhưng không đọc lại các dòng khác của một phép join.
+3. Đọc "hôm nay" (`BusinessCalendar.today()`, giờ Việt Nam) **sau** hai khóa: hồ sơ phải chờ khóa từ 23:59:59 qua 00:00 được xét theo ngày mới.
+4. Áp quy tắc ở bảng trên. Không ghi gì. Lỗi từ chối (404, 409) không đánh dấu transaction của người gọi chỉ được rollback (`noRollbackFor = ApiException.class`, xem "Hợp đồng cho task 326").
+
+Vì sao các mức khóa này: cả hai khóa đều xung đột với khóa của mọi thao tác ghi (`FOR NO KEY UPDATE` khi tạm dừng, mở lại, đóng hay hủy yêu cầu và khi sửa, gửi duyệt, duyệt, xuất bản tin; `UPDATE` khi đóng tin, task 292), nên thay đổi đã commit trong lúc chờ đều được thấy, và không thay đổi nào commit được trước khi hồ sơ commit. Dòng yêu cầu bị khóa `FOR NO KEY UPDATE`, không phải `FOR SHARE`: khi dòng chỉ đang bị khóa chia sẻ, PostgreSQL cấp ngay `FOR SHARE` cho người đến sau, vượt lên trước thao tác ghi đang chờ, nên các hồ sơ nộp chồng lên nhau có thể làm lần tạm dừng hay đóng yêu cầu chờ mãi. Với `FOR NO KEY UPDATE`, người chờ được phục vụ theo thứ tự đến: thao tác ghi đang chờ một hồ sơ luôn chạy trước mọi hồ sơ đến sau nó. Đổi lại, các hồ sơ nộp vào cùng một yêu cầu chạy lần lượt, mỗi hồ sơ chỉ giữ khóa trong lúc ghi dòng của mình; kiểm khóa ngoại (`FOR KEY SHARE`) và các lần đọc thường không bị chặn. Dòng tin chỉ cần `FOR SHARE`, vì mọi thao tác ghi tin khóa dòng yêu cầu trước. `FOR KEY SHARE` không đủ cho dòng nào: nó không xung đột với một `UPDATE` không đổi cột khóa. Bước kiểm này cũng là phần "khóa dòng yêu cầu trước khi ghi hồ sơ, từ chối yêu cầu đã tuyển đủ hoặc đã hủy" trong hợp đồng của `RequisitionPipelineSource` (task 291, [đổi trạng thái yêu cầu](requisition-status.md#dành-cho-module-ứng-viên)).
+
+Transaction của người gọi phải đọc ghi và ở mức READ COMMITTED. Gọi ngoài transaction: `IllegalTransactionStateException`. Transaction chỉ đọc, hoặc mức REPEATABLE READ, SERIALIZABLE: `IllegalStateException` trước mọi câu SQL. Đây là lỗi lập trình, không phải lỗi cho ứng viên: ở REPEATABLE READ, PostgreSQL không cho khóa một dòng đã đổi sau snapshot (báo lỗi serialization thay vì đọc bản mới), còn transaction chỉ đọc không được khóa dòng (`FOR NO KEY UPDATE`, `FOR SHARE`).
+
+### Hợp đồng cho task 326
+
+> **API nộp hồ sơ (task 326) phải:**
+>
+> - Gọi `JobPostingApplicationGate.requireOpen(postingId)` **đầu tiên**, trong transaction READ COMMITTED đọc ghi của mình (mặc định của `@Transactional`), trước khi ghi gì.
+> - Làm việc chậm (captcha, giới hạn tần suất, lưu và đọc CV) **trước** khi gọi, gửi mail **sau** khi commit, để khóa chỉ giữ trong thời gian ngắn: hồ sơ khác vào cùng yêu cầu và mọi thao tác ghi yêu cầu, ghi tin phải chờ tới khi transaction của mình kết thúc.
+> - Theo thứ tự khóa: tài khoản và phiên của mình (nếu có), rồi `requireOpen`, rồi dòng của mình.
+> - **Không** `UPDATE` dòng yêu cầu hay dòng tin sau `requireOpen` trong cùng transaction: hai dòng này chỉ do module của chúng ghi, kèm kiểm tra, `revision` và lịch sử của chúng; `UPDATE` ở đây sẽ bỏ qua các bước đó.
+> - Trả 404 thành "Tin không còn nhận hồ sơ" và 409 `JOB_POSTING_EXPIRED` thành thông báo hết hạn (giữ nguyên `code`, `message` của `ApiException`).
+> - Lỗi từ chối của `requireOpen` (`ApiException` 404, 409) **không** đánh dấu transaction của mình chỉ được rollback: để lỗi đi ra khỏi phương thức `@Transactional` thì transaction rollback như mọi lỗi; bắt lỗi (ví dụ để ghi lại lần nộp bị từ chối) rồi commit cũng được, các khóa đã lấy giữ tới lúc đó. Lỗi khác (gọi sai transaction, câu SQL lỗi) vẫn đánh dấu rollback: bắt rồi commit sẽ ném `UnexpectedRollbackException`.
+> - `requisitionId` là dữ liệu nội bộ (task 316): chỉ dùng cho dòng của mình và cho số đếm của `RequisitionPipelineSource`; không bao giờ trả trong response cho ứng viên, kết quả tra cứu hay email.
+>
+> **Danh sách kiểm cho test của task 326:** bước kiểm được gọi đầu tiên trong transaction READ COMMITTED đọc ghi; không có `UPDATE` yêu cầu hay tin sau nó; 404 và 409 được trả như trên; nếu bắt lỗi từ chối để ghi lại lần nộp bị từ chối thì dòng đó được commit; body 200, 404, 409 của API nộp hồ sơ (cùng mã tra cứu và email xác nhận của S4-03, S4-05) không chứa id yêu cầu hay khóa nào task 316 cấm (mục "Dữ liệu trả ra").
+
+`JobPostingApplicationGateIntegrationTest` gọi bước kiểm đúng như task 326 sẽ gọi và kiểm: tin đang mở trả đúng id và hạn nộp; trong lúc transaction của hồ sơ còn mở, hồ sơ thứ hai vào cùng tin, một `UPDATE` dòng tin và lần tạm dừng của HR đều phải chờ tới khi hồ sơ commit, rồi hồ sơ thứ hai chạy trước lần tạm dừng đến sau nó (test duy nhất ghim mức khóa của dòng tin); hồ sơ gửi lúc 00:00 sau trang mở lúc 23:59:59 nhận 409; hồ sơ chờ khóa qua nửa đêm nhận 409; hồ sơ xếp hàng sau lần đóng yêu cầu nhận 404 và tin thành `CLOSED`; yêu cầu tạm dừng thì 404, mở lại thì qua; ba điều kiện về transaction; bước kiểm không đổi dòng nào (kể cả phiên bản dòng `xmin`); và lỗi từ chối để đi ra thì transaction rollback, còn bắt lại (409 của tin hết hạn, 404 của id không tồn tại) thì transaction không bị đánh dấu rollback và commit được. `JobPostingPortalRuleIntegrationTest` kiểm bước kiểm cho cùng kết quả với danh sách và chi tiết ở mọi trạng thái tin, hạn nộp hôm qua, hôm nay, ngày mai, yêu cầu đã duyệt hoặc tạm dừng.
 
 ## Dữ liệu trả ra (task 316)
 
@@ -245,6 +297,7 @@ Tìm kiếm cũng không dùng được để dò văn bản nội bộ: từ kh
 |401|`UNAUTHORIZED`|Gửi kèm Bearer hỏng hoặc hết hạn; hoặc không kèm token mà gọi phương thức hay đường dẫn khác ba API trên, ví dụ `POST /public/job-postings` (có `WWW-Authenticate: Bearer`)|
 |403|`FORBIDDEN`|Kèm token hợp lệ mà gọi phương thức hoặc đường dẫn khác ba API trên, ví dụ `POST /public/job-postings`|
 |404|`JOB_POSTING_NOT_FOUND`|Chi tiết: không có tin với `{id}`, hoặc tin không công khai (mục "Chi tiết tin"). Tin đã xuất bản qua hạn nộp không phải lỗi: 200 với `applicationOpen: false` (task 320)|
+|409|`JOB_POSTING_EXPIRED`|Không phải lỗi của ba API trên: API nộp hồ sơ (task 326) sẽ trả khi tin đã qua hạn nộp lúc nhận hồ sơ, kể cả khi trang được mở trước đó (task 321, mục "Kiểm tra khả năng ứng tuyển")|
 
 Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 
@@ -254,7 +307,7 @@ Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 - `page` đếm từ 0 (nút "Trang 1" gửi `page=0`); `size` tối đa 100. Dùng `totalPages` để vẽ phân trang, không tự đếm.
 - Bộ lọc (task 315): gửi `departmentId`, `workLocationId`, `employmentTypeId` và `q` (không phải `keyword`), mã hóa bằng `encodeURIComponent`; bỏ hẳn tham số hoặc gửi rỗng khi người dùng chọn "Tất cả". Đổi bộ lọc thì quay về `page=0`. Lấy ba ô chọn từ `GET /public/job-postings/filters`, không từ `/departments` hay `/recruitment-catalogs` (cần đăng nhập). Dùng `id` làm `key` và giá trị của ô chọn, không dùng `name`, và không gộp các giá trị cùng tên: hai phòng ban có thể cùng tên mà là hai phòng ban khác nhau (mục "Giá trị bộ lọc"; nhãn phân biệt còn chờ câu hỏi 21). Form soạn tin ở nhánh `UI` đang để "Remote", "Hybrid" trong ô địa điểm; backend lọc hình thức làm việc theo danh mục `EMPLOYMENT_TYPE` (câu hỏi 21).
 - Từ khóa có phân biệt dấu: gợi ý người dùng gõ có dấu; trang rỗng khi tìm là kết quả bình thường, không phải lỗi.
-- Chi tiết (task 320, trang của task 318): hiện form hoặc nút ứng tuyển chỉ khi `applicationOpen` là `true`; khi `false`, hiện thông báo hết hạn cùng nội dung tin. Trang đang mở chuyển sang thông báo khi `Date.now()` qua `applicationClosesAt` (so thời điểm, không tự tính theo múi giờ), không cần tải lại. API nộp hồ sơ (task 326) vẫn có thể từ chối nếu tin vừa hết hạn hoặc bị gỡ.
+- Chi tiết (task 320, trang của task 318): hiện form hoặc nút ứng tuyển chỉ khi `applicationOpen` là `true`; khi `false`, hiện thông báo hết hạn cùng nội dung tin. Trang đang mở chuyển sang thông báo khi `Date.now()` qua `applicationClosesAt` (so thời điểm, không tự tính theo múi giờ), không cần tải lại. API nộp hồ sơ (task 326) vẫn có thể từ chối khi nhận hồ sơ (task 321): 409 `JOB_POSTING_EXPIRED` thì chuyển sang thông báo hết hạn, 404 thì báo tin không còn nhận hồ sơ.
 - Tin đang mở có thể rời danh sách giữa hai lần tải (qua hạn lúc 00:00 giờ Việt Nam, yêu cầu bị tạm dừng). Qua hạn thì chi tiết vẫn mở, kèm `applicationOpen: false`; yêu cầu bị tạm dừng hoặc đóng thì chi tiết nhận 404: hiện "Không tìm thấy tin tuyển dụng" thay vì báo lỗi hệ thống.
 - So sánh hạn nộp theo ngày `applicationDeadline` (không có giờ); không đổi sang giờ của trình duyệt.
 
@@ -262,4 +315,4 @@ Body lỗi có đúng ba khóa `code`, `message`, `fieldErrors`.
 
 Câu hỏi 21 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md): định nghĩa "đang tuyển" ở trên (tính cả ngày hạn theo giờ Việt Nam, yêu cầu tạm dừng thì ẩn, tin xuất bản gần nhất trước); bộ lọc phòng ban không gồm phòng ban con, mỗi bộ lọc một giá trị; "hình thức làm việc" là danh mục `EMPLOYMENT_TYPE`; từ khóa là một cụm, có phân biệt dấu, chỉ tìm trong tiêu đề và mô tả công việc; giá trị bộ lọc chỉ lấy từ tin đang tuyển và lộ id, id không tồn tại trả trang rỗng, giá trị cùng tên chưa có nhãn phân biệt (task 315); và các trường cổng hiện (có số lượng tuyển và tên chức danh, không có ngày đăng, người xuất bản, id chức danh và dữ liệu nội bộ của yêu cầu; task 316, mục "Dữ liệu trả ra").
 
-Câu hỏi 22 (task 320): tin đã qua hạn rời danh sách nhưng chi tiết vẫn mở kèm thông báo hết hạn, không giới hạn thời gian, cho tới khi bị đóng; tin của yêu cầu tạm dừng trả 404 chứ không hiện thông báo; có trả `applicationClosesAt` để trang tự chuyển sang thông báo.
+Câu hỏi 22 (task 320, 321): tin đã qua hạn rời danh sách nhưng chi tiết vẫn mở kèm thông báo hết hạn, không giới hạn thời gian, cho tới khi bị đóng; tin của yêu cầu tạm dừng trả 404 chứ không hiện thông báo; có trả `applicationClosesAt` để trang tự chuyển sang thông báo; nộp hồ sơ bị chặn từ 00:00 giờ Việt Nam ngày sau hạn nộp, trang đã mở trước đó nhận 409 `JOB_POSTING_EXPIRED` khi gửi, tin đã đóng hoặc của yêu cầu tạm dừng nhận 404 (task 321).

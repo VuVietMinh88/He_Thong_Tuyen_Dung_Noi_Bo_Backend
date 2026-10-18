@@ -14,6 +14,10 @@ import java.time.LocalDate;
  * selects exactly the OPEN postings; JobPostingPortalRuleIntegrationTest checks that the two agree on every posting
  * status, a deadline before, on and after today, and an approved or a paused requisition (JobPostingApplicabilityTest
  * covers every requisition status for the Java rule).
+ * <p>
+ * Task 321: JobPostingApplicationGate applies the same rule when an application arrives (for the apply API, task 326),
+ * on the rows it has locked and with today read after the locks: OPEN passes, EXPIRED is 409 JOB_POSTING_EXPIRED (the
+ * closed notice), NOT_PUBLIC is 404. So the page and the server never disagree about a posting at one moment.
  */
 enum JobPostingApplicability {
     // Listed, and candidates may still apply: the deadline day itself is open until 23:59:59 in the business zone.

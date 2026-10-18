@@ -12,10 +12,15 @@ import java.util.UUID;
  *   status change, in a read-only REPEATABLE_READ snapshot for the GET; it only reads and locks nothing, so nothing
  *   waits after the requisition lock;
  * - returns ActivePipeline.NONE for a requisition it knows nothing about and never throws for one;
- * - any write that makes an application active must first lock the requisition row FOR SHARE or FOR NO KEY UPDATE
- *   (FOR KEY SHARE does not conflict with the status change) in the order account, session, requisition, then its own
- *   rows, and refuse a FILLED or CANCELLED requisition, as posting writers do; otherwise an application added after the
- *   count was read could slip past the check.
+ * - any write that makes an application active must first lock the requisition row FOR NO KEY UPDATE in the order
+ *   account, session, requisition, then its own rows, and refuse a FILLED or CANCELLED requisition, as posting
+ *   writers do; otherwise an application added after the count was read could slip past the check. FOR KEY SHARE
+ *   does not conflict with the status change, and FOR SHARE must not be used: while a row holds only share locks,
+ *   PostgreSQL grants another share lock at once, ahead of a status change or posting write already waiting, so
+ *   overlapping writes could keep it waiting indefinitely. A write that covers several requisitions locks them in
+ *   id order. An application to a job posting calls JobPostingApplicationGate.requireOpen instead (task 321), which
+ *   takes this lock and refuses a requisition that is no longer approved; it must not lock the requisition itself
+ *   before that call.
  * Exactly one bean: the candidate module replaces NoCandidateModulePipelineSource (delete it).
  */
 public interface RequisitionPipelineSource {
