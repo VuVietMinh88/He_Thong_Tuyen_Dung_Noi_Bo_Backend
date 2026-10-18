@@ -193,6 +193,45 @@ class RequisitionManagementIntegrationTest {
         assertThat(count()).isEqualTo(2);
     }
 
+    // A section made only of characters that show nothing has not been written yet either. String.isBlank() misses
+    // the no-break spaces U+00A0, U+2007, U+202F and U+0085, U+180E, which PostgreSQL counts as spaces, so V13's
+    // CHECK refused such a section (500). Zero-width characters (U+200B, U+FEFF, U+2060) passed the CHECK but would
+    // be stored as a section that shows nothing.
+    @Test
+    void storesSectionsWithoutAVisibleCharacterAsNull() throws Exception {
+        List<String> invisibleSections = List.of(codePoints(0x00A0), codePoints(0x2007), codePoints(0x202F),
+                codePoints(0x0085), codePoints(0x180E), codePoints(0x200B), codePoints(0xFEFF), codePoints(0x2060),
+                codePoints(0x00A0, '\n', 0x2007, '\t', 0x202F, ' ', 0x0085, 0x180E, 0x200B, 0xFEFF, 0x2060, '\r'));
+        for (String invisible : invisibleSections) {
+            Map<String, Object> body = payload(positionId, departmentId);
+            body.put("salaryJustification", invisible);
+            body.put("jobDescription", invisible);
+            body.put("candidateRequirements", invisible);
+            String description = invisible.codePoints().mapToObj(Integer::toHexString).toList().toString();
+
+            JsonNode result = expect(create(body, headToken), 201);
+            for (String field : List.of("salaryJustification", "jobDescription", "candidateRequirements")) {
+                assertThat(result.path(field).isNull()).as(description + " " + field).isTrue();
+            }
+            assertThat(jdbc.queryForObject("""
+                    SELECT salary_justification IS NULL AND job_description IS NULL AND candidate_requirements IS NULL
+                    FROM recruitment_requisitions WHERE id = ?
+                    """, Boolean.class, UUID.fromString(result.path("id").asText()))).as(description).isTrue();
+        }
+        assertThat(count()).isEqualTo(invisibleSections.size());
+
+        // One visible character is enough, and the section is then stored exactly as typed, its spaces included.
+        String withNoBreakSpace = "Lương" + codePoints(0x00A0) + "thỏa thuận" + codePoints(0x2007, '\n');
+        Map<String, Object> body = payload(positionId, departmentId);
+        body.put("jobDescription", withNoBreakSpace);
+        body.put("candidateRequirements", codePoints(0x00A0, '-', 0x200B));
+        JsonNode result = expect(create(body, headToken), 201);
+        assertThat(result.path("jobDescription").asText()).isEqualTo(withNoBreakSpace);
+        assertThat(result.path("candidateRequirements").asText()).isEqualTo(codePoints(0x00A0, '-', 0x200B));
+        assertThat(jdbc.queryForObject("SELECT job_description FROM recruitment_requisitions WHERE id = ?",
+                String.class, UUID.fromString(result.path("id").asText()))).isEqualTo(withNoBreakSpace);
+    }
+
     @Test
     void rejectsMissingRequiredFieldsAndOutOfRangeValuesButAcceptsTheLimits() throws Exception {
         Map<String, Object> valid = payload(positionId, departmentId);
@@ -450,6 +489,11 @@ class RequisitionManagementIntegrationTest {
         body.remove(field);
         String base = json.writeValueAsString(body);
         return base.substring(0, base.length() - 1) + ",\"" + field + "\":" + rawJson + "}";
+    }
+
+    // Built from code points, so the characters stay readable in the source.
+    private static String codePoints(int... characters) {
+        return new String(characters, 0, characters.length);
     }
 
     private UUID account(String email, Set<Role> roles) {

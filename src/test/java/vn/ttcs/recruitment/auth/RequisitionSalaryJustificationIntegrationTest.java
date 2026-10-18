@@ -127,8 +127,11 @@ class RequisitionSalaryJustificationIntegrationTest {
                 new Long[] {30_000_000L, null},         // only the minimum, already above the band
                 new Long[] {null, 30_000_000L},         // only the maximum, above
                 new Long[] {null, 10_000_000L});        // only the maximum, below
-        // A blank justification is stored as null, so it is the same as none at all.
-        List<String> missingJustifications = Arrays.asList(null, "", "  \n\t ");
+        // A blank justification is stored as null, so it is the same as none at all. So is one without a visible
+        // character: the no-break spaces U+00A0, U+2007, U+202F and U+0085, U+180E pass String.isBlank() and failed
+        // V13's CHECK (500); zero-width characters (U+200B, U+FEFF) show nothing.
+        List<String> missingJustifications = Arrays.asList(null, "", "  \n\t ",
+                new String(new int[] {0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, '\n', 0x200B, 0xFEFF}, 0, 8));
         for (Long[] salaries : outsideTheBand) {
             String proposal = Arrays.toString(salaries);
             justificationRequired(create(proposal(salaries[0], salaries[1]), headToken), proposal + " without the key");
