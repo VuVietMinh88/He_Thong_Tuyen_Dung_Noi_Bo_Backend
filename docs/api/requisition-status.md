@@ -132,7 +132,7 @@ Khi có module ứng viên, ví dụ:
 
 ### Nguồn hiện tại: hồ sơ ứng tuyển của task 325
 
-V26 thêm `job_applications`. `ApplicationPipelineSource` thay stub cũ và đếm hồ sơ thật theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Task 325 chỉ tạo NEW; chưa có API chuyển giai đoạn hay tiếp nhận công khai. Khi có hồ sơ NEW đã lưu, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`.
+V26.1 thêm `job_applications`. `ApplicationPipelineSource` thay stub cũ và đếm hồ sơ thật theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Task 325 chỉ tạo NEW; chưa có API chuyển giai đoạn hay tiếp nhận công khai. Khi có hồ sơ NEW đã lưu, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`.
 
 ### Xác nhận khi đóng
 

@@ -43,7 +43,7 @@ import java.util.concurrent.CountDownLatch;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// Real V1-V26 PostgreSQL, no HTTP or SMTP: task 325's internal persistence contract.
+// Real PostgreSQL migrations, no HTTP or SMTP: task 325's internal persistence contract.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
         "app.auth.jwt-secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "spring.mail.host=127.0.0.1", "spring.mail.port=1"
@@ -174,7 +174,7 @@ class ApplicationStorageIntegrationTest {
     @ParameterizedTest
     @EnumSource(value = JobPostingStatus.class, names = "PUBLISHED", mode = EnumSource.Mode.EXCLUDE)
     void refusesEveryNonPublishedPosting(JobPostingStatus status) {
-        if (status == JobPostingStatus.CLOSED) {
+        if (status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
             jdbc.update("UPDATE job_postings SET status=? WHERE id=?",status.name(),posting);
         } else {
             jdbc.update("UPDATE job_postings SET status=?, published_by=null, published_at=null WHERE id=?",status.name(),posting);
@@ -292,7 +292,7 @@ class ApplicationStorageIntegrationTest {
     }
 
     @Test
-    void upgradingV25PreservesExistingAccountsAndJobPostings() throws Exception {
+    void applicationMigrationRunsBetweenUnpublicationAndExpiryWithoutChangingExistingData() throws Exception {
         String originalSchema = jdbc.queryForObject("SELECT current_schema()", String.class);
         String schema = "task325_upgrade_" + UUID.randomUUID().toString().replace("-", "");
         jdbc.execute("CREATE SCHEMA " + schema);
@@ -313,10 +313,27 @@ class ApplicationStorageIntegrationTest {
                     requisition,position,department,account,Timestamp.from(NOW),Timestamp.from(NOW));
             legacy.update("INSERT INTO job_postings(id,requisition_id,status,revision,title,job_description,candidate_requirements,show_salary,created_by,created_at,updated_at) VALUES (?,?,'DRAFT',1,'Legacy title','JD','Requirements',false,?,?,?)",
                     posting,requisition,account,Timestamp.from(NOW),Timestamp.from(NOW));
-            Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26").load().migrate();
+            var unpublish = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26").load();
+            assertThat(unpublish.migrate().migrationsExecuted).isEqualTo(1);
+            unpublish.validate();
+            assertThat(legacy.queryForObject("SELECT to_regclass('job_applications')", String.class)).isNull();
+            var accountsBefore = legacy.queryForList("SELECT * FROM user_accounts ORDER BY id");
+            var postingsBefore = legacy.queryForList("SELECT * FROM job_postings ORDER BY id");
+            var applications = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26.1").load();
+            assertThat(applications.migrate().migrationsExecuted).isEqualTo(1);
+            applications.validate();
+            assertThat(legacy.queryForList("SELECT * FROM user_accounts ORDER BY id")).isEqualTo(accountsBefore);
+            assertThat(legacy.queryForList("SELECT * FROM job_postings ORDER BY id")).isEqualTo(postingsBefore);
             assertThat(legacy.queryForObject("SELECT title FROM job_postings WHERE id=?",String.class,posting)).isEqualTo("Legacy title");
             assertThat(legacy.queryForObject("SELECT full_name FROM user_accounts WHERE id=?",String.class,account)).isEqualTo("Legacy");
             assertThat(legacy.queryForObject("SELECT count(*) FROM job_applications",Integer.class)).isZero();
+            assertThat(legacy.queryForObject("SELECT count(*) FROM application_cvs",Integer.class)).isZero();
+            assertThat(legacy.queryForObject("SELECT script FROM flyway_schema_history WHERE version='26.1'",String.class))
+                    .isEqualTo("V26_1__create_job_applications_and_cvs.sql");
+            var expiry = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27").load();
+            assertThat(expiry.migrate().migrationsExecuted).isEqualTo(1);
+            expiry.validate();
+            assertThat(legacy.queryForList("SELECT * FROM job_postings ORDER BY id")).isEqualTo(postingsBefore);
         } finally { jdbc.execute("DROP SCHEMA " + schema + " CASCADE"); }
         assertThat(jdbc.queryForObject("SELECT current_schema()", String.class)).isEqualTo(originalSchema);
     }

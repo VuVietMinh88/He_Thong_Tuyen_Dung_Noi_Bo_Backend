@@ -1,6 +1,6 @@
 # Dữ liệu tài khoản và phòng ban
 
-Task 325 thêm V26: `job_applications` (hồ sơ, unique email chuẩn hóa/requisition, hash mã)
+Task 325 thêm V26.1: `job_applications` (hồ sơ, unique email chuẩn hóa/requisition, hash mã)
 và `application_cvs` (CV BYTEA riêng tư, kiểm dung lượng/hash). Composite FK giữ đúng
 tin–requisition; pipeline đọc hồ sơ thật. Xem [application-storage](../api/application-storage.md).
 
