@@ -19,6 +19,7 @@ Máy dev vẫn chạy như cũ: Backend `http://localhost:8080`, Frontend `http:
 | `CORS_ALLOWED_ORIGINS` | `https://internal-hire.com,https://www.internal-hire.com` | Chỉ các origin Frontend được gọi API từ trình duyệt |
 | `RESET_PASSWORD_PAGE_URL` | `https://internal-hire.com/reset-password` | Link trong email đặt lại mật khẩu |
 | `ACCOUNT_ACTIVATION_PAGE_URL` | `https://internal-hire.com/activate-account` | Link trong email mời kích hoạt |
+| `CANDIDATE_PROFILE_PAGE_URL` | `https://internal-hire.com/candidates` | Link tới hồ sơ ứng viên trong email báo recruiter khi ứng viên rút hồ sơ (task 346) |
 | `MAIL_HOST` | `emailserver4-186.serverpoint.com` | Tên máy chủ thật của ServerPoint, khớp chứng chỉ TLS (xem bên dưới) |
 | `MAIL_PORT` | `587` | Hoặc `465`; cả hai đã kiểm ngày 08/10/2026 |
 | `MAIL_SMTP_AUTH` | `true` | ServerPoint yêu cầu đăng nhập khi gửi |
@@ -26,6 +27,8 @@ Máy dev vẫn chạy như cũ: Backend `http://localhost:8080`, Frontend `http:
 | `MAIL_USERNAME` | `support@internal-hire.com` | Thường là địa chỉ email đầy đủ |
 | `MAIL_PASSWORD` | mật khẩu hộp thư | **Chỉ ghi trong `.env` của máy chủ**, không gửi qua chat, không commit |
 | `MAIL_FROM` | `support@internal-hire.com` | Phải là hộp thư mà tài khoản SMTP được phép gửi thay |
+
+Trên VPS (`devops/vps`), `compose.yaml` ghi sẵn các giá trị không bí mật trong bảng (CORS, ba URL trang Frontend, máy chủ và hộp thư SMTP) vào khối `environment` của backend. `.env` của VPS chỉ điền các chỗ `${...}` của file đó, nên thêm một biến mới vào `.env` không tới được backend: phải thêm nó vào `compose.yaml`.
 
 Chọn một trong hai cách kết nối SMTP, theo thông số ServerPoint cung cấp cho hộp thư:
 
@@ -40,7 +43,7 @@ Không bật cả hai cùng lúc.
 
 Backend luôn kiểm tên chứng chỉ (`mail.smtp.ssl.checkserveridentity=true`). Đừng tắt kiểm tra này để "chữa" lỗi sai tên; hãy dùng đúng tên máy chủ.
 
-Backend kiểm tra hai URL trang Frontend khi khởi động: phải là HTTPS cố định (chỉ `localhost` được dùng HTTP), không chứa thông tin đăng nhập, query hay fragment. Sai định dạng thì ứng dụng dừng ngay lúc chạy, để không gửi link hỏng cho người dùng.
+Backend kiểm tra ba URL trang Frontend trên khi khởi động: phải là HTTPS cố định (chỉ `localhost` được dùng HTTP), không chứa thông tin đăng nhập, query hay fragment. Sai định dạng thì ứng dụng dừng ngay lúc chạy, để không gửi link hỏng cho người dùng.
 
 Backend lắng nghe ở `127.0.0.1:8080` (`server.address` trong `application.properties`). Để phục vụ `https://api.internal-hire.com`, đặt một reverse proxy có HTTPS (ví dụ Nginx hoặc Caddy) trên cùng máy, chuyển tiếp tới `http://127.0.0.1:8080`.
 

@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "app.application-confirmation.page-url=https://portal.example.test/tra-cuu",
         "app.application-confirmation.poll-delay-ms=3600000", "app.application-intake.cleanup-delay-ms=3600000",
         "app.application-tracking.cleanup-delay-ms=3600000",
+        "app.application-notice.poll-delay-ms=3600000",
         "spring.mail.host=127.0.0.1", "spring.mail.port=1"
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)

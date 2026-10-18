@@ -50,6 +50,7 @@ import static vn.ttcs.recruitment.application.PublicResponseContract.assertJsonK
         "app.application-confirmation.page-url=https://portal.example.test/tra-cuu",
         "app.application-confirmation.poll-delay-ms=3600000", "app.application-intake.cleanup-delay-ms=3600000",
         "app.application-tracking.cleanup-delay-ms=3600000", "app.application-tracking.max-attempts=3",
+        "app.application-notice.poll-delay-ms=3600000",
         "spring.mail.host=127.0.0.1", "spring.mail.port=1"
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)

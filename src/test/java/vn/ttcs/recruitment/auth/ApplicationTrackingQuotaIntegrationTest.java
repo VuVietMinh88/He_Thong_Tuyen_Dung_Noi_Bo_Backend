@@ -43,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "app.application-confirmation.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         "app.application-confirmation.poll-delay-ms=3600000",
         "app.application-tracking.max-attempts=3", "app.application-tracking.cleanup-delay-ms=3600000",
+        "app.application-notice.poll-delay-ms=3600000",
         "spring.mail.host=127.0.0.1", "spring.mail.port=1"
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
