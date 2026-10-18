@@ -10,7 +10,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// Tasks 262, 263: what a decision of the current level does to the round, without a database.
+// Tasks 262-264: what a decision of the current level does to the round, without a database.
 class ApprovalRoundTransitionTest {
     private static final Instant AT = Instant.parse("2026-10-11T03:00:00Z");
     private final List<ApprovalEvent> events = new ArrayList<>();
@@ -43,6 +43,16 @@ class ApprovalRoundTransitionTest {
     void aOneLevelChainIsApprovedByItsOnlyLevel() {
         submitted(1);
         assertThat(round().apply(ApprovalAction.APPROVE).after()).isEqualTo(RequisitionStatus.APPROVED);
+    }
+
+    @Test
+    void askingForMoreInformationReturnsTheRequisitionAtTheCurrentLevel() {
+        submitted(2);
+        approved(1, RequisitionStatus.PENDING_APPROVAL);
+        assertThat(round().apply(ApprovalAction.REQUEST_INFO)).isEqualTo(new ApprovalOutcome(
+                ApprovalEventType.INFO_REQUESTED, 2, RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED));
+        assertThat(ApprovalAction.REQUEST_INFO.requiresComment()).isTrue();
+        assertThat(ApprovalAction.APPROVE.requiresComment()).isFalse();
     }
 
     @Test

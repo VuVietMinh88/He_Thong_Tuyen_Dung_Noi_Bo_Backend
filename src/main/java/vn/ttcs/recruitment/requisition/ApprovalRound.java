@@ -119,6 +119,10 @@ public final class ApprovalRound {
                     level == levelCount() ? RequisitionStatus.APPROVED : RequisitionStatus.PENDING_APPROVAL);
             case REJECT -> new ApprovalOutcome(ApprovalEventType.REJECTED, level, RequisitionStatus.PENDING_APPROVAL,
                     RequisitionStatus.REJECTED);
+            // Task 264: the round ends here; the requester edits the requisition and submits it again, which starts a
+            // new round from level 1.
+            case REQUEST_INFO -> new ApprovalOutcome(ApprovalEventType.INFO_REQUESTED, level,
+                    RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED);
         };
     }
 

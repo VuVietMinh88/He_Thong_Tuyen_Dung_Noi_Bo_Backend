@@ -191,7 +191,7 @@ Response: `{items, page, size, totalElements, totalPages}`; mỗi item có đún
 
 `PUT /requisitions/{id}` lưu lại bản nháp với nội dung mới, trả **200** cùng yêu cầu sau khi sửa. Body có đúng các trường và quy tắc của `POST` ở trên. `PUT` **thay toàn bộ** nội dung: trường không gửi, gửi `null` hoặc văn bản không có ký tự nhìn thấy được trở thành `null`, nên giao diện phải gửi lại mọi trường đang có trên form. `id`, `status`, `createdBy`, `createdAt` không sửa được (gửi lên là `INVALID_JSON`); `createdBy` và `createdAt` giữ nguyên kể cả khi người sửa không phải người tạo, `updatedAt` là thời điểm sửa (UTC, micro giây).
 
-Chỉ yêu cầu ở trạng thái `DRAFT` được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
+Chỉ yêu cầu ở trạng thái `DRAFT`, hoặc `RETURNED` (người duyệt yêu cầu bổ sung, task 264), được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
 
 Thứ tự kiểm tra:
 
@@ -200,7 +200,7 @@ Thứ tự kiểm tra:
 3. Khóa tài khoản rồi phiên, kiểm lại quyền (403 nếu vừa mất quyền, 401 `SESSION_INVALID` nếu phiên/tài khoản/token không còn hợp lệ).
 4. Khóa dòng yêu cầu (`SELECT ... FOR UPDATE`): không có thì 404 `REQUISITION_NOT_FOUND`.
 5. Phạm vi: người `SCOPED` không phụ trách phòng ban hiện tại của yêu cầu thì 403 `FORBIDDEN`. Bước này chạy sau khi đã khóa dòng, nên nếu HR đổi người phụ trách phòng ban trong lúc yêu cầu đang chờ khóa, kết quả dùng người phụ trách mới.
-6. Còn là `DRAFT`, nếu không thì 409 `REQUISITION_NOT_DRAFT`.
+6. Ở trạng thái sửa được (`DRAFT` hoặc `RETURNED`, task 264), nếu không thì 409 `REQUISITION_NOT_DRAFT`.
 7. So hai mức lương đề xuất (`REQUISITION_SALARY_RANGE_INVALID`), rồi ngày cần người (`NEEDED_BY_IN_PAST`), rồi chức danh và phòng ban trong body tồn tại và đang áp dụng (`INVALID_REQUISITION_POSITION`, `REQUISITION_POSITION_INACTIVE`, `INVALID_REQUISITION_DEPARTMENT`, `REQUISITION_DEPARTMENT_INACTIVE`), rồi phòng ban trong body thuộc phạm vi người gọi (403 `FORBIDDEN`, task 249), rồi giải trình khi lương đề xuất ngoài dải chuẩn (`SALARY_JUSTIFICATION_REQUIRED`), rồi định biên (409, task 274), giống tạo. Kể cả khi body giữ nguyên chức danh/phòng ban của nháp, chúng vẫn phải đang áp dụng, và phòng ban vẫn được kiểm phạm vi lần nữa sau khi bị khóa `FOR SHARE`.
 
 Hai người sửa cùng một bản nháp cùng lúc được xếp hàng nhờ khóa dòng: người đến sau chờ người trước commit rồi ghi đè toàn bộ (người lưu sau cùng thắng). Chưa có kiểm tra phiên bản (optimistic locking), nên giao diện nên tải lại chi tiết trước khi sửa. Mọi lỗi đều không đổi dòng nào.
@@ -366,7 +366,7 @@ Hạn JWT, phiên và quyền ghi được kiểm lại sau các khóa dòng ch�
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
 |403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách (trừ xem yêu cầu mà người đó tham gia duyệt, task 262); hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT`, lịch sử ngoại lệ hoặc sao chép với UUID không có yêu cầu nào|
-|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không còn ở trạng thái `DRAFT` (đã gửi duyệt, đã duyệt hoặc bị từ chối)|
+|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không ở trạng thái `DRAFT` hay `RETURNED` (đang chờ duyệt, đã duyệt hoặc bị từ chối)|
 |409|HEADCOUNT_LIMIT_EXCEEDED|Lưu yêu cầu làm phòng ban vượt chỉ tiêu headcount của năm kế hoạch (task 274); lời nhắn nêu số chỉ tiêu còn lại|
 |409|SALARY_BUDGET_EXCEEDED|Lưu yêu cầu làm phòng ban vượt ngân sách lương của năm kế hoạch (task 274); lời nhắn không nêu số tiền|
 |403|FORBIDDEN|Lưu vượt định biên kèm `headcountOverrideReason` nhưng người gọi không có `HEADCOUNT_PLANS_WRITE_ALL` (task 275); sao chép khi không có quyền đọc yêu cầu tuyển dụng, bản gốc ngoài phạm vi đọc, hoặc phòng ban của bản gốc ngoài phạm vi ghi (task 278)|

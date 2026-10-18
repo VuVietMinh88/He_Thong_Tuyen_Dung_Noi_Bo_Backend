@@ -56,8 +56,11 @@ public class RequisitionService {
     // Task 257: the statuses in which a requisition may still be edited (PUT) and sent for approval (submit).
     // RequisitionStatus asks every new status to be classified here; RequisitionWorkflowStatusTest does not compile
     // until it is.
-    static final Set<RequisitionStatus> EDITABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
-    static final Set<RequisitionStatus> SUBMITTABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT);
+    // Task 264: a requisition returned for more information is edited and submitted again by its department.
+    static final Set<RequisitionStatus> EDITABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.RETURNED);
+    static final Set<RequisitionStatus> SUBMITTABLE_STATUSES = EnumSet.of(RequisitionStatus.DRAFT,
+            RequisitionStatus.RETURNED);
 
     private final RecruitmentRequisitionRepository requisitions;
     private final PositionRepository positions;
@@ -460,7 +463,7 @@ public class RequisitionService {
     private static void requireEditable(RecruitmentRequisition requisition) {
         if (!EDITABLE_STATUSES.contains(requisition.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_DRAFT",
-                    "Chỉ sửa được yêu cầu tuyển dụng đang ở trạng thái nháp.");
+                    "Chỉ sửa được yêu cầu tuyển dụng đang ở trạng thái nháp hoặc cần bổ sung.");
         }
     }
 
@@ -479,7 +482,7 @@ public class RequisitionService {
     private static void requireSubmittable(RecruitmentRequisition requisition) {
         if (!SUBMITTABLE_STATUSES.contains(requisition.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "REQUISITION_NOT_SUBMITTABLE",
-                    "Chỉ gửi duyệt được yêu cầu tuyển dụng đang ở trạng thái nháp.");
+                    "Chỉ gửi duyệt được yêu cầu tuyển dụng đang ở trạng thái nháp hoặc cần bổ sung.");
         }
     }
 

@@ -14,8 +14,8 @@ class RequisitionWorkflowStatusTest {
     @EnumSource(RequisitionStatus.class)
     void everyStatusIsClassifiedForEditing(RequisitionStatus status) {
         boolean editable = switch (status) {
-            case DRAFT -> true;
-            case PENDING_APPROVAL, RETURNED, APPROVED, REJECTED -> false;
+            case DRAFT, RETURNED -> true;
+            case PENDING_APPROVAL, APPROVED, REJECTED -> false;
         };
 
         assertThat(RequisitionService.EDITABLE_STATUSES.contains(status)).isEqualTo(editable);
@@ -25,8 +25,8 @@ class RequisitionWorkflowStatusTest {
     @EnumSource(RequisitionStatus.class)
     void everyStatusIsClassifiedForSubmitting(RequisitionStatus status) {
         boolean submittable = switch (status) {
-            case DRAFT -> true;
-            case PENDING_APPROVAL, RETURNED, APPROVED, REJECTED -> false;
+            case DRAFT, RETURNED -> true;
+            case PENDING_APPROVAL, APPROVED, REJECTED -> false;
         };
 
         assertThat(RequisitionService.SUBMITTABLE_STATUSES.contains(status)).isEqualTo(submittable);

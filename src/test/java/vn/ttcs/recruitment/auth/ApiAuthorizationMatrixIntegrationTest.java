@@ -507,6 +507,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 263: approving is no more open than rejecting.
                 new Attack(Identity.APPROVER, "POST", "/api/v1/requisitions/" + pending + "/approvals",
                         Map.of("action", "APPROVE", "expectedRevision", 1)),
+                // Task 264: asking for more information is a decision of the current level too.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions/" + pending + "/approvals",
+                        Map.of("action", "REQUEST_INFO", "comment", "Bổ sung", "expectedRevision", 1)),
                 // Only ADMIN and HR_MANAGER configure approval flows, even with a REQUISITIONS write permission.
                 new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/approval-flows", Map.of("departmentId", unused,
                         "name", "Shadow", "steps", List.of(Map.of("position", 1, "approverRole", "HIRING_MANAGER")))),
