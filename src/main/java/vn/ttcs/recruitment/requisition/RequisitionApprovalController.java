@@ -41,9 +41,9 @@ public class RequisitionApprovalController {
 
     // Task 267: the requisitions whose current level the caller may decide, waiting longest first.
     @GetMapping("/approval-inbox")
-    public ResponseEntity<RequisitionPage> inbox(@AuthenticationPrincipal Jwt jwt,
-                                                 @RequestParam(defaultValue = "0") int page,
-                                                 @RequestParam(defaultValue = "20") int size) {
+    public ResponseEntity<ApprovalInboxPage> inbox(@AuthenticationPrincipal Jwt jwt,
+                                                   @RequestParam(defaultValue = "0") int page,
+                                                   @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.inbox(jwt, page, size));
     }
 }

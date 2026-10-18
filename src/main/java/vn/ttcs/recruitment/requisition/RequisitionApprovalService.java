@@ -133,12 +133,13 @@ public class RequisitionApprovalService {
 
     /**
      * Task 267: the approver inbox: every requisition waiting for a level the caller may decide now (ApproverRule, the
-     * same rule as the decision), waiting longest first, paged like GET /requisitions. Notifications come later (S8),
-     * so this is how an approver finds work. A caller without a REQUISITIONS write permission decides nothing and gets
-     * an empty page. The selection runs in memory over the requisitions waiting for approval, which suits tens of them.
+     * same rule as the decision), waiting longest first, paged like GET /requisitions, as an ApprovalInboxPage of
+     * requisition views. Notifications come later (S8), so this is how an approver finds work. A caller without a
+     * REQUISITIONS write permission decides nothing and gets an empty page. The selection runs in memory over the
+     * requisitions waiting for approval, which suits tens of them.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public RequisitionPage inbox(Jwt jwt, int page, int size) {
+    public ApprovalInboxPage inbox(Jwt jwt, int page, int size) {
         var now = clock.instant();
         if (jwt == null || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)) {
             throw AuthenticationFailureException.sessionInvalid();
@@ -177,9 +178,9 @@ public class RequisitionApprovalService {
             mine.stream().skip((long) page * size).limit(size)
                     .forEach(waiting -> items.add(RequisitionView.from(waiting.requisition())));
             long total = mine.size();
-            return new RequisitionPage(items, page, size, total, (total + size - 1) / size);
+            return new ApprovalInboxPage(items, page, size, total, (total + size - 1) / size);
         }
-        return new RequisitionPage(items, page, size, 0, 0);
+        return new ApprovalInboxPage(items, page, size, 0, 0);
     }
 
     /**
