@@ -20,7 +20,7 @@ import java.util.Locale;
  * breaks therefore never reach the header. {@code filename*} percent-encodes every UTF-8 byte of the display name
  * (the stored name with the forced extension) except the RFC 5987 attr-chars.
  */
-final class CvContentDisposition {
+public final class CvContentDisposition {
     static final int MAX_ASCII_LENGTH = 150;
     private static final String ATTR_CHARS = "!#$&+-.^_`|~";
 
@@ -68,7 +68,7 @@ final class CvContentDisposition {
         }
     }
 
-    static String header(String storedFilename, String contentType) {
+    public static String header(String storedFilename, String contentType) {
         StoredType type = StoredType.of(contentType);
         return type.dispositionType() + "; filename=\"" + asciiName(storedFilename, type) + "\"; filename*=UTF-8''"
                 + encode(displayName(storedFilename, type));
