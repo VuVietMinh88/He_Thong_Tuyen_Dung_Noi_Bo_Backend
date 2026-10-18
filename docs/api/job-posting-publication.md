@@ -231,23 +231,8 @@ HR_MANAGER và ADMIN sửa được các tên đó (`ORGANIZATION_WRITE_ALL`; ch
 
 ## Tin công khai
 
-Cổng tuyển dụng cho ứng viên (task 309), không cần tài khoản:
-
-| API | Trả về |
-|---|---|
-|`GET /public/job-postings?page=0&size=20`|Một trang tin đang công khai, tin xuất bản gần nhất trước|
-|`GET /public/job-postings/{id}`|Một tin đang công khai, cùng dạng với `content` của bản xem trước|
-
-Một tin là công khai khi đủ cả ba điều: trạng thái `PUBLISHED` (`JobPostingService.PUBLIC_STATUSES`); hạn nộp từ hôm nay trở đi theo giờ Việt Nam (chính ngày hạn vẫn hiện; từ 00:00 hôm sau tin tự ẩn nhưng vẫn ở `PUBLISHED`); yêu cầu nguồn vẫn `APPROVED`. Tin khác (nháp, chờ duyệt, cần chỉnh sửa, đã duyệt mà chưa xuất bản, đã đóng cùng yêu cầu, quá hạn nộp, yêu cầu không còn đã duyệt) trả **404** `JOB_POSTING_NOT_FOUND` "Không tìm thấy tin tuyển dụng.", giống hệt tin không tồn tại, nên cổng không cho biết tin nào đang được soạn hay duyệt.
-
-Trường của tin công khai: `id`, `title`, `positionName`, `departmentName`, `headcount`, `workLocationName`, `employmentTypeName`, `applicationDeadline`, `salaryMin`, `salaryMax`, `jobDescription`, `candidateRequirements`, `benefits` (`benefits` là `null` khi chưa viết). Không có trạng thái, `revision`, yêu cầu nguồn, người tạo, người duyệt, nhận xét hay thời điểm nào.
-
-- Lương chỉ có khi tin chọn hiển thị (`showSalary: true`): `salaryMin`, `salaryMax` là lương đề xuất đã duyệt của yêu cầu (đồng VND mỗi người mỗi tháng). Khi không chọn, hai khóa này **không có** trong JSON (không phải `null`), và server không gửi số tiền đi.
-- Mỗi mục của danh sách có `id`, `title`, `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`, `applicationDeadline` và lương nếu tin chọn hiển thị; văn bản chỉ có ở chi tiết. Trang có `items`, `page`, `size`, `totalElements`, `totalPages`; `page` từ 0, `size` từ 1 đến 100 (mặc định 0 và 20), sai thì 400 `VALIDATION_ERROR` "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Thứ tự: thời điểm xuất bản (`published_at` của tin, task 310) mới nhất trước; các tin xuất bản cùng lúc theo UUID giảm dần.
-- Mọi response dùng `Cache-Control: no-store`, kể cả 404, vì tin rời cổng ngay khi quá hạn hoặc khi yêu cầu không còn đã duyệt.
-- Như [trang giới thiệu công ty](company-profile.md), gửi kèm Bearer hỏng hoặc hết hạn vẫn bị 401 ở bộ lọc bảo mật, nên cổng tuyển dụng gọi hai API này **không** kèm header `Authorization`. Người đã đăng nhập (mọi vai trò) nhận đúng JSON như ứng viên.
-- `permitAll` chỉ cho đúng phương thức GET và đúng hai đường dẫn này; ví dụ `POST /public/job-postings` hay `PUT /public/job-postings/{id}` trả 403.
-- Hiển thị **mọi** chuỗi của tin công khai và của bản xem trước dạng chữ (không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`), kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName`: server chỉ kiểm văn bản thuần với `title`, `jobDescription`, `candidateRequirements`, `benefits` (task 304); bốn tên kia đến từ dữ liệu tổ chức, chỉ được kiểm độ dài.
+Cổng việc làm cho ứng viên (`GET /public/job-postings`, `GET /public/job-postings/{id}`, task 309), không cần tài khoản, được mô tả ở [API cổng việc làm công khai](job-posting-portal.md) từ task 314 (story S4-01): điều kiện "đang tuyển", trường trả ra, lương, bảo mật, cache, lỗi và ghi chú cho frontend.
+Tóm tắt: chỉ tin `PUBLISHED`, còn hạn nộp theo giờ Việt Nam (tính cả ngày hạn), của yêu cầu còn `APPROVED`; tin khác trả 404 `JOB_POSTING_NOT_FOUND` giống hệt tin không tồn tại, và `content` của bản xem trước đúng bằng chi tiết tin công khai.
 
 ## Xuất bản ở 308, dấu vết ở 310
 
@@ -404,7 +389,7 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`,
 |Tên người cứng ("Nguyễn Văn Minh"), khối `catch` giả thành công|Bỏ; hiện `message` của lỗi, gắn `fieldErrors` (thêm `expectedRevision`, `comment`, `action`, và các trường của `JOB_POSTING_INCOMPLETE`) vào ô tương ứng; dùng `createdByName`, `lastReview.actorName`, `publishedByName`|
 |Bản xem trước bỏ qua cờ lương (`JobPostingForm.tsx`, `JobPostingPreviewApproval.tsx`)|Màn duyệt hiển thị `content` của `GET /job-postings/{id}/preview`; khi lương bị ẩn thì không có khóa `salaryMin`/`salaryMax`; giữ `revision` của bản xem trước làm `expectedRevision` khi duyệt và xuất bản (task 306)|
 |Chưa có trang công khai; `axiosClient` luôn gắn Bearer|Cổng tuyển dụng gọi `GET /public/job-postings` và `GET /public/job-postings/{id}` qua một axios instance **không** có `Authorization`; 404 là "không tìm thấy tin" (task sau)|
-|Hiển thị bản xem trước và tin công khai|Hiển thị mọi chuỗi dạng chữ, kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName` (mục "Tin công khai") (task 306 và cổng tuyển dụng)|
+|Hiển thị bản xem trước và tin công khai|Hiển thị mọi chuỗi dạng chữ, kể cả `positionName`, `departmentName`, `workLocationName`, `employmentTypeName` (mục "Bảo mật và cache" của [API cổng việc làm công khai](job-posting-portal.md)) (task 306 và cổng tuyển dụng)|
 |Màn duyệt và xuất bản dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')`|Duyệt và xuất bản: `JOB_POSTINGS_WRITE_ALL`; gửi duyệt và xem trước: như sửa tin (`can('edit','job_posting')`)|
 
 Gặp 403 khi bấm duyệt thường do người xem đã soạn, sửa hoặc vừa gửi tin; nên giải thích "người đã soạn/sửa tin không được duyệt" thay vì chuyển trang. Hiển thị nhận xét dạng chữ, giữ xuống dòng.

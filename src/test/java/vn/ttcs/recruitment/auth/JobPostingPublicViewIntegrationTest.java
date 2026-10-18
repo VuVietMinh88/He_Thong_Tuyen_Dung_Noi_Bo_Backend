@@ -336,6 +336,60 @@ class JobPostingPublicViewIntegrationTest {
                 .isEqualTo(JobPostingTestSupport.DEADLINE);
     }
 
+    // Task 314 (story S4-01): "Là Ứng viên, tôi muốn xem danh sách việc làm đang tuyển trên trang công khai". Task 309
+    // already lists only open postings without an account (AC1, AC4); this pins it on one mixed set. Open means
+    // published, the application deadline is today or later in Vietnam (the deadline day included) and the
+    // requisition is still approved. The page, its count and its number of pages leave out everything else: drafts,
+    // postings under review, sent back or approved but not published, closed with their requisition (task 292), of a
+    // paused requisition (task 290) and past their deadline. Only the list is asserted here.
+    @Test
+    void theAnonymousListShowsOnlyOpenPostingsAmongEveryOtherKind() throws Exception {
+        UUID open = published(false);
+        clock.set(START.plusSeconds(10));
+        Map<String, Object> body = postings.body(requisition(), workLocation, employmentType);
+        body.put("title", TITLE);
+        body.put("applicationDeadline", "2026-10-20");
+        UUID early = id(postings.created(body, recruiterToken));
+        ok(postings.submit(early, 1, null, recruiterToken));
+        ok(postings.decide(early, "APPROVE", null, 2, hrToken));
+        ok(postings.publish(early, 3, hrToken));
+        // Published after both, so each would come first if it were listed.
+        clock.set(START.plusSeconds(20));
+        UUID paused = published(false);
+        jdbc.update("UPDATE recruitment_requisitions SET status = ? WHERE id = ?", RequisitionStatus.PAUSED.name(),
+                postings.row(paused).get("requisition_id"));
+        clock.set(START.plusSeconds(30));
+        List<UUID> hidden = new ArrayList<>(List.of(paused));
+        for (JobPostingStatus status : List.of(JobPostingStatus.DRAFT, JobPostingStatus.PENDING_APPROVAL,
+                JobPostingStatus.REVISION_REQUESTED, JobPostingStatus.APPROVED, JobPostingStatus.CLOSED)) {
+            hidden.add(postingIn(status));
+        }
+        assertThat(postings.count()).isEqualTo(8);
+
+        // 23:59:59 on 20 Oct 2026 in Vietnam: the early posting's last day is still open.
+        clock.set(Instant.parse("2026-10-20T16:59:59Z"));
+        var lastDay = postings.publicList(0, 20);
+        postings.noStore(lastDay);
+        JsonNode both = ok(lastDay);
+        assertThat(ids(both)).containsExactly(early, open).doesNotContainAnyElementsOf(hidden);
+        assertThat(both.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(both.path("totalPages").asLong()).isEqualTo(1);
+
+        // 00:00 on 21 Oct 2026 in Vietnam: the early posting has left the list, its count and its pages.
+        clock.set(Instant.parse("2026-10-20T17:00:00Z"));
+        var nextDay = postings.publicList(0, 20);
+        postings.noStore(nextDay);
+        JsonNode one = ok(nextDay);
+        assertThat(ids(one)).containsExactly(open);
+        assertThat(one.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(one.path("totalPages").asLong()).isEqualTo(1);
+        JsonNode beyond = ok(postings.publicList(1, 1));
+        assertThat(ids(beyond)).isEmpty();
+        assertThat(beyond.path("page").asInt()).isEqualTo(1);
+        assertThat(beyond.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(beyond.path("totalPages").asLong()).isEqualTo(1);
+    }
+
     @Test
     void thePublicViewCarriesNoInternalData() throws Exception {
         UUID id = draft(true);
@@ -368,6 +422,9 @@ class JobPostingPublicViewIntegrationTest {
         JsonNode list = ok(anonymousList);
         postings.noStore(anonymousDetail);
         postings.noStore(anonymousList);
+        // Task 314: no account also means no server session (STATELESS): nothing sets a cookie.
+        noCookie(anonymousDetail);
+        noCookie(anonymousList);
         // Without parameters the list is the first page of 20.
         assertThat(list.path("page").asInt()).isZero();
         assertThat(list.path("size").asInt()).isEqualTo(20);
@@ -390,6 +447,21 @@ class JobPostingPublicViewIntegrationTest {
             assertThat(ok(signedList)).isEqualTo(list);
             postings.noStore(signedDetail);
             postings.noStore(signedList);
+            noCookie(signedDetail);
+            noCookie(signedList);
+        }
+
+        // Only GET is open. Another method on the portal paths sends a caller without a token to the login entry
+        // point (401, like any other denied route) and refuses a valid token (403).
+        for (String method : List.of("POST", "PUT", "DELETE")) {
+            for (String path : List.of(PUBLIC_POSTINGS, PUBLIC_POSTINGS + "/" + id)) {
+                var anonymous = api.request(method, path, null, null);
+                assertThat(api.code(anonymous, 401)).as(method + " " + path).isEqualTo("UNAUTHORIZED");
+                assertThat(anonymous.headers().firstValue("WWW-Authenticate")).contains("Bearer");
+                postings.noStore(anonymous);
+                assertThat(api.code(api.request(method, path, null, hrToken), 403)).as(method + " " + path)
+                        .isEqualTo("FORBIDDEN");
+            }
         }
 
         // A forged or expired bearer is refused like on every public API, so the portal calls without one.
@@ -587,6 +659,10 @@ class JobPostingPublicViewIntegrationTest {
 
     private JsonNode ok(HttpResponse<String> response) {
         return api.expect(response, 200);
+    }
+
+    private static void noCookie(HttpResponse<String> response) {
+        assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
     }
 
     private static UUID id(JsonNode view) {
