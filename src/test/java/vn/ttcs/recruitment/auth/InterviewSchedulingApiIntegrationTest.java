@@ -47,8 +47,35 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
     }
 
 
+    @Test
+    void invitedPanelReadsOwnLogisticsWithoutCandidateCvOrOtherApplicationAccess() throws Exception {
+        JsonNode created = created(create(first.applicationId(), hrToken, schedule(START, panel, "Room")));
+        String id = created.path("id").asText();
+        JsonNode own = ok(call("GET", "/api/v1/interviews/" + id, null, panelToken));
+        assertThat(own.toString()).doesNotContain("lan@example.test", "salary", "tracking", "password", "fullName");
+        assertThat(ok(call("GET", "/api/v1/interviews/me", null, panelToken)).path("totalElements").asLong()).isEqualTo(1);
+        assertThat(ok(call("GET", "/api/v1/interviews/me", null, token(otherPanel))).path("totalElements").asLong()).isZero();
+        error(call("GET", "/api/v1/interviews/" + id, null, token(otherPanel)), 403, "FORBIDDEN");
+        error(call("GET", collection(first.applicationId()), null, panelToken), 403, "FORBIDDEN");
+        error(call("GET", "/api/v1/candidates/" + first.candidateId(), null, panelToken), 403, "FORBIDDEN");
+    }
 
+    @Test
+    void managerMayReadManagedApplicationButCannotScheduleWithoutWritePermission() throws Exception {
+        created(create(first.applicationId(), hrToken, schedule(START, panel, "Room")));
+        assertThat(ok(call("GET", collection(first.applicationId()), null, token(manager))).path("totalElements").asLong()).isEqualTo(1);
+        error(create(first.applicationId(), token(manager), schedule(START, panel, "Room")), 403, "FORBIDDEN");
+        error(call("GET", collection(other.applicationId()), null, token(manager)), 403, "FORBIDDEN");
+    }
 
+    @Test
+    void unknownIdsAndMalformedPagingUseExpectedErrors() throws Exception {
+        error(call("GET", "/api/v1/interviews/" + UUID.randomUUID(), null, hrToken), 404, "INTERVIEW_NOT_FOUND");
+        error(call("GET", collection(UUID.randomUUID()), null, panelToken), 404, "APPLICATION_NOT_FOUND");
+        error(call("GET", collection(first.applicationId()) + "?page=-1", null, hrToken), 400, "VALIDATION_ERROR");
+        error(call("GET", "/api/v1/interviews/me?size=101", null, panelToken), 400, "VALIDATION_ERROR");
+        error(call("GET", "/api/v1/interviews/me", null, null), 401, "UNAUTHORIZED");
+    }
 
     @Test
     void requiredDatesDurationModeAndParticipantsAreValidatedBeforeSaving() throws Exception {
@@ -114,6 +141,17 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
 
 
 
+    @Test
+    void pagingIsStableAndLimitedToExactApplication() throws Exception {
+        created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room")));
+        created(create(first.applicationId(), recruiterToken, schedule(START.plusSeconds(3600), panel, "Room")));
+        created(create(other.applicationId(), hrToken, schedule(START.plusSeconds(7200), panel, "Room")));
+        var firstPage = ok(call("GET", collection(first.applicationId()) + "?size=1", null, recruiterToken));
+        var secondPage = ok(call("GET", collection(first.applicationId()) + "?size=1&page=1", null, recruiterToken));
+        assertThat(firstPage.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(firstPage.path("items").size()).isEqualTo(1);
+        assertThat(firstPage.path("items").get(0).path("id").asText()).isNotEqualTo(secondPage.path("items").get(0).path("id").asText());
+    }
 
     private Map<String, Object> schedule(Instant start, UUID participant, String room) {
         var body = new LinkedHashMap<String, Object>();
