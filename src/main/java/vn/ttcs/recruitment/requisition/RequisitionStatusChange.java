@@ -10,14 +10,15 @@ import java.util.Set;
  * leave. Pausing, closing as filled and cancelling need a reason; resuming does not. Must match V24
  * valid_requisition_workflow_event_transition. RequisitionStatus asks every new status to be placed in these from-sets;
  * RequisitionStatusChangeTest does not compile until it is. Nothing leaves FILLED or CANCELLED: copy the requisition to
- * recruit again (task 278).
+ * recruit again (task 278). Task 291: closing as filled and cancelling ask for confirmation while candidates are still
+ * in the pipeline (checksActivePipeline); pausing and resuming do not.
  */
 public enum RequisitionStatusChange {
-    PAUSE(RequisitionStatus.PAUSED, ApprovalEventType.PAUSED, true, EnumSet.of(RequisitionStatus.APPROVED)),
-    RESUME(RequisitionStatus.APPROVED, ApprovalEventType.RESUMED, false, EnumSet.of(RequisitionStatus.PAUSED)),
-    FILL(RequisitionStatus.FILLED, ApprovalEventType.FILLED, true,
+    PAUSE(RequisitionStatus.PAUSED, ApprovalEventType.PAUSED, true, false, EnumSet.of(RequisitionStatus.APPROVED)),
+    RESUME(RequisitionStatus.APPROVED, ApprovalEventType.RESUMED, false, false, EnumSet.of(RequisitionStatus.PAUSED)),
+    FILL(RequisitionStatus.FILLED, ApprovalEventType.FILLED, true, true,
             EnumSet.of(RequisitionStatus.APPROVED, RequisitionStatus.PAUSED)),
-    CANCEL(RequisitionStatus.CANCELLED, ApprovalEventType.CANCELLED, true, EnumSet.of(RequisitionStatus.DRAFT,
+    CANCEL(RequisitionStatus.CANCELLED, ApprovalEventType.CANCELLED, true, true, EnumSet.of(RequisitionStatus.DRAFT,
             RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.RETURNED, RequisitionStatus.APPROVED,
             RequisitionStatus.PAUSED));
 
@@ -30,13 +31,15 @@ public enum RequisitionStatusChange {
     private final RequisitionStatus target;
     private final ApprovalEventType eventType;
     private final boolean requiresReason;
+    private final boolean checksActivePipeline;
     private final Set<RequisitionStatus> from;
 
     RequisitionStatusChange(RequisitionStatus target, ApprovalEventType eventType, boolean requiresReason,
-                            Set<RequisitionStatus> from) {
+                            boolean checksActivePipeline, Set<RequisitionStatus> from) {
         this.target = target;
         this.eventType = eventType;
         this.requiresReason = requiresReason;
+        this.checksActivePipeline = checksActivePipeline;
         this.from = Collections.unmodifiableSet(from);
     }
 
@@ -50,6 +53,12 @@ public enum RequisitionStatusChange {
 
     public boolean requiresReason() {
         return requiresReason;
+    }
+
+    // Task 291: does this change need the caller's confirmation while candidates are still in the pipeline? Only the
+    // final ones, which also close the requisition's postings (task 292); a paused requisition can be resumed.
+    public boolean checksActivePipeline() {
+        return checksActivePipeline;
     }
 
     public Set<RequisitionStatus> from() {

@@ -41,9 +41,9 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Task 290: the seam for tasks 291 and 292. A listener runs inside the status change's transaction while the
-// requisition is locked: what it throws reaches the caller and rolls the whole change back, and afterChange already
-// sees the new status and the history row.
+// Task 290: the seam for other modules (task 292 uses it). A listener runs inside the status change's transaction
+// while the requisition is locked: what it throws reaches the caller and rolls the whole change back, and afterChange
+// already sees the new status and the history row.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -125,7 +125,7 @@ class RequisitionStatusListenerIntegrationTest {
         AFTER.set(NOTHING);
     }
 
-    // Task 291 will refuse a closure here: nothing is written.
+    // A listener may refuse a change here (task 291 checks the pipeline in the service itself): nothing is written.
     @Test
     void aRefusalBeforeTheChangeWritesNothing() throws Exception {
         UUID id = requisition(RequisitionStatus.APPROVED);

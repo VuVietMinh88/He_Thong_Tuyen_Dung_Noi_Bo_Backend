@@ -197,6 +197,11 @@ public class SecurityConfiguration {
                         // access.
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/status-changes")
                                 .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
+                        // Task 291 (story S3-07): the candidates still in the pipeline are shown in HR's close dialog,
+                        // so only those who may close read them (REQUISITIONS_WRITE_ALL); RequisitionStatusService
+                        // checks the code again and also requires read access.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/active-pipeline")
+                                .hasAuthority("PERM_REQUISITIONS_WRITE_ALL")
                         // Task 284, 286: who is assigned, and the history of changes, are read like the requisition
                         // itself (same scope as GET /{id}).
                         .requestMatchers(HttpMethod.GET, "/api/v1/requisitions/*/assignment",

@@ -331,7 +331,8 @@ class RequisitionRecruiterAccessIntegrationTest {
 
     // A constructed state that makes the rule of the writes observable: HR keeps REQUISITIONS_WRITE_ALL but reads only
     // SCOPED and manages nothing, and is the primary recruiter of the requisition. Reading is open through the
-    // assignment; the HR writes keep the department rule of reading (requireInReadScope) and write nothing.
+    // assignment; the HR writes and the pipeline read of task 291 keep the department rule of reading
+    // (requireInReadScope), and the writes write nothing.
     @Test
     void writesKeepTheDepartmentRuleEvenForAnAssignedWriteAllHolder() throws Exception {
         UUID id = postings.requisition(position, it, adminId, RequisitionStatus.APPROVED, START);
@@ -343,6 +344,8 @@ class RequisitionRecruiterAccessIntegrationTest {
         Map<String, List<Map<String, Object>>> before = state();
 
         assertThat(api.expect(read(id, "", hrToken), 200).path("status").asText()).isEqualTo("APPROVED");
+        // The pipeline read of task 291 keeps the department rule too: the assignment does not open it.
+        api.forbidden(status.activePipeline(id, hrToken));
         api.forbidden(status.change(id, "PAUSED", "Chờ ngân sách", 0, hrToken));
         api.forbidden(api.request("POST", BASE + "/" + id + "/assign",
                 json.writeValueAsString(Map.of("recruiterId", r3)), hrToken));

@@ -78,6 +78,7 @@ Người gọi trong bảng: **ALL** là HR_MANAGER, ADMIN (`REQUISITIONS_READ_A
 |`POST /requisitions/{id}/approvals` (quyết định duyệt)|theo người duyệt|theo người duyệt|403 → **403** (không phải 409, kể cả với yêu cầu đã duyệt)|403|theo người duyệt (409 khi tiến độ đã cũ)|Ghi: không đổi; phân công không được tính|
 |`POST /requisitions/{id}/assign`, `/unassign`|200|403 (matcher)|403 (matcher)|403|403|Không đổi; service vẫn kiểm quyền xem theo phòng ban|
 |`POST /requisitions/{id}/status-changes`|200|403 (matcher)|403 (matcher)|403|403|Không đổi; service vẫn kiểm quyền xem theo phòng ban|
+|`GET /requisitions/{id}/active-pipeline` (task 291)|200|403 (matcher)|**403** (matcher)|403|403|Không mở rộng (chỉ `REQUISITIONS_WRITE_ALL`)|
 |`POST /requisitions`|mọi phòng ban|phòng ban phụ trách|403 (phòng ban trong body)|–|–|Không đổi|
 |Tin tuyển dụng: `GET /job-postings/source-requisitions`, `GET /job-postings` (lọc trong SQL), `GET /job-postings/{id}`, `/preview`, `/history`, `POST`, `PUT`, `/submit` (từng bản ghi; ghi dưới khóa dòng yêu cầu)|mọi tin|– (không có `JOB_POSTINGS_WRITE_*`)|theo phân công (từ task 303)|403 / rỗng|–|Hành vi không đổi; câu SQL và kiểm tra từng bản ghi nay lấy từ `RecruiterAssignmentAccess`. `/approvals`, `/publish` vẫn chỉ `JOB_POSTINGS_WRITE_ALL`|
 

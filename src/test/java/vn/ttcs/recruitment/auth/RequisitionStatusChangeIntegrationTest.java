@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -11,6 +12,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -24,6 +28,7 @@ import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
 import vn.ttcs.recruitment.requisition.RequisitionStatusChange;
+import vn.ttcs.recruitment.requisition.RequisitionStatusService;
 
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
@@ -42,6 +47,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static vn.ttcs.recruitment.auth.ApprovalTestSupport.step;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.EMPLOYMENT_TYPE;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
@@ -49,7 +55,9 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 // Task 290 (story S3-07): "Kiểm tra quyền, trạng thái và lý do phù hợp cho tuyển đủ/tạm dừng/hủy". HR pauses, resumes,
 // closes as filled or cancels a requisition with POST /requisitions/{id}/status-changes; task 293 records each change
 // in the history. Task 292's JobPostingRequisitionSync is the only RequisitionStatusListener in this context; what it
-// does to postings is tested in JobPostingClosureIntegrationTest.
+// does to postings is tested in JobPostingClosureIntegrationTest. Task 291: this context has the production
+// RequisitionPipelineSource, which knows of no candidate (no candidate module yet), so every closure here goes through
+// without confirmation; RequisitionActivePipelineIntegrationTest replaces the source to test the confirmation.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
@@ -78,6 +86,8 @@ class RequisitionStatusChangeIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JwtDecoder jwtDecoder;
+    @Autowired private RequisitionStatusService statusService;
 
     private RequisitionStatusTestSupport status;
     private JobPostingTestSupport postings;
@@ -292,9 +302,104 @@ class RequisitionStatusChangeIntegrationTest {
                 + "not-a-uuid/status-changes", json.writeValueAsString(Map.of("status", "PAUSED", "reason",
                 "Chờ ngân sách", "expectedRevision", 0)), hrToken), 400, "VALIDATION_ERROR");
         assertThat(badId.path("message").asText()).isEqualTo("Tham số đường dẫn hoặc bộ lọc không hợp lệ.");
+        // Task 291: confirmActiveCandidates is a boolean; another value, or the field under another name, is no JSON
+        // this API reads.
+        for (Object notABoolean : List.of("yes", List.of(), Map.of())) {
+            Map<String, Object> body = new LinkedHashMap<>(Map.of("status", "FILLED", "reason", "Đã tuyển đủ",
+                    "expectedRevision", 0, "confirmActiveCandidates", notABoolean));
+            postings.error(status.change(id, body, hrToken), 400, "INVALID_JSON");
+        }
+        postings.error(status.change(id, Map.of("status", "FILLED", "reason", "Đã tuyển đủ", "expectedRevision", 0,
+                "confirmed", true), hrToken), 400, "INVALID_JSON");
 
         assertThat(status.row(id)).isEqualTo(rowBefore);
         assertThat(status.events(id)).isEmpty();
+
+        // Task 291: true, false, null and absent are accepted (here nobody is in the pipeline, so they change
+        // nothing), and so are the scalar coercions Jackson applies to a boolean ("true", 1). A confirmation sent
+        // with a change that needs none is ignored.
+        List<Object> accepted = Arrays.asList(true, false, null, "true", 1);
+        for (Object confirm : accepted) {
+            UUID filled = requisition(it, RequisitionStatus.APPROVED);
+            Map<String, Object> body = new HashMap<>(Map.of("status", "FILLED", "reason", "Đã tuyển đủ",
+                    "expectedRevision", 0));
+            body.put("confirmActiveCandidates", confirm);
+            assertThat(status.ok(status.change(filled, body, hrToken)).path("status").asText())
+                    .as(String.valueOf(confirm)).isEqualTo("FILLED");
+        }
+        assertThat(status.ok(status.change(id, "PAUSED", "Chờ ngân sách", 0, true, hrToken)).path("status").asText())
+                .isEqualTo("PAUSED");
+    }
+
+    // Task 291: without a candidate module the backend knows of nobody in any requisition's pipeline. The answer is
+    // the honest "no data" ({count: 0, stages: []}), in every status, and never anything invented.
+    @ParameterizedTest
+    @EnumSource(RequisitionStatus.class)
+    void theActivePipelineIsEmptyWithoutACandidateModule(RequisitionStatus requisitionStatus) throws Exception {
+        UUID id = requisition(it, requisitionStatus);
+
+        for (String token : List.of(hrToken, adminToken)) {
+            JsonNode pipeline = status.ok(status.activePipeline(id, token));
+            assertThat(fieldNames(pipeline)).containsExactly("count", "stages");
+            assertThat(pipeline.path("count").isInt()).isTrue();
+            assertThat(pipeline.path("count").asInt()).isZero();
+            assertThat(pipeline.path("stages").isArray()).isTrue();
+            assertThat(pipeline.path("stages").size()).isZero();
+        }
+    }
+
+    // Task 291: the pipeline is shown in HR's close dialog, so only those who may close read it, with the read checks
+    // of a change: read access at all (403 before 404), then the department read scope. Being the head of the
+    // department or its assigned recruiter is not enough.
+    @Test
+    void theActivePipelineIsReadOnlyByThoseWhoClose() throws Exception {
+        UUID id = requisition(it, RequisitionStatus.APPROVED);
+        api.expect(assign(id, "/assign", Map.of("recruiterId", recruiterId)), 200);
+        // The assigned recruiter and the head read the requisition itself (tasks 245, 285), but not its pipeline.
+        for (String token : List.of(recruiterToken, itHeadToken)) {
+            api.expect(api.request("GET", RequisitionStatusTestSupport.REQUISITIONS + id, null, token), 200);
+        }
+
+        postings.error(status.activePipeline(id, null), 401, "UNAUTHORIZED");
+        for (String token : List.of(itHeadToken, recruiterToken, approverToken, interviewerToken, noRoleToken)) {
+            postings.forbidden(status.activePipeline(id, token));
+        }
+        // The service checks REQUISITIONS_WRITE_ALL itself, so a matcher that let a reader through would still refuse.
+        for (String token : List.of(itHeadToken, recruiterToken, approverToken)) {
+            Jwt jwt = jwtDecoder.decode(token);
+            assertThatThrownBy(() -> statusService.activePipeline(jwt, id)).isInstanceOf(AccessDeniedException.class);
+        }
+        JsonNode badId = postings.error(api.request("GET", RequisitionStatusTestSupport.REQUISITIONS
+                + "not-a-uuid/active-pipeline", null, hrToken), 400, "VALIDATION_ERROR");
+        assertThat(badId.path("message").asText()).isEqualTo("Tham số đường dẫn hoặc bộ lọc không hợp lệ.");
+        JsonNode missing = postings.error(status.activePipeline(UUID.randomUUID(), hrToken), 404,
+                "REQUISITION_NOT_FOUND");
+        assertThat(missing.path("message").asText()).isEqualTo("Không tìm thấy yêu cầu tuyển dụng.");
+
+        jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' "
+                + "AND permission_code = 'REQUISITIONS_READ_ALL'");
+        try {
+            for (UUID requisition : List.of(id, UUID.randomUUID())) {
+                postings.forbidden(status.activePipeline(requisition, hrToken));
+            }
+            // With READ_SCOPED the unknown requisition is 404, but IT is managed by its head, not by HR: 403 until HR
+            // manages it.
+            jdbc.update("INSERT INTO role_permissions (role_code, permission_code) "
+                    + "VALUES ('HR_MANAGER', 'REQUISITIONS_READ_SCOPED')");
+            postings.error(status.activePipeline(UUID.randomUUID(), hrToken), 404, "REQUISITION_NOT_FOUND");
+            postings.forbidden(status.activePipeline(id, hrToken));
+            // On the team, HR reads the requisition itself (task 285) but still not its pipeline.
+            postings.assign(id, hrId, RequisitionRecruiterRole.SUPPORTING, adminId, START);
+            api.expect(api.request("GET", RequisitionStatusTestSupport.REQUISITIONS + id, null, hrToken), 200);
+            postings.forbidden(status.activePipeline(id, hrToken));
+            jdbc.update("UPDATE departments SET manager_user_id = ? WHERE id = ?", hrId, it);
+            assertThat(status.ok(status.activePipeline(id, hrToken)).path("count").asInt()).isZero();
+        } finally {
+            jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' "
+                    + "AND permission_code = 'REQUISITIONS_READ_SCOPED'");
+            jdbc.update("INSERT INTO role_permissions (role_code, permission_code) "
+                    + "VALUES ('HR_MANAGER', 'REQUISITIONS_READ_ALL') ON CONFLICT DO NOTHING");
+        }
     }
 
     // Story S3-07 and Q18.3: only the HR manager (and ADMIN, who holds the same REQUISITIONS_WRITE_ALL) changes a

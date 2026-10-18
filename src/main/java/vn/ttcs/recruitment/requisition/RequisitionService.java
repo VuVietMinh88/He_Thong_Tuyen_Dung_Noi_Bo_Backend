@@ -377,8 +377,9 @@ public class RequisitionService {
     // Who may read one requisition (GET /requisitions/{id} and the reads built on it): READ_ALL; a SCOPED reader who
     // manages its department (task 245); its current primary or supporting recruiter (task 285); a participant of its
     // approval (task 262). Cheapest first: the approval history is loaded only when nothing else answers. Out of all of
-    // them is the standard 403. Reads only: writes keep the department rule (requireInScope, requireInReadScope), and a
-    // decision keeps ApprovalParticipants.readable, which must not count the assignment.
+    // them is the standard 403. Reads only: writes and the close dialog's active-pipeline read (task 291) keep the
+    // department rule (requireInScope, requireInReadScope), and a decision keeps ApprovalParticipants.readable, which
+    // must not count the assignment.
     private void requireReadable(Reader reader, RecruitmentRequisition requisition) {
         Caller caller = reader.caller();
         var candidate = approverDirectory.candidate(reader.account(), caller.permissions());
@@ -443,8 +444,10 @@ public class RequisitionService {
 
     // Task 284: the department rule of GET /requisitions/{id}, without the approval participants and the assigned
     // recruiters (task 285), for the HR writes, which answer with the requisition or its team and so must be allowed
-    // to read it (RequisitionRecruiterService.lockRequisition, RequisitionStatusService.change). One rule for them
-    // keeps them in step when the department rule changes. readScope is the caller's READ scope of REQUISITIONS, ALL or
+    // to read it (RequisitionRecruiterService.lockRequisition, RequisitionStatusService.change), and for the
+    // active-pipeline read of the close dialog (RequisitionStatusService.activePipeline, task 291), which has the same
+    // audience as a change. One rule for them keeps them in step when the department rule changes: narrowing or
+    // widening it changes who may read the pipeline too. readScope is the caller's READ scope of REQUISITIONS, ALL or
     // SCOPED.
     void requireInReadScope(UUID actorId, AccessScope readScope, UUID departmentId) {
         requireInScope(new Caller(actorId, readScope, Set.of()), departmentId);
