@@ -182,7 +182,7 @@ class ApprovalFlowServiceTest {
     private String outcome(Runnable action) {
         try { action.run(); return "ok"; } catch (ApiException ex) { return ex.getCode(); }
     }
-    private Jwt login(String email) { return decoder.decode(auth.login(new LoginRequest(email, "TestingOnly123!")).accessToken()); }
+    private Jwt login(String email) { return decoder.decode(auth.login(new LoginRequest(email, "TestingOnly123!"), UUID.randomUUID()).accessToken()); }
     private ApprovalFlowRequest payload(Integer expected) {
         return new ApprovalFlowRequest(department, "  Luồng duyệt  ", expected,
                 List.of(step(1, null, "HIRING_MANAGER"), step(2, "20000000", "HR_MANAGER")));

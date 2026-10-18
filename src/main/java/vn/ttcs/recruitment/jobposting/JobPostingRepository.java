@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,4 +35,11 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from JobPosting p where p.requisitionId = :requisitionId order by p.id")
     List<JobPosting> findByRequisitionIdForUpdate(@Param("requisitionId") UUID requisitionId);
+
+    // Task 356: the postings in the status whose application deadline is before today (the business date), the
+    // candidates of the daily expiry, read without any lock; JobPostingExpiry locks and checks each one again. The
+    // oldest deadline first, the id keeps the order stable. V21 job_postings_status_idx narrows the scan to the status.
+    @Query("select p.id from JobPosting p where p.status = :status and p.applicationDeadline < :today "
+            + "order by p.applicationDeadline, p.id")
+    List<UUID> findIdsToExpire(@Param("status") JobPostingStatus status, @Param("today") LocalDate today);
 }

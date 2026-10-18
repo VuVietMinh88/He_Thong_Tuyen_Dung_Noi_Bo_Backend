@@ -16,6 +16,6 @@ public record CreateAccountRequest(
 
     public CreateAccountRequest {
         email = email == null ? null : email.trim().toLowerCase(Locale.ROOT);
-        fullName = fullName == null ? null : fullName.trim();
+        fullName = ProfileValidation.requiredText(fullName);
     }
 }

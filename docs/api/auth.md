@@ -2,7 +2,7 @@
 
 Luồng quên mật khẩu của các task106–110: [API đặt lại mật khẩu](password-reset.md).
 
-[Khóa hành chính](account-locking.md) của162–166 chặn login/refresh/JWT và thu hồi các phiên tài khoản đích. Mở khóa không khôi phục token cũ; người dùng đăng nhập lại. Khóa hành chính độc lập với khóa15phút do nhập sai và trạng thái chờ kích hoạt.
+[Khóa hành chính](account-locking.md) của162–166 chặn login/refresh/JWT và thu hồi các phiên tài khoản đích. Mở khóa không khôi phục token cũ; người dùng đăng nhập lại. Khóa hành chính độc lập với việc chặn trình duyệt 15 phút do nhập sai và trạng thái chờ kích hoạt.
 
 TKNHTTDNB1-90 đăng nhập nhân sự nội bộ bằng email/mật khẩu. Backend trả vai trò; frontend dùng vai trò mở trang phù hợp trong subtask giao diện riêng. Ứng viên bên ngoài không có tài khoản nội bộ.
 
@@ -10,7 +10,9 @@ TKNHTTDNB1-93 hoàn thiện kiểm tra Access Token trên luồng đăng nhập 
 
 ## Đăng nhập
 
-**POST** `http://localhost:8080/api/v1/auth/login`, header `Content-Type: application/json`.
+**POST** `http://localhost:8080/api/v1/auth/login`, headers `Content-Type: application/json` và `X-Device-Id: <UUID của trình duyệt>`.
+
+Frontend tạo UUID ngẫu nhiên một lần và giữ trong localStorage qua tải lại trang, đổi email và đăng xuất. Mọi lần đăng nhập của cùng trình duyệt gửi lại UUID này. Thiếu hoặc sai định dạng header trả **400** `LOGIN_DEVICE_REQUIRED`. Client cũ cần cập nhật cùng đợt phát hành backend.
 
 ```json
 {
@@ -60,7 +62,7 @@ Client gửi `Authorization: Bearer <accessToken>` khi gọi `/me` hoặc `/logo
 
 Token chỉ có hiệu lực khi thời gian hiện tại **nhỏ hơn** `exp`: ví dụ cấp lúc 10:00:00 thì hết hạn từ 10:15:00. `expiresIn` trong response là thời hạn lúc cấp, không phải bộ đếm tự cập nhật. Thời hạn 15 phút là cấu hình hiện có của dự án; subtask Jira 93 không quy định thời hạn riêng.
 
-Email lạ, sai password, tài khoản vô hiệu hóa và bị khóa đều trả **401**, cùng nội dung:
+Email lạ, sai password, tài khoản vô hiệu hóa và bị Admin khóa đều trả **401** khi trình duyệt chưa tới ngưỡng chặn, cùng nội dung:
 
 ```json
 {
@@ -70,11 +72,15 @@ Email lạ, sai password, tài khoản vô hiệu hóa và bị khóa đều tr�
 }
 ```
 
-Sau 5 lần sai liên tiếp cho tài khoản có thật, khóa 15 phút từ lần sai thứ 5. Trong lúc khóa, password đúng vẫn bị từ chối; lần thử tiếp theo không kéo dài khóa. Đúng thời điểm hết khóa có thể thử lại. Đăng nhập thành công xóa bộ đếm sai. Email bỏ khoảng trắng hai đầu và chuyển chữ thường; password giữ nguyên.
+Sau 5 lần đăng nhập bị từ chối liên tiếp trên một trình duyệt, chặn trình duyệt đó 15 phút từ lần thứ 5. Bộ đếm dùng chung giữa các email, kể cả email không tồn tại; không sửa trạng thái tài khoản. Bốn lần đầu trả **401** `LOGIN_FAILED`; lần thứ 5 và các lần đang bị chặn trả **429** `LOGIN_DEVICE_LOCKED`, header `Retry-After` là số giây còn lại. CORS cho phép frontend đọc header này. Frontend hiển thị thời gian do backend trả, không tự khóa theo email.
+
+Trong lúc bị chặn, mật khẩu đúng trên cùng trình duyệt vẫn bị từ chối; thử tiếp không kéo dài thời gian. Trình duyệt khác (kể cả cùng IP) vẫn đăng nhập được và không xóa khóa của trình duyệt trước. Phiên đang hoạt động không bị thu hồi bởi việc nhập sai. Đăng nhập thành công chỉ xóa bộ đếm của trình duyệt đang dùng. Email bỏ khoảng trắng hai đầu và chuyển chữ thường; password giữ nguyên.
+
+Đây là nhận diện theo hồ sơ trình duyệt, không phải khóa máy vật lý: chế độ riêng tư, xóa dữ liệu trình duyệt hoặc chủ động thay UUID sẽ tạo định danh mới. UUID không phải thông tin xác thực. Khóa/bộ đếm lưu trong PostgreSQL nên backend khởi động lại không làm mất trạng thái. Khóa do quản trị viên vẫn chặn tài khoản trên mọi trình duyệt.
 
 Thiếu email/password, email sai định dạng hoặc JSON sai trả **400**. Response validation có `code=VALIDATION_ERROR`, `message=Vui lòng kiểm tra dữ liệu đã nhập.`, `fieldErrors` gồm lỗi từng trường. JSON sai có `code=INVALID_JSON`.
 
-Giới hạn đầu vào password là 200 ký tự. Password quá 72 byte UTF-8 bị từ chối với 401 vì BCrypt chỉ nhận tối đa 72 byte; quá cả 200 ký tự thì validation trả 400 trước. Response không có password hoặc password hash.
+Giới hạn đầu vào password là 200 ký tự. Password quá 72 byte UTF-8 bị tính là đăng nhập sai vì BCrypt chỉ nhận tối đa 72 byte (401, hoặc 429 khi trình duyệt tới ngưỡng chặn); quá cả 200 ký tự thì validation trả 400 trước. Response không có password hoặc password hash.
 
 ## Thử bằng PowerShell hoặc Postman
 
@@ -82,28 +88,30 @@ Sau khi API đang chạy, nhập password qua prompt để không lưu trực ti
 
 ```powershell
 $loginCredential = Get-Credential -UserName 'admin@congty.test' -Message 'Tài khoản API'
+$browserId = [guid]::NewGuid().ToString() # Tạo một lần; dùng lại khi thử đăng nhập tiếp.
 $loginJson = @{
     email = $loginCredential.UserName
     password = $loginCredential.GetNetworkCredential().Password
 } | ConvertTo-Json
 $login = Invoke-RestMethod -Method Post `
     -Uri 'http://localhost:8080/api/v1/auth/login' `
+    -Headers @{ 'X-Device-Id' = $browserId } `
     -ContentType 'application/json' -Body $loginJson
 $login.user
 ```
 
-Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình vì chứa token. Với Postman, chọn POST, **Body → raw → JSON**, gửi body cùng cấu trúc.
+Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình vì chứa token. Với Postman, chọn POST, **Body → raw → JSON**, gửi body cùng cấu trúc; thêm `X-Device-Id` trong tab Headers và giữ nguyên giá trị qua các lần thử.
 
 ## API hỗ trợ phiên
 
 | Method/path | Đầu vào | Thành công |
 |---|---|---|
 | `GET /api/v1/health` | Không cần đăng nhập | 200, server đang chạy |
-| `POST /api/v1/auth/login` | Body `email`, `password` | 200, token và tài khoản |
+| `POST /api/v1/auth/login` | Header `X-Device-Id`; body `email`, `password` | 200, token và tài khoản |
 | `GET /api/v1/auth/me` | `Authorization: Bearer <accessToken>` | 200, tài khoản hiện tại |
 | `POST /api/v1/auth/refresh` | Body `{"refreshToken":"<token>"}` | 200, token mới |
 | `POST /api/v1/auth/logout` | `Authorization: Bearer <accessToken>` | 204, không body |
-| `POST /api/v1/auth/change-password` | Bearer token; body `currentPassword`, `newPassword` | 200, giữ phiên hiện tại và thu hồi phiên khác |
+| `POST /api/v1/auth/change-password` | Bearer token; body `currentPassword`, `newPassword` | 200, thu hồi mọi phiên và yêu cầu đăng nhập lại |
 | `GET /api/v1/auth/permissions` | Bearer token | 200, danh sách quyền hiện hành |
 
 Đổi mật khẩu khi đang đăng nhập:
@@ -112,7 +120,9 @@ Thay email bằng Admin của bạn. Không in `$login` khi chia sẻ màn hình
 {"currentPassword":"<mật khẩu hiện tại>","newPassword":"<mật khẩu mới>"}
 ```
 
-Mật khẩu mới cần ít nhất 8 ký tự, có chữ và số, tối đa 72 byte UTF-8 để BCrypt xử lý đầy đủ. Mật khẩu hiện tại sai trả 400 `CURRENT_PASSWORD_INCORRECT`; dữ liệu không đạt yêu cầu trả 400 `VALIDATION_ERROR`; thiếu/hết hạn Access Token trả 401. Thành công trả `{"message":"Đổi mật khẩu thành công. Các phiên đăng nhập khác đã được thu hồi."}` với `Cache-Control: no-store`. Refresh token của phiên hiện tại tiếp tục dùng được; các phiên khác bị từ chối ngay. Liên kết đặt lại mật khẩu đang còn hiệu lực của tài khoản cũng bị vô hiệu hóa.
+Mật khẩu mới cần ít nhất 8 ký tự, có chữ và số, tối đa 72 byte UTF-8 để BCrypt xử lý đầy đủ. Mật khẩu hiện tại sai trả 400 `CURRENT_PASSWORD_INCORRECT`; dữ liệu không đạt yêu cầu trả 400 `VALIDATION_ERROR`; thiếu/hết hạn Access Token trả 401. Thành công trả `{"message":"Đổi mật khẩu thành công. Vui lòng đăng nhập lại."}` với `Cache-Control: no-store`. Access và refresh token của mọi phiên, gồm phiên đang đổi mật khẩu, đều bị từ chối ngay. Liên kết đặt lại mật khẩu đang còn hiệu lực cũng bị vô hiệu hóa. Lỗi validation/mật khẩu hiện tại không thu hồi phiên.
+
+Sau response thành công, frontend xóa token và dữ liệu đăng nhập, hủy khả năng lưu token từ request refresh cũ còn đang chạy, rồi chuyển về `/login?passwordChanged=1`. Không gọi thêm logout bằng token đã bị thu hồi.
 
 `GET /api/v1/auth/permissions` trả `{"permissions":["..."]}` với `Cache-Control: no-store`. Mỗi quyền có mã gồm module, thao tác `READ`/`WRITE` và phạm vi `ALL`/`SCOPED`, ví dụ `CANDIDATES_READ_SCOPED`. Quyền được đọc lại từ PostgreSQL ở mỗi yêu cầu đã xác thực; frontend dùng danh sách này để hiển thị, còn backend quyết định quyền truy cập thực tế. Xem [thiết kế phân quyền](../architecture/authorization.md).
 
@@ -182,12 +192,12 @@ Frontend / Postman gửi JSON
 1. **`auth/LoginRequest.java`** định nghĩa dữ liệu vào bằng Java `record` (một cấu trúc chứa dữ liệu gọn). `@NotBlank`, `@Email`, `@Size` là điều kiện Spring kiểm tra trước service. `toString()` che thông tin đăng nhập.
 2. **`auth/AuthController.java`** định nghĩa URL/method. `@RestController` yêu cầu trả JSON. Controller gọi service và chọn HTTP response.
 3. **`auth/AuthService.java`** tìm tài khoản, so sánh BCrypt, từ chối khóa/vô hiệu hóa, tăng bộ đếm sai, tạo phiên khi đúng. Email lạ cũng được so với hash giả để giảm chênh lệch thời gian giữa email có thật và không có thật.
-4. **`account/AccountRepository.java`** giao tiếp database qua Spring Data JPA. `findByEmailForUpdate()` khóa hàng trong transaction để 5 request sai đồng thời không ghi đè bộ đếm của nhau.
-5. **`account/Account.java`** ánh xạ bảng `user_accounts`, chứa quy tắc khóa 5 lần/15 phút. `@Transactional(noRollbackFor = AuthenticationFailureException.class)` trên login giữ bộ đếm sai khi ném lỗi 401; rollback mặc định sẽ làm mất bộ đếm.
+4. **`account/AccountRepository.java`** giao tiếp database qua Spring Data JPA. `findByEmailForUpdate()` tuần tự hóa login với đổi/reset mật khẩu và khóa quản trị.
+5. **`auth/LoginDevice.java`** chứa quy tắc 5 lần/15 phút. `LoginDeviceRepository` tạo hàng nếu chưa có rồi khóa hàng trình duyệt trước khi đọc tài khoản. Login giữ transaction khi trả lỗi 401 hoặc 429 để không mất bộ đếm, kể cả các lần thử đồng thời. `account/Account.java` giữ mật khẩu/trạng thái tài khoản; các cột khóa đăng nhập cũ không còn quyết định đăng nhập.
 6. **`security/AuthConfiguration.java`** cấp BCrypt, khóa ký và bộ kiểm JWT. BCrypt băm một chiều; `matches()` so sánh password, không giải mã. Xem [PasswordEncoder của Spring Security](https://docs.spring.io/spring-security/reference/features/authentication/password-storage.html).
 7. **`auth/TokenService.java`** tạo JWT 15 phút, refresh token ngẫu nhiên. Database chỉ lưu SHA-256 refresh token; client giữ token gốc. Access token gắn với một phiên database.
 8. **`security/SecurityConfiguration.java`** bảo vệ trước controller: kiểm chữ ký/thời hạn JWT và phiên/tài khoản. Endpoint chưa khai báo quyền bị chặn. Vai trò được đọc từ database, không tin dữ liệu client tự gửi.
 9. **`common/ApiExceptionHandler.java`** đổi lỗi nghiệp vụ/validation thành JSON chung, không trả password.
 10. **`database/migrations/V1__create_accounts_and_sessions.sql`** tạo bảng. Maven sao chép SQL vào JAR; Flyway chạy migration, Hibernate chỉ kiểm schema.
 
-Muốn đổi thời gian khóa, đọc `Account`; đổi JSON response, đọc `TokenResponse`/`CurrentUserResponse`; thêm API, khai báo quyền tại `SecurityConfiguration` và thêm test. Quyền theo module/dữ liệu, quên/đổi mật khẩu và quản trị tài khoản thuộc các subtask riêng.
+Muốn đổi thời gian chặn, đọc `LoginDevice`; đổi JSON response, đọc `TokenResponse`/`CurrentUserResponse`; thêm API, khai báo quyền tại `SecurityConfiguration` và thêm test. Bảng `login_devices` được thêm bằng migration mới, không sửa migration đã áp dụng.

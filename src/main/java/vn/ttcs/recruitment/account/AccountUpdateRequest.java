@@ -17,7 +17,7 @@ public record AccountUpdateRequest(
         UUID departmentId) {
 
     public AccountUpdateRequest {
-        fullName = fullName == null ? null : fullName.trim();
+        fullName = ProfileValidation.requiredText(fullName);
         phone = ProfileValidation.normalizePhone(phone);
         displayTitle = ProfileValidation.optionalText(displayTitle);
     }

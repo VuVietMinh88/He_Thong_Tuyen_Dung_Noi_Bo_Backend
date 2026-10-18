@@ -5,7 +5,9 @@ import java.util.UUID;
 
 // Task 310: one step of the review and publication history of a posting (GET /job-postings/{id}/history), one row of
 // job_posting_events. revision is the posting's revision right after the step. The actor is an id and a name, never an
-// email or a role; comment is null when the step has none (always for PUBLISHED).
+// email or a role; comment is null when the step has none (always for PUBLISHED). Task 356: actorId and actorName are
+// null only for an EXPIRED step, made by the daily task and not by a person (the frontend shows "Hệ thống"); comment
+// is always null there too.
 public record JobPostingHistoryEntry(UUID id, int revision, JobPostingEventType action, JobPostingStatus statusBefore,
                                      JobPostingStatus statusAfter, UUID actorId, String actorName,
                                      Instant occurredAt, String comment) { }
