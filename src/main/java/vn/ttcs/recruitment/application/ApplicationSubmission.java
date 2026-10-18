@@ -25,9 +25,17 @@ public record ApplicationSubmission(
         coverLetter = trim(coverLetter);
     }
 
-    public String normalizedEmail() { return email.toLowerCase(Locale.ROOT); }
+    public String normalizedEmail() { return normalizeEmail(email); }
 
-    private static String trim(String value) {
+    // Task 339: the one email normalization, shared with the public lookup so a typed email matches the stored one:
+    // the invisible edges are trimmed (trim), then Locale.ROOT lowercasing. Null when nothing visible is left.
+    static String normalizeEmail(String raw) {
+        String trimmed = trim(raw);
+        return trimmed == null ? null : trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    // Package-private since task 339: the lookup request trims its fields with the same rule.
+    static String trim(String value) {
         if (value == null) return null;
         int start = 0;
         int end = value.length();

@@ -239,6 +239,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/public/application-sources", PUBLIC, null, 200),
             // Task 315: the values of the portal's filter lists, public like the list; empty lists to everyone here.
             endpoint("GET", "/api/v1/public/job-postings/filters", PUBLIC, null, 200),
+            // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
+            // empty body fails validation before the tracking quota counts anything.
+            endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
@@ -781,7 +784,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 292: a posting is closed only with its requisition; there is no route to close one by hand.
                 "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close",
                 // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
-                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire")) {
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
+                // Task 339: the frontend's current lookup puts the secret in the query; only the POST exists.
+                "GET /api/v1/public/applications/lookup")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
