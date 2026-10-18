@@ -157,10 +157,14 @@ final class ApplicationTestSupport {
     }
 
     ValidatedCv docx() {
+        return docx("cv.docx");
+    }
+
+    ValidatedCv docx(String filename) {
         try (var document = new XWPFDocument(); var output = new ByteArrayOutputStream()) {
             document.createParagraph().createRun().setText("Candidate CV");
             document.write(output);
-            return validator.validate("cv.docx", new ByteArrayInputStream(output.toByteArray()));
+            return validator.validate(filename, new ByteArrayInputStream(output.toByteArray()));
         } catch (java.io.IOException exception) {
             throw new IllegalStateException(exception);
         }

@@ -92,6 +92,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String JOB_POSTINGS_WRITE_SCOPED = "JOB_POSTINGS_WRITE_SCOPED";
     private static final String HEADCOUNT_PLANS_READ_ALL = "HEADCOUNT_PLANS_READ_ALL";
     private static final String HEADCOUNT_PLANS_WRITE_ALL = "HEADCOUNT_PLANS_WRITE_ALL";
+    private static final String CANDIDATES_READ_ALL = "CANDIDATES_READ_ALL";
+    private static final String CANDIDATES_READ_SCOPED = "CANDIDATES_READ_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -243,7 +245,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
-            endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
+            endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
+            // Task 361: the unified candidate profile; both CANDIDATES read scopes pass (APPROVER is SCOPED from
+            // V33_1), and the unknown id stops at 404 before any scope check.
+            endpoint("GET", "/api/v1/candidates/{id}/unified-profile", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -786,7 +791,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
                 "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
                 // Task 339: the frontend's current lookup puts the secret in the query; only the POST exists.
-                "GET /api/v1/public/applications/lookup")) {
+                "GET /api/v1/public/applications/lookup",
+                // Task 361: only the unified profile exists; /candidates/{id} stays free for a later resource, and the
+                // frontend's notes, tags and rating routes belong to S5-04.
+                "GET /api/v1/candidates/" + UNKNOWN_ID, "POST /api/v1/candidates/" + UNKNOWN_ID + "/notes",
+                "PUT /api/v1/candidates/" + UNKNOWN_ID + "/tags",
+                "PATCH /api/v1/candidates/" + UNKNOWN_ID + "/rating")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
