@@ -46,6 +46,14 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
                 .rootCause().hasMessageContaining("interview_events rows are never changed");
     }
 
+    @Test
+    void recruiterCannotUseAllInterviewGrantToAccessAnotherApplicationOfSameCandidate() throws Exception {
+        error(create(other.applicationId(), recruiterToken, schedule(START, panel, "Room")), 403, "FORBIDDEN");
+        assertThat(count("interview_sessions")).isZero();
+        assertThat(count("interview_events")).isZero();
+        assertThat(jdbc.queryForObject("SELECT outcome FROM candidate_access_events WHERE application_id=?", String.class,
+                other.applicationId())).isEqualTo("DENIED");
+    }
 
     @Test
     void invitedPanelReadsOwnLogisticsWithoutCandidateCvOrOtherApplicationAccess() throws Exception {
@@ -176,8 +184,52 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         assertThat(count("interview_sessions")).isZero();
     }
 
+    @Test
+    void changedAssignmentsAndRevokedInterviewGrantApplyOnNextCall() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        jdbc.update("UPDATE requisition_recruiters SET recruiter_id=? WHERE requisition_id=? AND assignment_role='PRIMARY'", outsider, requisition);
+        error(call("GET", "/api/v1/interviews/" + id, null, recruiterToken), 403, "FORBIDDEN");
+        jdbc.update("DELETE FROM role_permissions WHERE role_code='INTERVIEWER' AND permission_code='INTERVIEWS_READ_SCOPED'");
+        try { error(call("GET", "/api/v1/interviews/" + id, null, panelToken), 403, "FORBIDDEN"); }
+        finally { jdbc.update("INSERT INTO role_permissions(role_code,permission_code) VALUES ('INTERVIEWER','INTERVIEWS_READ_SCOPED')"); }
+    }
 
+    @Test
+    void scopedInterviewReadRestrictsCandidateAllGrantAndUsesScopedDenialAudit() throws Exception {
+        String id = created(create(first.applicationId(), hrToken, schedule(START, panel, "Room"))).path("id").asText();
+        narrowHr("READ", true);
+        try {
+            error(call("GET", "/api/v1/interviews/" + id, null, hrToken), 403, "FORBIDDEN");
+            error(call("GET", collection(first.applicationId()), null, hrToken), 403, "FORBIDDEN");
+            // A write also needs the narrower READ scope even though WRITE and CANDIDATES remain ALL.
+            error(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")), 403, "FORBIDDEN");
+            assertThat(jdbc.queryForList("SELECT access_scope FROM candidate_access_events WHERE actor_id=? AND outcome='DENIED'",
+                    String.class, hr)).hasSize(3).containsOnly("SCOPED");
+            applications.assign(requisition, hr, "SUPPORTING", hr);
+            ok(call("GET", "/api/v1/interviews/" + id, null, hrToken));
+            assertThat(ok(call("GET", collection(first.applicationId()), null, hrToken)).path("totalElements").asLong()).isEqualTo(1);
+            created(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")));
+            error(call("GET", collection(other.applicationId()), null, hrToken), 403, "FORBIDDEN");
+        } finally { narrowHr("READ", false); }
+    }
 
+    @Test
+    void scopedInterviewWriteRestrictsCandidateAllWhileReadAllStaysAvailable() throws Exception {
+        String id = created(create(first.applicationId(), hrToken, schedule(START, panel, "Room"))).path("id").asText();
+        narrowHr("WRITE", true);
+        try {
+            ok(call("GET", "/api/v1/interviews/" + id, null, hrToken));
+            error(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")), 403, "FORBIDDEN");
+            var update = schedule(START.plusSeconds(3600), panel, "Room"); update.put("expectedVersion", 0);
+            error(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), hrToken), 403, "FORBIDDEN");
+            assertThat(jdbc.queryForList("SELECT access_scope FROM candidate_access_events WHERE actor_id=? AND outcome='DENIED'",
+                    String.class, hr)).hasSize(2).containsOnly("SCOPED");
+            applications.assign(requisition, hr, "SUPPORTING", hr);
+            created(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")));
+            ok(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\"Đổi kế hoạch\"}", hrToken));
+            error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(7200), panel, "Room")), 403, "FORBIDDEN");
+        } finally { narrowHr("WRITE", false); }
+    }
 
     @Test
     void pagingIsStableAndLimitedToExactApplication() throws Exception {
