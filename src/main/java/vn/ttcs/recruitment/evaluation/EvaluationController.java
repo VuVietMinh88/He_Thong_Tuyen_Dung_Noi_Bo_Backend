@@ -34,6 +34,9 @@ public class EvaluationController {
     public ResponseEntity<EvaluationView> submit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
             @Valid @RequestBody EvaluationSaveRequest request) { return ok(service.save(jwt, id, request, true)); }
 
+    @GetMapping("/api/v1/interviews/{id}/evaluations")
+    public ResponseEntity<List<EvaluationView>> peers(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.peers(jwt, id)); }
+
     @PostMapping("/api/v1/interviews/{id}/evaluations/{formId}/reopen")
     public ResponseEntity<EvaluationReopenView> reopen(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
             @PathVariable UUID formId, @Valid @RequestBody EvaluationReopenRequest request) {

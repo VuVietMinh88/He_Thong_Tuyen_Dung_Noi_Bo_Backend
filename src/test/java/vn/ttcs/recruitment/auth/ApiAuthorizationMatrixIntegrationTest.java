@@ -121,6 +121,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/interviews/{id}/evaluations/me", anyOf(EVALUATIONS_READ_ALL, EVALUATIONS_READ_SCOPED), null, 404),
             endpoint("PUT", "/api/v1/interviews/{id}/evaluations/me", anyOf(EVALUATIONS_WRITE_ALL, EVALUATIONS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/interviews/{id}/evaluations/me/submit", anyOf(EVALUATIONS_WRITE_ALL, EVALUATIONS_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/interviews/{id}/evaluations", anyOf(EVALUATIONS_READ_ALL, EVALUATIONS_READ_SCOPED), null, 404),
             endpoint("POST", "/api/v1/interviews/{id}/evaluations/{formId}/reopen",
                     new Rule(List.of(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), true, false, true), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/interviews/{id}/evaluations/{formId}/status",

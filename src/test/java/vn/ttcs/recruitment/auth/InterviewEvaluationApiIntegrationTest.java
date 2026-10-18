@@ -154,7 +154,37 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
         error(write("POST", payload(0, 3, 4, "HIRE"), panelToken), 409, "INTERVIEW_CANCELLED");
     }
 
+    @Test
+    void blindReviewShowsOnlySubmittedPeersAfterOwnCurrentFormIsSubmitted() throws Exception {
+        form(panelToken); form(peerToken);
+        ok(write("POST", payload(0, 2, 3, "CONSIDER"), peerToken));
+        error(call("GET", peersPath(), null, panelToken), 403, "EVALUATION_BLIND_REVIEW");
+        assertThat(ok(call("GET", peersPath(), null, peerToken)).size()).isZero();
+        ok(write("POST", payload(0, 4, 5, "HIRE"), panelToken));
+        var visible = ok(call("GET", peersPath(), null, panelToken));
+        assertThat(visible.size()).isEqualTo(1);
+        assertThat(visible.get(0).path("evaluatorId").asText()).isEqualTo(peer.toString());
+        assertThat(visible.get(0).path("totalScore").decimalValue()).isEqualByComparingTo("2.70");
+        assertThat(visible.toString()).doesNotContain("email", "salary", "password", "lan@example.test");
+    }
 
+    @Test
+    void reopeningHidesPeersAgainAndDoesNotExposeScoresToRecruiter() throws Exception {
+        JsonNode own = form(panelToken); form(peerToken);
+        ok(write("POST", payload(0, 4, 5, "HIRE"), panelToken));
+        ok(write("POST", payload(0, 3, 3, "CONSIDER"), peerToken));
+        UUID formId = UUID.fromString(own.path("id").asText());
+        JsonNode reopened = ok(reopen(formId, 1, "Bổ sung nhận xét", recruiterToken));
+        assertThat(reopened.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(reopened.path("version").asLong()).isEqualTo(2);
+        assertThat(reopened.has("items")).isFalse();
+        assertThat(reopened.has("totalScore")).isFalse();
+        assertThat(reopened.has("conclusion")).isFalse();
+        error(call("GET", peersPath(), null, panelToken), 403, "EVALUATION_BLIND_REVIEW");
+        assertThat(ok(call("GET", peersPath(), null, peerToken)).size()).isZero();
+        assertThat(jdbc.queryForObject("SELECT ever_submitted_at FROM interview_sessions WHERE id=?", Timestamp.class, interview)).isNotNull();
+        assertThat(count("evaluation_events")).isEqualTo(3);
+    }
 
     @Test
     void onlyAssignedRecruiterMayReopenWithReasonAndCurrentVersion() throws Exception {
