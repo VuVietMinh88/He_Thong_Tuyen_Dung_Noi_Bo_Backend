@@ -332,6 +332,12 @@ public class SecurityConfiguration {
                         // again before any lookup, then the scope of that application (403 outside it, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Task 380 (story S5-03): moving an application to another stage is a CANDIDATES write, ALL
+                        // (HR_MANAGER, ADMIN) or SCOPED (RECRUITER: the requisitions it is assigned to).
+                        // ApplicationStageChangeService checks the write and the read code again after locking the
+                        // account and the session, then the scope of that application under the requisition lock.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/stage-changes")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
