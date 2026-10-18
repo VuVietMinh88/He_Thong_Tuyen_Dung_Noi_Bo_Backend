@@ -38,7 +38,7 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 |---|---|
 |code|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 50 ký tự; duy nhất và phân biệt hoa/thường (`HR` khác `hr`), giống mã chức danh|
 |name|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 255 ký tự|
-|description|Tùy chọn, tối đa 1000 ký tự sau khi bỏ khoảng trắng đầu/cuối (kể cả tab, xuống dòng); xuống dòng ở giữa được giữ. Bỏ trường, `null`, chuỗi rỗng hoặc chỉ có khoảng trắng đều được lưu là `null`|
+|description|Tùy chọn, tối đa 1000 ký tự sau khi bỏ khoảng trắng đầu/cuối (kể cả tab, xuống dòng và khoảng trắng không ngắt U+00A0, U+2007, U+202F, U+0085, U+180E, thường dính theo khi dán từ Word hoặc trang web); xuống dòng và khoảng trắng ở giữa được giữ. Bỏ trường, `null`, chuỗi rỗng hoặc chuỗi không có ký tự nhìn thấy được (chỉ khoảng trắng hoặc ký tự vô hình như U+200B, U+FEFF) đều được lưu là `null`|
 |status|Tùy chọn, là chuỗi JSON `"DRAFT"` hoặc `"ACTIVE"` (viết hoa đúng như vậy). Bỏ trường hoặc `null`: POST tạo `DRAFT`, PUT giữ trạng thái hiện có. Giá trị khác như `"active"`, `""`, số `1`, `true` trả `INVALID_JSON`. `ACTIVE` bắt buộc tổng trọng số đúng 100% (xem bên dưới)|
 |criteria|Bắt buộc, là mảng; `[]` hợp lệ (khung `DRAFT` có thể chưa có tiêu chí); tối đa 50 tiêu chí; phần tử không được là `null`|
 
@@ -48,6 +48,8 @@ Người không có quyền ghi luôn nhận 403, kể cả khi body sai, vì qu
 |name|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 255 ký tự; không trùng tên tiêu chí khác trong cùng khung (so chính xác, phân biệt hoa/thường như ràng buộc database: `Giao tiếp` khác `giao tiếp`). Hai khung khác nhau được có tiêu chí cùng tên|
 |description|Như mô tả của khung|
 |weight|Trọng số phần trăm, bắt buộc, phải là **số JSON**, lớn hơn 0 và không quá 100, tối đa 2 chữ số thập phân|
+
+Ký tự bị bỏ ở đầu/cuối mã và tên khung, tên tiêu chí gồm khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060. Ký tự ở giữa được giữ; giới hạn độ dài và kiểm tra trùng dùng giá trị sau khi bỏ, nên `HR` kèm một ký tự như vậy ở cuối vẫn là mã `HR`. Mã hoặc tên không có ký tự nhìn thấy được bị coi là trống: HTTP 400 `VALIDATION_ERROR`.
 
 Không có trường `sortOrder` trong request: **thứ tự trong mảng chính là thứ tự tiêu chí** (phần tử đầu có `sortOrder` 1, tiếp theo 2, 3...). Muốn đổi thứ tự thì gửi mảng theo thứ tự mới. Trường ngoài hợp đồng, như `id` hay `createdAt` của khung hoặc `sortOrder` của tiêu chí, bị từ chối với HTTP 400 `INVALID_JSON`.
 

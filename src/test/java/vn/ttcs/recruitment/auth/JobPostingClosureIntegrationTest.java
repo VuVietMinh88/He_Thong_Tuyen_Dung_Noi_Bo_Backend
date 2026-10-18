@@ -21,6 +21,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 import vn.ttcs.recruitment.jobposting.JobPostingStatus;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -54,14 +55,15 @@ import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 class JobPostingClosureIntegrationTest {
     // 10:00 on 11 Oct 2026 in Vietnam. Every posting made here may be applied to until 30 Nov 2026.
     private static final Instant START = Instant.parse("2026-10-11T03:00:00Z");
+    // Task 355: the text names taking down too.
     private static final String CLOSED_WITH_REQUISITION = "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không "
-            + "thể sửa, gửi duyệt, duyệt hay xuất bản nữa.";
+            + "thể sửa, gửi duyệt, duyệt, xuất bản hay gỡ nữa.";
     private static final String NOT_APPROVED_REQUISITION =
             "Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.";
     private static final String REASON_REQUIRED =
             "Vui lòng nhập lý do khi tạm dừng, đóng vì đã tuyển đủ hoặc hủy yêu cầu tuyển dụng.";
     private static final List<String> FLAGS = List.of("canEdit", "canSubmit", "canApprove", "canRequestRevision",
-            "canPublish");
+            "canPublish", "canUnpublish");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -70,6 +72,7 @@ class JobPostingClosureIntegrationTest {
     @Autowired private BootstrapAdmin bootstrap;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private PlatformTransactionManager transactions;
+    @Autowired private JobPostingExpiry expiry;
 
     private RequisitionStatusTestSupport status;
     private JobPostingTestSupport postings;
@@ -177,7 +180,7 @@ class JobPostingClosureIntegrationTest {
     }
 
     // Every posting that is not closed yet is closed, whatever its step; a closed one stays as it is, because its
-    // requisition can no longer change.
+    // requisition can no longer change. Task 355: a posting taken down is closed too. Task 356: an expired one too.
     @ParameterizedTest
     @EnumSource(JobPostingStatus.class)
     void closingClosesAPostingInEveryOpenStatus(JobPostingStatus postingStatus) throws Exception {
@@ -192,7 +195,7 @@ class JobPostingClosureIntegrationTest {
                 closerToken);
 
         boolean open = switch (postingStatus) {
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED -> true;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, PUBLISHED, UNPUBLISHED, EXPIRED -> true;
             case CLOSED -> false;
         };
         if (open) {
@@ -318,14 +321,17 @@ class JobPostingClosureIntegrationTest {
         List<Map<String, Object>> eventsBefore = jdbc.queryForList("SELECT * FROM job_posting_events ORDER BY 1");
         List<Map<String, Object>> authorsBefore = jdbc.queryForList("SELECT * FROM job_posting_authors ORDER BY 1, 2");
 
-        // HR wrote, sent and published it; ADMIN approved it and is not an author.
+        // HR wrote, sent and published it; ADMIN approved it and is not an author. Task 355: taking it down is
+        // refused the same way, for HR and for the recruiter of the requisition.
         List<HttpResponse<String>> refused = List.of(
                 postings.update(posting, change, hrToken),
                 postings.submit(posting, revision, null, hrToken),
                 postings.decide(posting, "APPROVE", null, revision, adminToken),
                 postings.decide(posting, "APPROVE", null, revision, hrToken),
                 postings.decide(posting, "REQUEST_REVISION", "Sửa lại", revision, adminToken),
-                postings.publish(posting, revision, hrToken));
+                postings.publish(posting, revision, hrToken),
+                postings.unpublish(posting, revision, "Gỡ tin", hrToken),
+                postings.unpublish(posting, revision, "Gỡ tin", recruiterToken));
         for (var response : refused) {
             assertThat(postings.error(response, 409, "JOB_POSTING_CLOSED").path("message").asText())
                     .isEqualTo(CLOSED_WITH_REQUISITION);
@@ -334,6 +340,7 @@ class JobPostingClosureIntegrationTest {
         // JOB_POSTINGS_WRITE_ALL, which no recruiter holds.
         postings.forbidden(postings.update(posting, change, outsiderToken));
         postings.forbidden(postings.submit(posting, revision, null, outsiderToken));
+        postings.forbidden(postings.unpublish(posting, revision, "Gỡ tin", outsiderToken));
         // A new posting of the cancelled requisition: the requisition is checked before the existing posting.
         JsonNode create = postings.error(postings.create(postings.body(requisition, workLocation, employmentType),
                 hrToken), 409, "JOB_POSTING_REQUISITION_NOT_APPROVED");
@@ -449,7 +456,9 @@ class JobPostingClosureIntegrationTest {
 
     // A posting of the requisition brought to the status through the API: the recruiter writes and sends it (1, 2), HR
     // asks for changes or approves it (3) and publishes it (4). The draft never got its portal details, so closing it
-    // relies on V25's exemption. A closed posting is published, then HR fills its requisition (task 290).
+    // relies on V25's exemption. A closed posting is published, then HR fills its requisition (task 290). Task 355: a
+    // posting taken down is published, then the recruiter takes it down (5). Task 356: an expired posting is
+    // published, then the daily task expires it (5) at 00:00 after its deadline; the clock then goes back.
     private UUID postingIn(UUID requisition, JobPostingStatus postingStatus) throws Exception {
         if (postingStatus == JobPostingStatus.DRAFT) {
             return id(postings.created(Map.of("requisitionId", requisition), recruiterToken));
@@ -460,14 +469,25 @@ class JobPostingClosureIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (postingStatus == JobPostingStatus.APPROVED || postingStatus == JobPostingStatus.PUBLISHED
-                || postingStatus == JobPostingStatus.CLOSED) {
+                || postingStatus == JobPostingStatus.CLOSED || postingStatus == JobPostingStatus.UNPUBLISHED
+                || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
-        if (postingStatus == JobPostingStatus.PUBLISHED || postingStatus == JobPostingStatus.CLOSED) {
+        if (postingStatus == JobPostingStatus.PUBLISHED || postingStatus == JobPostingStatus.CLOSED
+                || postingStatus == JobPostingStatus.UNPUBLISHED || postingStatus == JobPostingStatus.EXPIRED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (postingStatus == JobPostingStatus.CLOSED) {
             status.ok(status.change(requisition, "FILLED", "Đã tuyển đủ", 0, hrToken));
+        }
+        if (postingStatus == JobPostingStatus.UNPUBLISHED) {
+            ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", recruiterToken));
+        }
+        if (postingStatus == JobPostingStatus.EXPIRED) {
+            Instant now = clock.instant();
+            clock.set(Instant.parse(JobPostingTestSupport.CLOSES_AT));
+            assertThat(expiry.expire(id)).isTrue();
+            clock.set(now);
         }
         assertThat(postings.row(id).get("status")).isEqualTo(postingStatus.name());
         return id;

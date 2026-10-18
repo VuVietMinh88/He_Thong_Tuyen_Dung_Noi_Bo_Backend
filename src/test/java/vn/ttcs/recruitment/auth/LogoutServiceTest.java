@@ -24,7 +24,7 @@ class LogoutServiceTest {
     private final TokenService tokens = mock(TokenService.class);
     private final Clock clock = mock(Clock.class);
     private final AuthService service = new AuthService(mock(AccountRepository.class), sessions,
-            new BCryptPasswordEncoder(4), tokens, clock);
+            new BCryptPasswordEncoder(4), tokens, clock, mock(LoginDeviceRepository.class));
 
     @Test
     void logoutRevokesTheOwnedActiveSessionWithoutIssuingTokens() {

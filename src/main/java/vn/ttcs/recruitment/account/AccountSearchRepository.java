@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @Repository
 public class AccountSearchRepository {
-    // An administrative lock takes precedence without changing activation or temporary login locks.
+    // Login failures restrict a browser, never change the account's status.
     // An expired invitation is still pending until it has been consumed.
     private static final String STATUS = """
             CASE WHEN u.admin_locked_at IS NOT NULL THEN 'ADMINISTRATIVELY_LOCKED'
@@ -22,7 +22,6 @@ public class AccountSearchRepository {
                 CASE WHEN EXISTS (SELECT 1 FROM account_activation_tokens t
                                   WHERE t.user_id = u.id AND t.consumed_at IS NULL)
                      THEN 'PENDING_ACTIVATION' ELSE 'DISABLED' END
-                 WHEN u.locked_until > :now THEN 'TEMPORARILY_LOCKED'
                  ELSE 'ACTIVE' END
             """;
     private static final String FROM = " FROM user_accounts u LEFT JOIN departments d ON d.id = u.department_id ";

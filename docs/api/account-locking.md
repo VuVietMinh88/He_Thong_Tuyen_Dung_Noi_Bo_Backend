@@ -12,7 +12,7 @@ Người gọi phải có **ADMIN và USER_ADMIN_WRITE_ALL**, gửi Bearer acces
 {"reason": "Nhân sự đã nghỉ việc, cần bàn giao công việc."}
 ```
 
-`reason` bỏ khoảng trắng đầu/cuối, không trống, tối đa 500 ký tự. Trường JSON lạ như `enabled` hoặc `lockedBy` bị từ chối với HTTP 400, không cho client chọn người/thời điểm khóa. Admin không được tự khóa tài khoản của mình: HTTP 409 `SELF_ACCOUNT_LOCK`.
+`reason` bỏ khoảng trắng đầu/cuối, không trống, tối đa 500 ký tự (đếm sau khi bỏ khoảng trắng). Khoảng trắng đầu/cuối gồm cả khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web) và U+0085, U+180E; khoảng trắng ở giữa được giữ. Lý do không có ký tự nhìn thấy được (chỉ gồm khoảng trắng hoặc ký tự vô hình như U+200B, U+FEFF) bị coi là trống: HTTP 400 `VALIDATION_ERROR`. Trường JSON lạ như `enabled` hoặc `lockedBy` bị từ chối với HTTP 400, không cho client chọn người/thời điểm khóa. Admin không được tự khóa tài khoản của mình: HTTP 409 `SELF_ACCOUNT_LOCK`.
 
 Thành công trả HTTP 200, `Cache-Control: no-store`:
 
@@ -35,9 +35,9 @@ Sau khi transaction thành công, login bị từ chối; các access token và 
 
 ## DELETE /accounts/{id}/lock
 
-Không cần body. Chỉ bỏ khóa hành chính, trả HTTP 200 cùng cấu trúc trên: `lockReason`, `lockedAt`, `lockedBy`, `handoverWarning` là `null`. `status` thể hiện trạng thái còn lại: ACTIVE/PENDING_ACTIVATION/DISABLED/TEMPORARILY_LOCKED. Gọi lại trên tài khoản không bị khóa vẫn trả HTTP 200.
+Không cần body. Chỉ bỏ khóa hành chính, trả HTTP 200 cùng cấu trúc trên: `lockReason`, `lockedAt`, `lockedBy`, `handoverWarning` là `null`. `status` thể hiện trạng thái còn lại: ACTIVE/PENDING_ACTIVATION/DISABLED. Chặn đăng nhập do nhập sai thuộc từng trình duyệt, không phải trạng thái tài khoản. Gọi lại trên tài khoản không bị khóa vẫn trả HTTP 200.
 
-Mở khóa không phục hồi phiên/reset link đã thu hồi: người dùng cần đăng nhập lại hoặc yêu cầu reset link mới. Không tự kích hoạt tài khoản pending, không bỏ khóa 15 phút và không thay password/roles/profile.
+Mở khóa không phục hồi phiên/reset link đã thu hồi: người dùng cần đăng nhập lại hoặc yêu cầu reset link mới. Không tự kích hoạt tài khoản pending, không bỏ thời gian chặn 15 phút của trình duyệt và không thay password/roles/profile.
 
 Với tài khoản chưa kích hoạt, link kích hoạt được giữ. Khi đang khóa, gọi activate bị từ chối với HTTP 400 mà không tiêu thụ link; sau mở khóa, link còn hạn và chưa dùng có thể kích hoạt bình thường. Link hết hạn vẫn bị từ chối theo chính sách 24 giờ hiện có; API gửi lại lời mời chưa có trong nhóm này.
 
