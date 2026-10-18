@@ -66,6 +66,10 @@ class JobPostingPublicViewIntegrationTest {
             "salaryMin", "salaryMax", "jobDescription", "candidateRequirements", "benefits");
     private static final List<String> LIST_ITEM_KEYS = List.of("id", "title", "positionName", "departmentName",
             "workLocationName", "employmentTypeName", "applicationDeadline");
+    // Task 316: a list item of a posting that shows its salary, in this order.
+    private static final List<String> LIST_ITEM_KEYS_WITH_SALARY = List.of("id", "title", "positionName",
+            "departmentName", "workLocationName", "employmentTypeName", "applicationDeadline", "salaryMin",
+            "salaryMax");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -266,6 +270,7 @@ class JobPostingPublicViewIntegrationTest {
                 .isEqualTo(((Number) requisition.get("proposed_salary_max")).longValue()).isEqualTo(22_000_000L);
         JsonNode list = ok(postings.publicList(0, 20));
         JsonNode shownItem = item(list, shown);
+        assertThat(fieldNames(shownItem)).containsExactlyElementsOf(LIST_ITEM_KEYS_WITH_SALARY);
         assertThat(shownItem.path("salaryMin").asLong()).isEqualTo(20_000_000L);
         assertThat(shownItem.path("salaryMax").asLong()).isEqualTo(22_000_000L);
         assertThat(fieldNames(item(list, hidden))).containsExactlyElementsOf(LIST_ITEM_KEYS);
