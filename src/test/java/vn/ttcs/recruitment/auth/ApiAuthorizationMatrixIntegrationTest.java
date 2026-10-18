@@ -124,6 +124,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/interviews/{id}/invitation", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             // Invitation delivery/public token access are opt-in and remain disabled in this authorization fixture.
             endpoint("POST", "/api/v1/public/interview-invitations/lookup", PUBLIC, INVALID_BODY, 503),
+            endpoint("POST", "/api/v1/public/interview-invitations/respond", PUBLIC, INVALID_BODY, 503),
             endpoint("GET", "/api/v1/public/interview-invitations/reply", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/public/interview-invitations/reply.js", PUBLIC, null, 200),
             endpoint("PUT", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
