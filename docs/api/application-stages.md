@@ -6,7 +6,7 @@ Phạm vi TKNHTTDNB1-380 (API chuyển giai đoạn), story S5-03 (TKNHTTDNB1-51
 - Mỗi lần chuyển giai đoạn được ghi nhật ký kèm người thực hiện và thời điểm.
 - Không cho phép bỏ qua giai đoạn Phỏng vấn khi đi thẳng tới Đề xuất offer, trừ khi Trưởng phòng Nhân sự xác nhận.
 
-Task 380 thêm API và quy tắc chuyển tiến từng bước, không thêm mã quyền, không migration (dùng `job_applications.stage` của V26 và lịch sử `application_stage_events` của V34). Task 381 (TKNHTTDNB1-381) thêm chuyển sang Loại với lý do từ danh mục và ngoại lệ bỏ qua Phỏng vấn của Trưởng phòng Nhân sự, kèm migration V40.
+Task 380 thêm API và quy tắc chuyển tiến từng bước, không thêm mã quyền, không migration (dùng `job_applications.stage` của V26 và lịch sử `application_stage_events` của V34). Task 381 (TKNHTTDNB1-381) thêm chuyển sang Loại với lý do từ danh mục và ngoại lệ bỏ qua Phỏng vấn của Trưởng phòng Nhân sự, kèm migration V40. Task 382 (TKNHTTDNB1-382) thêm ghi chú lý do cho mọi lần chuyển và chốt nội dung lịch sử (trước/sau, lý do, người xử lý, thời gian, ngoại lệ HR), không thêm migration.
 
 ## API
 
@@ -22,6 +22,7 @@ Task 380 thêm API và quy tắc chuyển tiến từng bước, không thêm m�
 | `expectedCurrentStage` | Bắt buộc. Giai đoạn trang của người gọi đang hiển thị (cột mà thẻ được kéo ra). Khác giai đoạn thật lúc khóa thì bị từ chối 409, không ghi gì |
 | `rejectionReasonId` | Task 381. UUID của một giá trị danh mục `REJECTION_REASON` đang dùng. **Bắt buộc** khi `targetStage` là `REJECTED`, **không được gửi** với giai đoạn khác |
 | `confirmSkipInterview` | Task 381. Trưởng phòng Nhân sự xác nhận chuyển thẳng `SCREENING → OFFER`. Phải là giá trị JSON `true` (chuỗi `"true"` hay số `1` bị từ chối 400 `INVALID_JSON`); vắng, `null`, `false` là chưa xác nhận. Bị bỏ qua khi bước chuyển không bỏ qua giai đoạn nào |
+| `note` | Task 382. Không bắt buộc, cho mọi lần chuyển: lý do của người chuyển (ví dụ giải trình khi bỏ qua Phỏng vấn, bổ sung cho lý do loại). Văn bản thuần, cho phép xuống dòng, tối đa 500 ký tự; xuống dòng Windows thành `\n`; chỉ có khoảng trắng hay ký tự vô hình thì coi như không có. Nội bộ: không bao giờ hiện cho ứng viên |
 
 Trường khác (`actorId`, `changedAt`...) bị từ chối 400 `INVALID_JSON`: người thực hiện, thời điểm và giai đoạn trước do server quyết định.
 
@@ -37,7 +38,7 @@ Response 200 chính là dòng lịch sử vừa ghi:
  "stageName":"Sàng lọc","changedAt":"2026-10-17T03:00:00.123456Z","changedById":"…","changedByName":"Trần Văn Bình"}
 ```
 
-Từ task 381 response có thêm `interviewSkipped` (luôn có; `true` chỉ với ngoại lệ HR `SCREENING → OFFER`) và, chỉ khi chuyển sang Loại, `rejectionReasonId` cùng `rejectionReasonName` (tên giá trị danh mục lúc loại). Response chỉ có id, giai đoạn, tên lý do và họ tên người thực hiện; không có dữ liệu ứng viên.
+Từ task 381 response có thêm `interviewSkipped` (luôn có; `true` chỉ với ngoại lệ HR `SCREENING → OFFER`) và, chỉ khi chuyển sang Loại, `rejectionReasonId` cùng `rejectionReasonName` (tên giá trị danh mục lúc loại); từ task 382 có `note` như đã lưu (bỏ khi không có). Response chỉ có id, giai đoạn, lý do và họ tên người thực hiện; không có dữ liệu ứng viên.
 
 ## Quy tắc chuyển (task 380)
 
@@ -98,15 +99,32 @@ Quy tắc nằm ở một chỗ, `ApplicationStageTransitions.decide` (gói `vn.
 
 Bị từ chối thì không ghi gì. Hai lần chuyển cùng lúc (kéo thả hai lần) chạy lần lượt trên khóa yêu cầu: lần sau thấy giai đoạn mới và nhận 409 `APPLICATION_STAGE_CHANGED`, chỉ có một dòng lịch sử. Rút hồ sơ và chuyển giai đoạn của cùng lần ứng tuyển cũng chạy lần lượt: bên sau thấy giai đoạn bên trước đã lưu.
 
-## Lịch sử (V34)
+## Lịch sử (task 382, V34 và V40)
 
-Mỗi lần chuyển thêm đúng một dòng `application_stage_events`: `stage_before`, `stage_after`, `actor_type = 'STAFF'`, `actor_id` (người gọi), `occurred_at`. Giai đoạn và dòng lịch sử commit cùng nhau: dòng lịch sử lỗi thì giai đoạn giữ nguyên. Dòng đã lưu không sửa được (trigger V34); không có route sửa hay xóa.
+Mỗi lần chuyển thêm đúng một dòng `application_stage_events`, ghi cùng transaction với giai đoạn (dòng lịch sử lỗi thì giai đoạn giữ nguyên, và ngược lại):
+
+| Tiêu chí 382 | Cột |
+|---|---|
+| Trước/sau | `stage_before`, `stage_after` |
+| Lý do | `rejection_reason_id` và `rejection_reason_name` (lý do loại theo danh mục, tên lúc loại), `reason` (ghi chú `note` của nhân viên; ở dòng `CANDIDATE` là lý do ứng viên tự ghi khi rút) |
+| Người xử lý | `actor_type = 'STAFF'`, `actor_id` (người gọi, lấy từ token, không từ body) |
+| Thời gian | `occurred_at`, đồng hồ đọc sau khóa cuối, tới micro giây |
+| Ngoại lệ HR | `interview_skipped = true` (chỉ và luôn ở `SCREENING → OFFER`) cùng `actor_id` là Trưởng phòng Nhân sự đã xác nhận |
+
+Dòng đã lưu không sửa được (trigger V34, SQLSTATE 23514), kể cả ghi chú hay cờ ngoại lệ; không có route sửa hay xóa (`ApiAuthorizationMatrixIntegrationTest.stageHistoryHasNoEditOrDeleteRoute`). Bị từ chối (400/403/404/409/503) thì không ghi dòng nào. Chưa có API đọc lịch sử: dòng thời gian S5-07 sẽ đọc bảng này, và một API đọc mới phải theo quy tắc đọc ứng viên (`CandidateAccess`) cùng hợp đồng nhật ký truy cập (V33 hiện chỉ nhận `PROFILE`/`CV`). Hồ sơ hợp nhất vẫn chỉ đọc dòng `WITHDRAWN` (của ứng viên) cho `withdrawnAt`/`withdrawalReason`, nên ghi chú của nhân viên không bao giờ hiện thành lý do rút.
 
 V40 (task 381) thêm vào dòng lịch sử: `rejection_reason_id` (khóa ngoại RESTRICT tới `recruitment_catalog_items`, chỉ mục `application_stage_events_rejection_reason_idx`) và `rejection_reason_name` (tên lúc loại), cả hai có đúng khi nhân viên chuyển sang `REJECTED` (CHECK `application_stage_events_rejection_reason`); `interview_skipped` bằng `true` đúng với mọi dòng `SCREENING → OFFER` (CHECK `application_stage_events_interview_skip`). Dòng cũ (ứng viên tự rút) không đổi: không có lý do loại, `interview_skipped = false`. Loại danh mục của lý do được service kiểm dưới khóa `FOR SHARE` (khóa ngoại thường không ràng buộc được loại).
 
 ## Phía ứng viên
 
-API công khai (tra cứu, rút hồ sơ, danh sách giới thiệu) vẫn chỉ trả trạng thái công khai `PublicApplicationStatus` (`RECEIVED`, `IN_REVIEW`, `INTERVIEWING`, `COMPLETED`); không trả giai đoạn nội bộ, người thực hiện hay lịch sử. Chuyển giai đoạn không gửi email.
+API công khai (tra cứu, rút hồ sơ, danh sách giới thiệu) vẫn chỉ trả trạng thái công khai `PublicApplicationStatus` (`RECEIVED`, `IN_REVIEW`, `INTERVIEWING`, `COMPLETED`); không trả giai đoạn nội bộ, người thực hiện, lý do loại, ghi chú hay lịch sử (`PublicApplicationReader` chỉ đọc `job_applications`, `PublicApplicationPrivacyIntegrationTest` khóa mọi bảng khác khi tra cứu). Chuyển giai đoạn không gửi email; email báo rút hồ sơ chỉ dựng từ dòng `WITHDRAWN` của ứng viên.
+
+## Ghi chú cho frontend
+
+- Kéo thả trên bảng Kanban gọi đúng API này với `expectedCurrentStage` là cột nguồn. 409 `APPLICATION_STAGE_CHANGED`: tải lại cột, không tự thử bước khác.
+- Chuyển sang Loại: mở hộp chọn lý do từ `GET /recruitment-catalogs/REJECTION_REASON/items?active=true`, gửi `rejectionReasonId`.
+- `SCREENING → OFFER`: chỉ hiện cho người dùng có vai trò HR_MANAGER; khi nhận 409 `APPLICATION_INTERVIEW_SKIP_UNCONFIRMED`, hỏi xác nhận rồi gửi lại với `confirmSkipInterview: true` (có thể kèm `note` giải trình).
+- Hiện `note` và tên lý do dưới dạng văn bản thuần, giữ xuống dòng, không render HTML.
 
 ## Ví dụ (PowerShell)
 

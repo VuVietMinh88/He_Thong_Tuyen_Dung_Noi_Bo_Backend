@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Task 380 (story S5-03, "Kiểm tra trạng thái hiện tại, giai đoạn đích và quyền theo hồ sơ ứng tuyển"):
@@ -38,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * SUPPORTING (supporting) recruiter and its department is managed by itHead; the accounting requisition has no team.
  * Lan applied to Java, Minh to accounting. Tokens come from real session rows, so the seeded permissions decide.
  * Task 381 adds the rejection reasons (an active and an inactive REJECTION_REASON value, and a CANDIDATE_SOURCE value
- * that is no rejection reason) and the HR exception.
+ * that is no rejection reason) and the HR exception; task 382 the note and the history as a whole.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
@@ -409,19 +410,115 @@ class ApplicationStageChangeIntegrationTest {
         assertThat(events(lan.applicationId())).isEmpty();
     }
 
+    // Task 382 ("Lưu trước/sau, lý do, người xử lý, thời gian và ngoại lệ HR"): three changes of Lan's application by two
+    // people at three times. Each history row keeps the stages before and after, who and when, the note as stored
+    // (Windows line breaks as \n; a note of spaces and a non-breaking space as none), the catalog reason of the
+    // rejection and the HR exception; the answers show the same. The rows are never changed afterwards.
+    @Test
+    void theHistoryKeepsWhoWhenWhyAndTheHrExceptionOfEveryChange() throws Exception {
+        Instant first = NOW.plusSeconds(60), second = NOW.plusSeconds(120), third = NOW.plusSeconds(180);
+        clock.set(first);
+        JsonNode screened = ok(post(lan.applicationId(),
+                body("SCREENING", "NEW", null, null, "Hồ sơ tốt\r\nGọi lại tuần sau"), token(primary)));
+        assertThat(screened.path("note").asString()).isEqualTo("Hồ sơ tốt\nGọi lại tuần sau");
+        clock.set(second);
+        JsonNode offered = ok(post(lan.applicationId(),
+                body("OFFER", "SCREENING", null, true, "Đã phỏng vấn ở đợt tuyển trước"), token(hr)));
+        assertThat(offered.path("interviewSkipped").asBoolean()).isTrue();
+        clock.set(third);
+        String blank = " " + (char) 0xA0 + "\n";
+        JsonNode rejected = ok(post(lan.applicationId(), body("REJECTED", "OFFER", activeReason, null, blank),
+                token(primary)));
+        assertThat(rejected.has("note")).isFalse();
+
+        var events = events(lan.applicationId());
+        assertThat(events).hasSize(3);
+        assertEvent(events.get(0), "NEW", "SCREENING", primary, first, "Hồ sơ tốt\nGọi lại tuần sau", null, null,
+                false);
+        assertEvent(events.get(1), "SCREENING", "OFFER", hr, second, "Đã phỏng vấn ở đợt tuyển trước", null, null,
+                true);
+        assertEvent(events.get(2), "OFFER", "REJECTED", primary, third, null, activeReason, "Chưa phù hợp kỹ năng",
+                false);
+        assertThat(stageOf(lan.applicationId())).isEqualTo("REJECTED");
+
+        for (String update : List.of("UPDATE application_stage_events SET reason = 'Khác'",
+                "UPDATE application_stage_events SET interview_skipped = false WHERE interview_skipped",
+                "UPDATE application_stage_events SET actor_id = '" + admin + "'")) {
+            assertThatThrownBy(() -> jdbc.update(update)).as(update)
+                    .hasMessageContaining("application_stage_events rows are never changed");
+        }
+        assertThat(events(lan.applicationId())).isEqualTo(events);
+    }
+
+    // Task 382: the note is plain text of at most 500 characters (line breaks allowed), checked before any lookup.
+    @Test
+    void aNoteIsPlainTextOfAtMost500Characters() throws Exception {
+        String token = token(primary);
+        var tooLong = post(lan.applicationId(), body("SCREENING", "NEW", null, null, "a".repeat(501)), token);
+        assertThat(tooLong.statusCode()).as(tooLong.body()).isEqualTo(400);
+        assertThat(json.readTree(tooLong.body()).path("fieldErrors").path("note").asString())
+                .isEqualTo("Ghi chú tối đa 500 ký tự.");
+        var html = post(lan.applicationId(), body("SCREENING", "NEW", null, null, "<b>Ứng viên</b>"), token);
+        assertThat(html.statusCode()).as(html.body()).isEqualTo(400);
+        assertThat(json.readTree(html.body()).path("fieldErrors").path("note").asString())
+                .isEqualTo("Ghi chú chỉ được là văn bản thuần, không chứa thẻ HTML hoặc ký tự điều khiển.");
+        assertUnchanged();
+        ok(post(lan.applicationId(), body("SCREENING", "NEW", null, null, "a".repeat(500)), token));
+        assertThat(events(lan.applicationId()).getFirst().get("reason")).isEqualTo("a".repeat(500));
+    }
+
+    // Task 382: the candidate's channel never shows the history. After a rejection with a catalog reason and an internal
+    // note, Lan's lookup shows only the public status (task 341's whitelist), and her refused withdrawal says nothing
+    // more: no stage, reason, note or staff name.
+    @Test
+    void theCandidateSeesNoneOfTheInternalHistory() throws Exception {
+        String note = "Ghi chú nội bộ: lương kỳ vọng quá cao";
+        ok(post(lan.applicationId(), body("REJECTED", "NEW", activeReason, null, note), token(primary)));
+        var lookup = applications.lookup(lan.trackingCode(), "lan@example.test");
+        assertThat(lookup.statusCode()).as(lookup.body()).isEqualTo(200);
+        JsonNode view = json.readTree(lookup.body());
+        assertThat(view.propertyNames()).containsExactlyInAnyOrder("postingTitle", "receivedAt", "status",
+                "statusName", "actions");
+        assertThat(view.path("status").asString()).isEqualTo("COMPLETED");
+        var withdrawal = applications.withdraw(lan.trackingCode(), "lan@example.test", null);
+        assertThat(withdrawal.statusCode()).as(withdrawal.body()).isEqualTo(409);
+        for (String body : List.of(lookup.body(), withdrawal.body())) {
+            assertThat(body).doesNotContain(note, "Chưa phù hợp kỹ năng", "Trần Văn Bình", "REJECTED", "Loại",
+                    primary.toString(), activeReason.toString());
+        }
+    }
+
     private HttpResponse<String> change(UUID application, String target, String expected, String token)
             throws Exception {
         return post(application, body(target, expected, null, null), token);
     }
 
-    // The body with the given fields; a null reason or confirmation is left out.
     private String body(String target, String expected, UUID reason, Boolean confirmSkipInterview) {
+        return body(target, expected, reason, confirmSkipInterview, null);
+    }
+
+    // The body with the given fields; a null reason, confirmation or note is left out.
+    private String body(String target, String expected, UUID reason, Boolean confirmSkipInterview, String note) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("targetStage", target);
         body.put("expectedCurrentStage", expected);
         if (reason != null) body.put("rejectionReasonId", reason);
         if (confirmSkipInterview != null) body.put("confirmSkipInterview", confirmSkipInterview);
+        if (note != null) body.put("note", note);
         return json.writeValueAsString(body);
+    }
+
+    private static void assertEvent(Map<String, Object> event, String before, String after, UUID actor, Instant at,
+                                    String note, UUID reason, String reasonName, boolean skipped) {
+        assertThat(event.get("stage_before")).isEqualTo(before);
+        assertThat(event.get("stage_after")).isEqualTo(after);
+        assertThat(event.get("actor_type")).isEqualTo("STAFF");
+        assertThat(event.get("actor_id")).isEqualTo(actor);
+        assertThat(((Timestamp) event.get("occurred_at")).toInstant()).isEqualTo(at);
+        assertThat(event.get("reason")).isEqualTo(note);
+        assertThat(event.get("rejection_reason_id")).isEqualTo(reason);
+        assertThat(event.get("rejection_reason_name")).isEqualTo(reasonName);
+        assertThat(event.get("interview_skipped")).isEqualTo(skipped);
     }
 
     private void rejected(HttpResponse<String> response, String code, String message) {

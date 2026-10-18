@@ -74,18 +74,20 @@ class ApplicationStageChangeRepository {
                         row.getBoolean(3)), reasonId).stream().findFirst();
     }
 
-    // One STAFF row of the history: the actor is the caller's account (V34 requires it for STAFF); a rejection's reason
-    // as an id and the name it has now (V40); whether the interview was skipped (the HR exception, V40).
+    // One STAFF row of the history: the actor is the caller's account (V34 requires it for STAFF); task 382: the staff
+    // member's own note in V34's reason (the candidate's withdrawal reason uses the same column on CANDIDATE rows); a
+    // rejection's reason as an id and the name it has now (V40); whether the interview was skipped (the HR exception,
+    // V40).
     @Transactional(propagation = Propagation.MANDATORY)
     void record(UUID applicationId, ApplicationStage before, ApplicationStage after, UUID actorId, Instant at,
-                RejectionReason reasonOrNull, boolean interviewSkipped) {
+                String noteOrNull, RejectionReason reasonOrNull, boolean interviewSkipped) {
         jdbc.update("""
                 INSERT INTO application_stage_events(id,application_id,stage_before,stage_after,actor_type,actor_id,
                     reason,occurred_at,rejection_reason_id,rejection_reason_name,interview_skipped)
-                VALUES (?,?,?,?,'STAFF',?,NULL,?,?,?,?)
-                """, UUID.randomUUID(), applicationId, before.name(), after.name(), actorId, Timestamp.from(at),
-                reasonOrNull == null ? null : reasonOrNull.id(), reasonOrNull == null ? null : reasonOrNull.name(),
-                interviewSkipped);
+                VALUES (?,?,?,?,'STAFF',?,?,?,?,?,?)
+                """, UUID.randomUUID(), applicationId, before.name(), after.name(), actorId, noteOrNull,
+                Timestamp.from(at), reasonOrNull == null ? null : reasonOrNull.id(),
+                reasonOrNull == null ? null : reasonOrNull.name(), interviewSkipped);
     }
 
     // A rejection reason as locked: its catalog name and whether HR still offers it.
