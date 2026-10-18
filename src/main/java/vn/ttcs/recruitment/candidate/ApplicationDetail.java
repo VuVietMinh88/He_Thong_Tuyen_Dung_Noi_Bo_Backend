@@ -3,6 +3,7 @@ package vn.ttcs.recruitment.candidate;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import vn.ttcs.recruitment.application.ApplicationStage;
+import vn.ttcs.recruitment.screening.ScreeningView;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -27,7 +28,8 @@ import java.util.UUID;
  * and the referral note (ApplicationSource); the referrer's email is never selected.
  * <p>
  * Never here: a CV URL, the CV bytes or hash, the tracking code or its hash, the requisition id, the normalized email,
- * any staff email, a candidate code or a rating. NON_NULL leaves out what an application does not have (cover letter,
+ * any staff email or a candidate code. S5-04 keeps rating/notes/tags under this application's screening only.
+ * NON_NULL leaves out what an application does not have (cover letter,
  * recruiter, CV, withdrawal). toString shows ids only.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -56,7 +58,9 @@ public record ApplicationDetail(
         String coverLetter,
         String cvFileName,
         String cvFileType,
-        Integer cvFileSize) {
+        Integer cvFileSize,
+        // S5-04: only this readable application's internal assessment, absent when it has no assessment.
+        ScreeningView screening) {
 
     @Override
     public String toString() {

@@ -8,10 +8,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.screening.ScreeningRepository;
+import vn.ttcs.recruitment.screening.ScreeningView;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Task 361 (story S4-09, "Một trang gồm thông tin cá nhân, CV xem trước…, lịch sử ứng tuyển các vị trí, nhãn và ghi
@@ -35,12 +39,14 @@ import java.util.UUID;
 public class CandidateProfileService {
     private final CandidateAccess access;
     private final CandidateProfileRepository profiles;
+    private final ScreeningRepository screenings;
     private final TransactionTemplate reads;
 
-    CandidateProfileService(CandidateAccess access, CandidateProfileRepository profiles,
+    CandidateProfileService(CandidateAccess access, CandidateProfileRepository profiles, ScreeningRepository screenings,
                             PlatformTransactionManager transactions) {
         this.access = access;
         this.profiles = profiles;
+        this.screenings = screenings;
         this.reads = new TransactionTemplate(transactions);
         // One snapshot for the existence check, the scope (team and department tree) and every row shown.
         reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -58,7 +64,13 @@ public class CandidateProfileService {
                 status.setRollbackOnly();
                 return new Read.Refused();
             }
-            CandidateProfileView view = CandidateProfileView.of(candidateId, readable);
+            // Only ids already filtered by CandidateAccess.READABLE enter the assessment repository.
+            // Same REPEATABLE READ snapshot: no cross-position notes can enter this profile by email linkage.
+            Map<UUID, ScreeningView> assessments = new HashMap<>();
+            for (ReadableApplication application : readable) {
+                assessments.put(application.id(), screenings.view(application.id(), 0, 5));
+            }
+            CandidateProfileView view = CandidateProfileView.of(candidateId, readable, assessments);
             access.recordGranted(reader, CandidateAccessKind.PROFILE, candidateId,
                     view.applications().stream().map(ApplicationDetail::id).toList());
             return new Read.Shown(view);
