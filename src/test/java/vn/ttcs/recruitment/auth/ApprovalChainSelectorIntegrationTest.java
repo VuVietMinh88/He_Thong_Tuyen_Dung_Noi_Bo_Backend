@@ -62,7 +62,7 @@ class ApprovalChainSelectorIntegrationTest {
     @BeforeEach
     void resetFixture() {
         // Sealed flow versions cannot be deleted (V18), but TRUNCATE does not fire row triggers.
-        jdbc.execute("TRUNCATE approval_flow_steps, approval_flow_versions, approval_flows");
+        jdbc.execute("TRUNCATE requisition_workflow_events, approval_flow_steps, approval_flow_versions, approval_flows");
         jdbc.update("UPDATE departments SET parent_id = NULL");
         jdbc.update("DELETE FROM departments");
         jdbc.update("DELETE FROM user_accounts");

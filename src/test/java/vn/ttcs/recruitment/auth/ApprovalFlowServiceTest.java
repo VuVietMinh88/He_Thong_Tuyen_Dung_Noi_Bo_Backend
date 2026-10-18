@@ -58,7 +58,7 @@ class ApprovalFlowServiceTest {
     void setup() {
         clock.set(START);
         // This context owns an ephemeral PostgreSQL instance; published versions deliberately resist DELETE.
-        jdbc.execute("TRUNCATE approval_flow_steps, approval_flow_versions, approval_flows");
+        jdbc.execute("TRUNCATE requisition_workflow_events, approval_flow_steps, approval_flow_versions, approval_flows");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("UPDATE user_accounts SET department_id=NULL");
         jdbc.update("DELETE FROM departments");
