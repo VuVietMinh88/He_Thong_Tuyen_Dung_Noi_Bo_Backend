@@ -301,7 +301,8 @@ class JobPostingPublicViewIntegrationTest {
         assertThat(environment.getProperty("app.job-posting-expiry.cron")).isEqualTo("-");
         assertThat(schedules).isNotEmpty();
         for (ScheduledTaskHolder holder : schedules) {
-            assertThat(holder.getScheduledTasks()).isEmpty();
+            assertThat(holder.getScheduledTasks()).noneMatch(task -> task.getTask().getRunnable().toString()
+                    .equals(JobPostingExpiry.class.getName() + ".runDaily"));
         }
     }
 

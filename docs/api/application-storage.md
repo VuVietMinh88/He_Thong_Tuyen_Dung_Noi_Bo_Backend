@@ -60,8 +60,9 @@ concurrency/body/proxy. Bytes được giữ nguyên. Nguồn:
 
 `ApplicationPipelineSource` thay stub: NEW/SCREENING/INTERVIEW/OFFER active;
 HIRED/REJECTED/WITHDRAWN final. Không thêm khóa/read CV, xếp stage theo enum.
-Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW, chưa chốt
-ánh xạ trạng thái công khai stage khác. Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
+Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW; ánh xạ stage
+sang [trạng thái công khai](application-tracking.md#trạng-thái-công-khai-task-340) có từ task 340.
+Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
 CV; 326 cần nâng và giữ limit riêng avatar/media/import. Outbox/IP/mã/link/tra cứu/rút/UI
 chưa có trong 325.
 
