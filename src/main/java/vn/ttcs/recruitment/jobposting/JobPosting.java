@@ -138,6 +138,16 @@ public class JobPosting {
         this.publishedAt = publishedAt;
     }
 
+    // Task 355: the posting is taken down. Only a posting that was published can be, and it keeps who published it and
+    // when (V26 job_posting_publication_required); updatedAt (the last content edit) does not change. The caller holds
+    // the posting row lock and has checked the status and the expected revision.
+    void unpublish(JobPostingStatus expected) {
+        if (publishedAt == null) {
+            throw new IllegalStateException("Job posting " + id + " was never published");
+        }
+        moveTo(expected, JobPostingStatus.UNPUBLISHED);
+    }
+
     public UUID getId() { return id; }
     public UUID getRequisitionId() { return requisitionId; }
     public JobPostingStatus getStatus() { return status; }

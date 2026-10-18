@@ -26,7 +26,8 @@ class JobPostingEventRepository {
     }
 
     // revision: the posting's revision right after this step. The enums are bound by name: PgJDBC cannot bind a Java
-    // enum. comment: null when there is none (V22 requires it for REVISION_REQUESTED and refuses it for PUBLISHED).
+    // enum. comment: null when there is none (V22 requires it for REVISION_REQUESTED and refuses it for PUBLISHED; V25
+    // and V26 require it for CLOSED and UNPUBLISHED).
     void append(UUID postingId, int revision, JobPostingEventType type, JobPostingStatus before,
                 JobPostingStatus after, UUID actorId, Instant at, String comment) {
         jdbc.update("""

@@ -38,7 +38,7 @@ class JobPostingDecisionTest {
     void approvingIsOnlyForPostingsWaitingForReview(JobPostingStatus status) {
         boolean allowed = switch (status) {
             case PENDING_APPROVAL -> true;
-            case DRAFT, REVISION_REQUESTED, APPROVED, PUBLISHED, CLOSED -> false;
+            case DRAFT, REVISION_REQUESTED, APPROVED, PUBLISHED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingDecision.APPROVE.from().contains(status)).isEqualTo(allowed);
@@ -49,7 +49,7 @@ class JobPostingDecisionTest {
     void changesMayBeAskedForUntilThePostingIsPublished(JobPostingStatus status) {
         boolean allowed = switch (status) {
             case PENDING_APPROVAL, APPROVED -> true;
-            case DRAFT, REVISION_REQUESTED, PUBLISHED, CLOSED -> false;
+            case DRAFT, REVISION_REQUESTED, PUBLISHED, CLOSED, UNPUBLISHED -> false;
         };
 
         assertThat(JobPostingDecision.REQUEST_REVISION.from().contains(status)).isEqualTo(allowed);

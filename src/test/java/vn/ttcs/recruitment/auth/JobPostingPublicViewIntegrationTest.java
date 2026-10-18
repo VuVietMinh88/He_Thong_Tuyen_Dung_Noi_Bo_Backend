@@ -303,7 +303,8 @@ class JobPostingPublicViewIntegrationTest {
 
         boolean shown = switch (status) {
             case PUBLISHED -> true;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> false;
+            // Task 355: a posting taken down is never public again.
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED, UNPUBLISHED -> false;
         };
         if (shown) {
             assertThat(ok(detail).path("id").asText()).isEqualTo(id.toString());
@@ -667,7 +668,8 @@ class JobPostingPublicViewIntegrationTest {
 
     // A posting brought to the status through the API: the recruiter writes and sends it (1, 2), HR approves it or
     // asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills its
-    // requisition (task 290), which closes it (5).
+    // requisition (task 290), which closes it (5). Task 355: a posting taken down is published, then the recruiter
+    // takes it down (5).
     private UUID postingIn(JobPostingStatus status) throws Exception {
         UUID id = draft(false);
         if (status != JobPostingStatus.DRAFT) {
@@ -677,11 +679,15 @@ class JobPostingPublicViewIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
-                || status == JobPostingStatus.CLOSED) {
+                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
-        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED) {
+        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED
+                || status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.publish(id, 3, hrToken));
+        }
+        if (status == JobPostingStatus.UNPUBLISHED) {
+            ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", recruiterToken));
         }
         if (status == JobPostingStatus.CLOSED) {
             ok(api.request("POST", "/api/v1/requisitions/" + postings.row(id).get("requisition_id")

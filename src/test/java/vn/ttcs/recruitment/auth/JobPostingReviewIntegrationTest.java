@@ -62,8 +62,9 @@ class JobPostingReviewIntegrationTest {
             "Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.";
     private static final String DEADLINE_PASSED = "Hạn nộp hồ sơ của tin đã qua. Vui lòng yêu cầu chỉnh sửa để đổi "
             + "hạn nộp trước khi duyệt hoặc xuất bản.";
+    // Task 355: the text names taking down too.
     private static final String CLOSED_WITH_REQUISITION = "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không "
-            + "thể sửa, gửi duyệt, duyệt hay xuất bản nữa.";
+            + "thể sửa, gửi duyệt, duyệt, xuất bản hay gỡ nữa.";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -169,7 +170,9 @@ class JobPostingReviewIntegrationTest {
         assertThat(published.path("status").asText()).isEqualTo("PUBLISHED");
         assertThat(published.path("revision").asInt()).isEqualTo(5);
         assertThat(published.path("lastReview")).isEqualTo(review);
-        assertActions(published, false, false, false, false, false);
+        // Task 355: a published posting can only be taken down, by HR or by the recruiter.
+        assertActions(published, false, false, false, false, false, true);
+        assertActions(ok(postings.get(id, recruiterToken)), false, false, false, false, false, true);
         assertThat(ok(postings.get(id, hrToken))).isEqualTo(published);
 
         // Workflow steps never change the content's updatedAt; the text published is the text saved.
@@ -200,7 +203,8 @@ class JobPostingReviewIntegrationTest {
 
         String refusal = switch (status) {
             case APPROVED -> null;
-            case PUBLISHED -> "JOB_POSTING_ALREADY_PUBLISHED";
+            // Task 355: a posting is published once, so one taken down is told it was published.
+            case PUBLISHED, UNPUBLISHED -> "JOB_POSTING_ALREADY_PUBLISHED";
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED -> "JOB_POSTING_NOT_APPROVED";
             // Task 292: a posting closed with its requisition is told so before anything else.
             case CLOSED -> "JOB_POSTING_CLOSED";
@@ -212,7 +216,7 @@ class JobPostingReviewIntegrationTest {
         } else {
             JsonNode error = postings.error(response, 409, refusal);
             assertThat(error.path("message").asText()).isEqualTo(switch (status) {
-                case PUBLISHED -> "Tin tuyển dụng đã được xuất bản.";
+                case PUBLISHED, UNPUBLISHED -> "Tin tuyển dụng đã được xuất bản.";
                 case CLOSED -> CLOSED_WITH_REQUISITION;
                 default -> NOT_APPROVED;
             });
@@ -398,7 +402,7 @@ class JobPostingReviewIntegrationTest {
     @Test
     void postingsUnderReviewOrPublishedAreFrozen() throws Exception {
         for (JobPostingStatus status : List.of(JobPostingStatus.PENDING_APPROVAL, JobPostingStatus.APPROVED,
-                JobPostingStatus.PUBLISHED)) {
+                JobPostingStatus.PUBLISHED, JobPostingStatus.UNPUBLISHED)) {
             UUID id = postingIn(status);
             JsonNode view = ok(postings.get(id, adminToken));
             assertThat(view.path("actions").path("canEdit").asBoolean()).as(status.name()).isFalse();
@@ -435,7 +439,10 @@ class JobPostingReviewIntegrationTest {
                 new Refused(JobPostingStatus.APPROVED, "APPROVE"), new Refused(JobPostingStatus.PUBLISHED, "APPROVE"),
                 new Refused(JobPostingStatus.DRAFT, "REQUEST_REVISION"),
                 new Refused(JobPostingStatus.REVISION_REQUESTED, "REQUEST_REVISION"),
-                new Refused(JobPostingStatus.PUBLISHED, "REQUEST_REVISION"))) {
+                new Refused(JobPostingStatus.PUBLISHED, "REQUEST_REVISION"),
+                // Task 355: a posting taken down is reviewed no more.
+                new Refused(JobPostingStatus.UNPUBLISHED, "APPROVE"),
+                new Refused(JobPostingStatus.UNPUBLISHED, "REQUEST_REVISION"))) {
             UUID id = byStatus.get(refused.status());
             JsonNode error = postings.error(postings.decide(id, refused.action(), "Nhận xét", postings.revision(id),
                     hrToken), 409, "JOB_POSTING_NOT_UNDER_REVIEW");
@@ -784,7 +791,8 @@ class JobPostingReviewIntegrationTest {
 
     // A complete posting brought to the status through the API: ADMIN writes and sends it (revisions 1, 2), HR
     // approves it or asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills
-    // its requisition (task 290), which closes it (5).
+    // its requisition (task 290), which closes it (5). Task 355: a posting taken down is published, then HR takes it
+    // down (5).
     private UUID postingIn(JobPostingStatus status) throws Exception {
         UUID requisition = requisition();
         UUID id = id(postings.created(postings.body(requisition, workLocation, employmentType), adminToken));
@@ -795,15 +803,19 @@ class JobPostingReviewIntegrationTest {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
         if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
-                || status == JobPostingStatus.CLOSED) {
+                || status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
-        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED) {
+        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED
+                || status == JobPostingStatus.UNPUBLISHED) {
             ok(postings.publish(id, 3, hrToken));
         }
         if (status == JobPostingStatus.CLOSED) {
             ok(api.request("POST", "/api/v1/requisitions/" + requisition + "/status-changes", json.writeValueAsString(
                     Map.of("status", "FILLED", "reason", "Đã tuyển đủ", "expectedRevision", 0)), hrToken));
+        }
+        if (status == JobPostingStatus.UNPUBLISHED) {
+            ok(postings.unpublish(id, 4, "Đã nhận đủ hồ sơ.", hrToken));
         }
         assertThat(postings.row(id).get("status")).isEqualTo(status.name());
         return id;
@@ -816,14 +828,22 @@ class JobPostingReviewIntegrationTest {
         return requisition;
     }
 
+    // Every flag of a posting that cannot be taken down (task 355: canUnpublish false).
     private void assertActions(JsonNode view, boolean canEdit, boolean canSubmit, boolean canApprove,
                                boolean canRequestRevision, boolean canPublish) {
+        assertActions(view, canEdit, canSubmit, canApprove, canRequestRevision, canPublish, false);
+    }
+
+    private void assertActions(JsonNode view, boolean canEdit, boolean canSubmit, boolean canApprove,
+                               boolean canRequestRevision, boolean canPublish, boolean canUnpublish) {
         JsonNode actions = view.path("actions");
+        assertThat(fieldNames(actions)).containsExactly("canEdit", "canSubmit", "canApprove", "canRequestRevision",
+                "canPublish", "canUnpublish");
         assertThat(List.of(actions.path("canEdit").asBoolean(), actions.path("canSubmit").asBoolean(),
                 actions.path("canApprove").asBoolean(), actions.path("canRequestRevision").asBoolean(),
-                actions.path("canPublish").asBoolean()))
+                actions.path("canPublish").asBoolean(), actions.path("canUnpublish").asBoolean()))
                 .as(actions.toString())
-                .containsExactly(canEdit, canSubmit, canApprove, canRequestRevision, canPublish);
+                .containsExactly(canEdit, canSubmit, canApprove, canRequestRevision, canPublish, canUnpublish);
     }
 
     private JsonNode ok(HttpResponse<String> response) {

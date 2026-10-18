@@ -225,6 +225,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/job-postings/{id}/submit", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/job-postings/{id}/approvals", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/job-postings/{id}/publish", permission(JOB_POSTINGS_WRITE_ALL), INVALID_BODY, 400),
+            // Task 355 (story S4-08): taking a published posting down is the composers' write, like submit; the empty
+            // body stops every permitted call at 400 (expectedRevision) before the reason, any lock or lookup.
+            endpoint("POST", "/api/v1/job-postings/{id}/unpublish", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 309: the preview is the authors' view of exactly what candidates will see; the portal is public and answers
             // 404 for anything not published (here the unknown id) and an empty first page to everyone.
             endpoint("GET", "/api/v1/job-postings/{id}/preview", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
@@ -331,12 +334,14 @@ class ApiAuthorizationMatrixIntegrationTest {
 
     @Test
     void jobPostingTrailHasNoEditOrDeleteRoute() {
-        // Task 310: who published a posting and when, and its review history, are only ever added to.
+        // Task 310: who published a posting and when, and its review history, are only ever added to. Task 355: taking
+        // a posting down adds to the trail too ("/unpublish" does not contain "/publish").
         Set<String> editing = new TreeSet<>();
         handlerMapping.getHandlerMethods().forEach((info, handler) -> {
             for (String pattern : info.getPatternValues()) {
                 boolean trail = pattern.startsWith("/api/v1/job-postings/")
-                        && (pattern.contains("/publish") || pattern.contains("/history"));
+                        && (pattern.contains("/publish") || pattern.contains("/unpublish")
+                                || pattern.contains("/history"));
                 info.getMethodsCondition().getMethods().stream()
                         .filter(method -> method == RequestMethod.PUT || method == RequestMethod.PATCH
                                 || method == RequestMethod.DELETE)
@@ -493,6 +498,16 @@ class ApiAuthorizationMatrixIntegrationTest {
         expect(request("PUT", "/api/v1/job-postings/" + authored, json.writeValueAsString(authoredContent),
                 actors.get(Identity.HR_MANAGER).token()), 200);
         submitPosting(authored, 2, Identity.ADMIN);
+        // Task 355: a published posting of TARGET whose requisition RECRUITER is not assigned to (HR_MANAGER wrote,
+        // sent and published it, ADMIN approved it: revision 4), so a take-down that slipped through would change it
+        // and add an event.
+        UUID live = posting(approvedRequisition(readyBody), completePosting, Identity.HR_MANAGER);
+        submitPosting(live, 1, Identity.HR_MANAGER);
+        expect(request("POST", "/api/v1/job-postings/" + live + "/approvals", json.writeValueAsString(Map.of(
+                "action", "APPROVE", "expectedRevision", 2)), actors.get(Identity.ADMIN).token()), 200);
+        expect(request("POST", "/api/v1/job-postings/" + live + "/publish", json.writeValueAsString(Map.of(
+                "expectedRevision", 3)), actors.get(Identity.HR_MANAGER).token()), 200);
+        Map<String, Object> takeDown = Map.of("expectedRevision", 4, "reason", "Gỡ thay");
         Map<String, Object> changedPosting = Map.of("title", "Bị đổi", "jobDescription", "Mô tả mới",
                 "candidateRequirements", "Yêu cầu mới", "showSalary", true, "expectedRevision", 1);
         Map<String, Object> rejection = Map.of("action", "REJECT", "comment", "Không phù hợp", "expectedRevision", 1);
@@ -624,6 +639,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // The "posting" fixture has every portal detail, so a submit that slipped through would change it.
                 new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)),
                 new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + posting + "/submit", Map.of("expectedRevision", 1)),
+                // Task 355: only JOB_POSTINGS writers take a posting down, and a recruiter only one of its
+                // requisitions.
+                new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/job-postings/" + live + "/unpublish", takeDown),
+                new Attack(Identity.APPROVER, "POST", "/api/v1/job-postings/" + live + "/unpublish", takeDown),
+                new Attack(Identity.INTERVIEWER, "POST", "/api/v1/job-postings/" + live + "/unpublish", takeDown),
+                new Attack(Identity.NO_ROLE, "POST", "/api/v1/job-postings/" + live + "/unpublish", takeDown),
+                new Attack(Identity.RECRUITER, "POST", "/api/v1/job-postings/" + live + "/unpublish", takeDown),
                 // Task 290: only HR changes a requisition's status; one that slipped through would change its status,
                 // add an event and (task 292) close its posting.
                 new Attack(Identity.HIRING_MANAGER, "POST", "/api/v1/requisitions/" + approved + "/status-changes", Map.of("status", "PAUSED", "reason", "Tạm dừng thay", "expectedRevision", 2)),
@@ -740,6 +762,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID,
                 // Task 315: nor change the values of its filter lists.
                 "POST /api/v1/public/job-postings/filters",
+                // Task 355: taking a posting down is never edited, undone or deleted.
+                "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/unpublish",
+                "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/unpublish",
+                "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/unpublish",
                 // Task 310: the review and publication history is never edited or deleted.
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/history",
                 "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history",

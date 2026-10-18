@@ -206,6 +206,19 @@ final class JobPostingTestSupport {
         return api.request("POST", POSTINGS + "/" + posting + "/publish", json.writeValueAsString(body), token);
     }
 
+    // Task 355: expectedRevision and reason are left out of the body when null.
+    HttpResponse<String> unpublish(UUID posting, Integer expectedRevision, String reason, String token)
+            throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (expectedRevision != null) {
+            body.put("expectedRevision", expectedRevision);
+        }
+        if (reason != null) {
+            body.put("reason", reason);
+        }
+        return api.request("POST", POSTINGS + "/" + posting + "/unpublish", json.writeValueAsString(body), token);
+    }
+
     // Task 309: the authors' preview, and the public portal called the way candidates call it, without a token.
     HttpResponse<String> preview(UUID posting, String token) throws Exception {
         return api.request("GET", POSTINGS + "/" + posting + "/preview", null, token);

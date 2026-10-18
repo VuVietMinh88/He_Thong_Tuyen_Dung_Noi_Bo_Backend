@@ -273,8 +273,11 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         // Task 308 (story S3-10): sending for review is the authors' write; reviewing and publishing
                         // are HR decisions (JOB_POSTINGS_WRITE_ALL = ADMIN, HR_MANAGER), checked again by
-                        // JobPostingApprovalService after its locks.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit")
+                        // JobPostingApprovalService after its locks. Task 355 (story S4-08): taking a published posting
+                        // down is the composers' write too, since the story's actor is the recruiter; JobPostingService
+                        // applies the recruiter scope after its locks.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit",
+                                "/api/v1/job-postings/*/unpublish")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/approvals",
                                 "/api/v1/job-postings/*/publish")
