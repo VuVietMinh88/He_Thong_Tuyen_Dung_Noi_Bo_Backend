@@ -21,6 +21,7 @@ import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.account.CreateAccountRequest;
 import vn.ttcs.recruitment.account.Role;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 
@@ -255,6 +256,67 @@ class AccountProvisioningIntegrationTest {
                 "roles", List.of("INTERVIEWER")), adminToken).statusCode()).isEqualTo(400);
         assertThat(request("POST", "/api/v1/accounts", "{", adminToken).statusCode()).isEqualTo(400);
         assertThat(SMTP.messages()).isEmpty();
+    }
+
+    @Test
+    void removesInvisibleCharactersAroundTheNameAndRefusesANameWithoutAVisibleCharacter() throws Exception {
+        // trim() and @NotBlank kept these, so they were stored around a name, or alone as an invisible one:
+        // non-breaking spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the
+        // ideographic and em spaces at the ends, and zero-width characters (U+200B, U+FEFF, U+2060). The characters are
+        // built from code points, so the source shows which one each case sends.
+        int number = 0;
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            number++;
+            var response = post("/api/v1/accounts", Map.of("email", "invisible" + number + "@example.test",
+                    "fullName", character + "Nguyễn Văn An" + character, "roles", List.of("INTERVIEWER")), adminToken);
+            assertThat(response.statusCode()).as("U+%04X", invisible).isEqualTo(201);
+            assertThat(body(response).path("fullName").asText()).as("U+%04X", invisible).isEqualTo("Nguyễn Văn An");
+            UUID id = UUID.fromString(body(response).path("id").asText());
+            assertThat(jdbc.queryForObject("SELECT full_name FROM user_accounts WHERE id = ?", String.class, id))
+                    .isEqualTo("Nguyễn Văn An");
+        }
+        // Characters inside the name belong to it and are kept; the length limit counts the name without its ends.
+        String nbsp = Character.toString(0x00A0);
+        var inner = post("/api/v1/accounts", Map.of("email", "inner@example.test", "fullName", "Nguyễn" + nbsp + "Văn An",
+                "roles", List.of("INTERVIEWER")), adminToken);
+        assertThat(body(inner).path("fullName").asText()).isEqualTo("Nguyễn" + nbsp + "Văn An");
+        var longest = post("/api/v1/accounts", Map.of("email", "longest@example.test",
+                "fullName", nbsp + "n".repeat(255) + nbsp, "roles", List.of("INTERVIEWER")), adminToken);
+        assertThat(body(longest).path("fullName").asText()).isEqualTo("n".repeat(255));
+
+        // Without a visible character the name counts as empty: no account, no email.
+        long count = accounts.count();
+        int sent = SMTP.messages().size();
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            var refused = post("/api/v1/accounts", Map.of("email", "refused@example.test", "fullName", invisible,
+                    "roles", List.of("INTERVIEWER")), adminToken);
+            assertThat(refused.statusCode()).as("%s", invisible.codePoints().mapToObj(Integer::toHexString).toList())
+                    .isEqualTo(400);
+            assertThat(body(refused).path("code").asText()).isEqualTo("VALIDATION_ERROR");
+            assertThat(body(refused).path("fieldErrors").has("fullName")).isTrue();
+        }
+        assertThat(accounts.count()).isEqualTo(count);
+        assertThat(SMTP.messages()).hasSize(sent);
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundTheName() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            assertThat(new CreateAccountRequest(EMAIL, character + "Nguyễn Văn An" + character,
+                    Set.of(Role.INTERVIEWER)).fullName()).as("U+%04X", space).isEqualTo("Nguyễn Văn An");
+            assertThat(new CreateAccountRequest(EMAIL, character, Set.of(Role.INTERVIEWER)).fullName())
+                    .as("U+%04X", space).isNull();
+        }
     }
 
     @ParameterizedTest

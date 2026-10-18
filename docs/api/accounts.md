@@ -84,7 +84,7 @@ Gửi `Authorization: Bearer <accessToken>` của Admin và JSON:
 }
 ```
 
-Email được trim/chuyển chữ thường, tối đa254 ký tự; họ tên không trống/tối đa255 ký tự; ít nhất một trong sáu vai trò nội bộ. Không nhận mật khẩu từ Admin. Server tạo mật khẩu tạm ngẫu nhiên24 ký tự bằng SecureRandom và lưu BCrypt. Candidate không phải tài khoản nội bộ.
+Email được trim/chuyển chữ thường, tối đa254 ký tự; họ tên bỏ ký tự không nhìn thấy ở đầu/cuối theo cùng quy tắc với cập nhật tài khoản ở trên, không trống (họ tên không có ký tự nhìn thấy được trả 400 `VALIDATION_ERROR`)/tối đa255 ký tự đếm sau khi bỏ; ít nhất một trong sáu vai trò nội bộ. Không nhận mật khẩu từ Admin. Server tạo mật khẩu tạm ngẫu nhiên24 ký tự bằng SecureRandom và lưu BCrypt. Candidate không phải tài khoản nội bộ.
 
 Thành công **201**, `Cache-Control: no-store`:
 
