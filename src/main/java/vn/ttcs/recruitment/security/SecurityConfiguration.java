@@ -334,6 +334,10 @@ public class SecurityConfiguration {
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
                         .requestMatchers(HttpMethod.POST, ApplicationReferralRoutes.SUBMISSION)
                                 .hasAuthority("PERM_SELF_PROFILE_WRITE")
+                        // Task 352: the referrer's own list (general status only), read like a colleague's avatar;
+                        // ApplicationReferralStatusService checks the code again and filters by the JWT's subject.
+                        .requestMatchers(HttpMethod.GET, ApplicationReferralRoutes.MY)
+                                .hasAuthority("PERM_SELF_PROFILE_READ")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

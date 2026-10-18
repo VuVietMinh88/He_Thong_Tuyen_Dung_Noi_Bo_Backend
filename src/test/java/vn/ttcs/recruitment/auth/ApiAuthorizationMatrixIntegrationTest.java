@@ -257,7 +257,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
-            endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415));
+            endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
+            // Task 352: the referrer's own list, read like a colleague's avatar; nobody here has referred anyone, so
+            // every permitted caller gets an empty array.
+            endpoint("GET", "/api/v1/referrals/my-referrals", permission(SELF_PROFILE_READ), null, 200));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -808,7 +811,9 @@ class ApiAuthorizationMatrixIntegrationTest {
                 // frontend's notes, tags and rating routes belong to S5-04.
                 "GET /api/v1/candidates/" + UNKNOWN_ID, "POST /api/v1/candidates/" + UNKNOWN_ID + "/notes",
                 "PUT /api/v1/candidates/" + UNKNOWN_ID + "/tags",
-                "PATCH /api/v1/candidates/" + UNKNOWN_ID + "/rating")) {
+                "PATCH /api/v1/candidates/" + UNKNOWN_ID + "/rating",
+                // Task 352: a referrer reads only their own list; there is no list of every referral.
+                "GET /api/v1/referrals")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

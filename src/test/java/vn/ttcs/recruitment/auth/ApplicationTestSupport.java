@@ -44,6 +44,7 @@ final class ApplicationTestSupport {
     static final String LOOKUP = ApplicationTrackingRoutes.LOOKUP;
     static final String WITHDRAW = ApplicationTrackingRoutes.WITHDRAW;
     static final String REFERRALS = ApplicationReferralRoutes.SUBMISSION;
+    static final String MY_REFERRALS = ApplicationReferralRoutes.MY;
     static final String REFERRAL_NOTE = "Bạn học cũ, mạnh Java";
     private static final String REFERRAL_BOUNDARY = "referral-http-boundary";
     static final String FULL_NAME = "Nguyễn Văn A";
@@ -387,5 +388,21 @@ final class ApplicationTestSupport {
 
     int referralAttempts() {
         return jdbc.queryForObject("SELECT count(*) FROM referral_attempts", Integer.class);
+    }
+
+    // Task 352: the referrer's own list, with this bearer token (none when null) and an optional query string.
+    HttpResponse<String> myReferrals(String token) throws Exception {
+        return myReferrals(token, "");
+    }
+
+    HttpResponse<String> myReferrals(String token, String query) throws Exception {
+        return get(MY_REFERRALS + query, token == null ? Map.of() : Map.of("Authorization", "Bearer " + token));
+    }
+
+    HttpResponse<String> get(String path, Map<String, String> headers) throws Exception {
+        var builder = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + path))
+                .timeout(Duration.ofSeconds(20)).GET();
+        headers.forEach(builder::header);
+        return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 }
