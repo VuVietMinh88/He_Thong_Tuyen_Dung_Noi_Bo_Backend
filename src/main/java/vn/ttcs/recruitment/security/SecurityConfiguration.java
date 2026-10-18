@@ -259,6 +259,14 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings", "/api/v1/job-postings/*")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 308 (story S3-10): sending for review is the authors' write; reviewing and publishing
+                        // are HR decisions (JOB_POSTINGS_WRITE_ALL = ADMIN, HR_MANAGER), checked again by
+                        // JobPostingApprovalService after its locks.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/approvals",
+                                "/api/v1/job-postings/*/publish")
+                                .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

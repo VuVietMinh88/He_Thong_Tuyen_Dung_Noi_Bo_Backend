@@ -20,8 +20,8 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Task 303: who may compose and read job postings. Copies of the requisition helpers (RequisitionService), which are
- * private to the requisition package.
+ * Task 303: who may compose and read job postings; task 308: who may review and publish them. Copies of the
+ * requisition helpers (RequisitionService), which are private to the requisition package.
  * <p>
  * Every internal posting call needs a JOB_POSTINGS write permission and the matching read permission: ALL (HR_MANAGER,
  * ADMIN) reaches every posting, SCOPED (RECRUITER) only the postings of the requisitions the caller is the primary or a
@@ -54,7 +54,12 @@ class JobPostingAccess {
     // Who is calling and how much of the JOB_POSTINGS module they reach: ALL only when both the write and the read
     // scope are ALL, otherwise SCOPED (never NONE). permissions: every code the caller holds, read together with the
     // scope (after the locks for a write).
-    record Caller(UUID id, AccessScope scope, Set<String> permissions) { }
+    record Caller(UUID id, AccessScope scope, Set<String> permissions) {
+        // Task 308: reviewing and publishing are HR decisions (ADMIN, HR_MANAGER in the seed).
+        boolean reviewer() {
+            return permissions.contains("JOB_POSTINGS_WRITE_ALL");
+        }
+    }
 
     Writer lockWriter(Jwt jwt) {
         UUID actorId;
@@ -87,6 +92,20 @@ class JobPostingAccess {
             throw AuthenticationFailureException.sessionInvalid();
         }
         return caller(writer.actorId(), permissions.forUser(writer.actorId()));
+    }
+
+    // Task 308: may the caller still review (approve, ask for changes) and publish postings? The checks of
+    // requireComposer, then JOB_POSTINGS_WRITE_ALL itself: the SCOPED write permission of a recruiter composes postings
+    // but never decides about them. Called at the same points as requireComposer, so a permission removed or narrowed
+    // while the request waited for a lock is refused. A reviewer reaches the postings its read permission reaches
+    // (ALL for every holder of JOB_POSTINGS_WRITE_ALL in the seed).
+    Caller requireReviewer(Jwt jwt, Writer writer) {
+        Caller composer = requireComposer(jwt, writer);
+        if (!composer.reviewer()) {
+            throw new AccessDeniedException("Only JOB_POSTINGS_WRITE_ALL reviews and publishes job postings");
+        }
+        AccessScope read = AccessScope.read(composer.permissions(), PermissionModule.JOB_POSTINGS).orDeny();
+        return new Caller(composer.id(), read, composer.permissions());
     }
 
     // Reads take no lock. Internal reads are for composers only: the same write and read permissions as a write.

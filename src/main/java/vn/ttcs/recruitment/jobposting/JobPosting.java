@@ -108,6 +108,18 @@ public class JobPosting {
         this.updatedAt = updatedAt;
     }
 
+    // Task 308: a step of the review workflow (submit, a decision, the publication). The caller holds the posting row
+    // lock and has checked that the posting is in expected and that the client saw its latest revision. A status
+    // change is a new revision too, so a client still showing the old status is refused. updatedAt is the time of the
+    // last content edit and does not change here.
+    void moveTo(JobPostingStatus expected, JobPostingStatus next) {
+        if (status != expected) {
+            throw new IllegalStateException("Job posting " + id + " is " + status + ", not " + expected);
+        }
+        this.status = next;
+        this.revision++;
+    }
+
     public UUID getId() { return id; }
     public UUID getRequisitionId() { return requisitionId; }
     public JobPostingStatus getStatus() { return status; }

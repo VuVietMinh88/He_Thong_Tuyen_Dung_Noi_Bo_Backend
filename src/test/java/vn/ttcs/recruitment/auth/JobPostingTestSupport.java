@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -42,8 +43,10 @@ final class JobPostingTestSupport {
         this.json = json;
     }
 
-    // Postings reference requisitions, accounts and catalog values (RESTRICT), so they go first, after their authors.
+    // Postings reference requisitions, accounts and catalog values (RESTRICT), so they go first, after their history
+    // and their authors. The history is emptied with TRUNCATE, which stays possible once V23 makes it append-only.
     void reset() {
+        jdbc.execute("TRUNCATE job_posting_events");
         jdbc.update("DELETE FROM job_posting_authors");
         jdbc.update("DELETE FROM job_postings");
         jdbc.update("DELETE FROM recruitment_catalog_items");
@@ -166,6 +169,40 @@ final class JobPostingTestSupport {
         return api.request("GET", POSTINGS + "/source-requisitions" + query, null, token);
     }
 
+    // Task 308: comment and expectedRevision are left out of the body when null.
+    HttpResponse<String> submit(UUID posting, Integer expectedRevision, String comment, String token)
+            throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (expectedRevision != null) {
+            body.put("expectedRevision", expectedRevision);
+        }
+        if (comment != null) {
+            body.put("comment", comment);
+        }
+        return api.request("POST", POSTINGS + "/" + posting + "/submit", json.writeValueAsString(body), token);
+    }
+
+    HttpResponse<String> decide(UUID posting, String action, String comment, Integer expectedRevision, String token)
+            throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("action", action);
+        if (comment != null) {
+            body.put("comment", comment);
+        }
+        if (expectedRevision != null) {
+            body.put("expectedRevision", expectedRevision);
+        }
+        return api.request("POST", POSTINGS + "/" + posting + "/approvals", json.writeValueAsString(body), token);
+    }
+
+    HttpResponse<String> publish(UUID posting, Integer expectedRevision, String token) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (expectedRevision != null) {
+            body.put("expectedRevision", expectedRevision);
+        }
+        return api.request("POST", POSTINGS + "/" + posting + "/publish", json.writeValueAsString(body), token);
+    }
+
     // Creates a posting through the API and returns its view.
     JsonNode created(Map<String, Object> body, String token) throws Exception {
         var response = create(body, token);
@@ -179,6 +216,16 @@ final class JobPostingTestSupport {
 
     Map<String, Object> requisitionRow(UUID requisition) {
         return jdbc.queryForMap("SELECT * FROM recruitment_requisitions WHERE id = ?", requisition);
+    }
+
+    int revision(UUID posting) {
+        return (Integer) row(posting).get("revision");
+    }
+
+    // Task 308: the review and publication history of the posting, oldest first.
+    List<Map<String, Object>> events(UUID posting) {
+        return jdbc.queryForList("SELECT * FROM job_posting_events WHERE job_posting_id = ? ORDER BY revision",
+                posting);
     }
 
     int count() {

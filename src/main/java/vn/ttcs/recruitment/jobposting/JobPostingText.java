@@ -1,6 +1,7 @@
 package vn.ttcs.recruitment.jobposting;
 
 // Tasks 303, 304: text rules shared by the job posting request bodies and the copy of the requisition's texts.
+// Task 308: the rule for the comments of the review workflow (invisibleToNull).
 final class JobPostingText {
     // PostgreSQL TEXT cannot store the NUL character (code 0, sometimes pasted from other files), so the insert would
     // fail with a 500. Every other character is allowed, including tabs and line breaks. @Pattern skips null.
@@ -41,7 +42,31 @@ final class JobPostingText {
         return text == null || text.isBlank() ? null : text;
     }
 
+    // Task 308: a workflow comment (the note of a submission, the reviewer's opinion) without any visible character
+    // counts as no comment: it is never stored, and where a comment is required JOB_POSTING_COMMENT_REQUIRED answers.
+    // A comment with a visible character is kept exactly as sent, line breaks included. blankToNull is not enough:
+    // V22 requires a character PostgreSQL does not count as a space ([[:space:]]), and PostgreSQL also counts the
+    // non-breaking spaces U+00A0, U+2007, U+202F and U+0085, U+180E as spaces, so a comment made only of them failed
+    // the CHECK (500); a comment made only of zero-width characters such as U+200B or U+FEFF passed it and was
+    // stored, yet shows nothing. The posting texts keep blankToNull: @PlainText refuses such a text instead of
+    // dropping it. The same rule as the requisition workflow's WorkflowComment, which is private to its package.
+    static String invisibleToNull(String text) {
+        return text == null || text.codePoints().noneMatch(JobPostingText::isVisible) ? null : text;
+    }
+
     private static boolean isSpace(char character) {
         return Character.isWhitespace(character) || Character.isSpaceChar(character);
+    }
+
+    // Not visible: every space and line break of Java (isWhitespace) and of Unicode, the non-breaking ones included
+    // (isSpaceChar), control characters, format characters (Unicode type Cf, for example U+200B, U+FEFF, U+2060), and
+    // U+0085, U+180E, which PostgreSQL counts as spaces.
+    private static boolean isVisible(int character) {
+        return !Character.isWhitespace(character)
+                && !Character.isSpaceChar(character)
+                && !Character.isISOControl(character)
+                && Character.getType(character) != Character.FORMAT
+                && character != 0x0085
+                && character != 0x180E;
     }
 }
