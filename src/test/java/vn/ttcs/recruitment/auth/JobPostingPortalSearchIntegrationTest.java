@@ -404,8 +404,18 @@ class JobPostingPortalSearchIntegrationTest {
                 Map.entry(it, "Phòng IT"), Map.entry(kt, "Phòng KT"), Map.entry(vt, "Phòng VT"));
         assertThat(options(filters.path("workLocations"))).containsExactly(
                 Map.entry(hcm, "TP. Hồ Chí Minh"), Map.entry(hn, "Hà Nội"), Map.entry(vungTau, "Vũng Tàu"));
+        // All three fixture values have sortOrder 0. Ask PostgreSQL to compare only these known fixture
+        // names under its current collation; do not derive expected membership from the API or stored rows.
+        List<Map.Entry<UUID, String>> employmentTypeOrder = jdbc.query("""
+                SELECT id, name FROM (VALUES
+                    (CAST(? AS UUID), CAST(? AS TEXT)),
+                    (CAST(? AS UUID), CAST(? AS TEXT)),
+                    (CAST(? AS UUID), CAST(? AS TEXT))
+                ) AS fixture(id, name) ORDER BY name, id
+                """, (row, number) -> Map.entry(row.getObject("id", UUID.class), row.getString("name")),
+                full, "Toàn thời gian", part, "Bán thời gian", seasonal, "Thời vụ");
         assertThat(options(filters.path("employmentTypes"))).containsExactly(
-                Map.entry(part, "Bán thời gian"), Map.entry(seasonal, "Thời vụ"), Map.entry(full, "Toàn thời gian"));
+                employmentTypeOrder.get(0), employmentTypeOrder.get(1), employmentTypeOrder.get(2));
         for (String list : List.of("departments", "workLocations", "employmentTypes")) {
             filters.path(list).forEach(option -> assertThat(fieldNames(option)).containsExactly("id", "name"));
         }
