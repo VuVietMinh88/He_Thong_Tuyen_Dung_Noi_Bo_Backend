@@ -97,9 +97,11 @@ public class JobPostingController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.publicFilters());
     }
 
-    // Task 309: every posting that is not public answers 404 like an id that does not exist.
+    // Task 309: every posting that is not public answers 404 like an id that does not exist. Task 320 (story S4-02): a
+    // published posting whose deadline has passed still opens, with applicationOpen false, so a candidate who follows
+    // a link sees a notice instead of the apply form.
     @GetMapping("/api/v1/public/job-postings/{id}")
-    public ResponseEntity<PublicJobPostingView> getPublic(@PathVariable UUID id) {
+    public ResponseEntity<PublicJobPostingDetail> getPublic(@PathVariable UUID id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.getPublic(id));
     }
 }

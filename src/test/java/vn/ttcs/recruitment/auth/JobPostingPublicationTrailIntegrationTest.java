@@ -55,10 +55,13 @@ class JobPostingPublicationTrailIntegrationTest {
     private static final List<String> TRAIL = List.of("publishedById", "publishedByName", "publishedAt");
     private static final List<String> HISTORY_KEYS = List.of("id", "revision", "action", "statusBefore",
             "statusAfter", "actorId", "actorName", "occurredAt", "comment");
-    // The eleven keys of a public posting whose salary is hidden.
+    // The eleven keys of a public posting whose salary is hidden. Task 320: the public detail adds the application
+    // state at the end.
     private static final List<String> PUBLIC_KEYS = List.of("id", "title", "positionName", "departmentName",
             "headcount", "workLocationName", "employmentTypeName", "applicationDeadline", "jobDescription",
             "candidateRequirements", "benefits");
+    private static final List<String> DETAIL_KEYS = Stream.concat(PUBLIC_KEYS.stream(),
+            Stream.of("applicationOpen", "applicationClosesAt")).toList();
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -351,8 +354,12 @@ class JobPostingPublicationTrailIntegrationTest {
 
         var detail = postings.publicDetail(id);
         JsonNode content = ok(postings.preview(id, hrToken)).path("content");
-        assertThat(ok(detail)).isEqualTo(content).isEqualTo(preview.path("content"));
-        assertThat(fieldNames(ok(detail))).containsExactlyElementsOf(PUBLIC_KEYS);
+        // Task 320: the detail is the preview's content plus the application state.
+        assertThat(JobPostingTestSupport.withoutApplicationState(ok(detail))).isEqualTo(content)
+                .isEqualTo(preview.path("content"));
+        assertThat(fieldNames(content)).containsExactlyElementsOf(PUBLIC_KEYS);
+        assertThat(fieldNames(ok(detail))).containsExactlyElementsOf(DETAIL_KEYS);
+        JobPostingTestSupport.assertApplicationState(ok(detail), true);
         assertThat(fieldNames(ok(postings.preview(id, hrToken)))).containsExactly("id", "status", "revision",
                 "content");
         // Candidates see neither the publisher nor the publication time, like the company page hides who saved it.
