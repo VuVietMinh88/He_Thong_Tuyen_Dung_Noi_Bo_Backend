@@ -14,6 +14,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSupport {
+    @Test
+    void explicitCreateIsIdempotentGetNeverCreatesAndSnapshotSurvivesFrameworkDeletion() throws Exception {
+        error(call("GET", ownPath(), null, panelToken), 404, "EVALUATION_NOT_FOUND");
+        assertThat(count("evaluation_forms")).isZero();
+        JsonNode created = form(panelToken);
+        assertThat(created.path("status").asText()).isEqualTo("DRAFT");
+        assertThat(created.path("items").size()).isEqualTo(2);
+        assertThat(created.path("totalScore").isNull()).isTrue();
+        assertThat(form(panelToken).path("id").asText()).isEqualTo(created.path("id").asText());
+        jdbc.update("UPDATE positions SET competency_framework_id=NULL WHERE id=?", position);
+        jdbc.update("DELETE FROM competency_frameworks WHERE id=?", framework);
+        JsonNode saved = ok(call("GET", ownPath(), null, panelToken));
+        assertThat(saved.path("framework").path("name").asText()).isEqualTo("Interview Framework");
+        assertThat(saved.path("items").get(0).path("name").asText()).isEqualTo("Technical");
+        assertThat(saved.path("items").get(0).path("weight").decimalValue()).isEqualByComparingTo("30");
+        assertThat(form(panelToken).path("id").asText()).isEqualTo(created.path("id").asText());
+        assertThat(count("evaluation_forms")).isEqualTo(1);
+    }
 
     @Test
     void draftAllowsPartialAnswersClearsOmittedAnswersAndCalculatesOnlyCompleteTotals() throws Exception {
