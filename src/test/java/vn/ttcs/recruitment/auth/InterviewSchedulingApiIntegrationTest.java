@@ -168,6 +168,19 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
                 .isEqualTo(ApplicationTestSupport.NOW);
     }
 
+    @Test
+    void rescheduleUsesExpectedVersionKeepsRemovedPanelInactiveAndStopsOldPanelReading() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        var update = schedule(START.plusSeconds(3600), otherPanel, "New Room"); update.put("expectedVersion", 0);
+        JsonNode changed = ok(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), recruiterToken));
+        assertThat(changed.path("version").asLong()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT active FROM interview_participants WHERE interview_id=? AND user_id=?", Boolean.class,
+                UUID.fromString(id), panel)).isFalse();
+        error(call("GET", "/api/v1/interviews/" + id, null, panelToken), 403, "FORBIDDEN");
+        ok(call("GET", "/api/v1/interviews/" + id, null, token(otherPanel)));
+        error(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), recruiterToken), 409, "INTERVIEW_VERSION_CHANGED");
+        assertThat(count("interview_events")).isEqualTo(2);
+    }
 
 
 
