@@ -106,6 +106,19 @@ public final class ApprovalRound {
         return decisions.values().stream().map(ApprovalEvent::actorId).collect(Collectors.toUnmodifiableSet());
     }
 
+    // Task 262: what the decision of the current level does. Only an open round is decided; the caller checked that
+    // the requisition waits for approval and that this round is its latest.
+    public ApprovalOutcome apply(ApprovalAction action) {
+        if (!open()) {
+            throw new IllegalStateException("Approval round " + round() + " is not open");
+        }
+        int level = currentLevel();
+        return switch (action) {
+            case REJECT -> new ApprovalOutcome(ApprovalEventType.REJECTED, level, RequisitionStatus.PENDING_APPROVAL,
+                    RequisitionStatus.REJECTED);
+        };
+    }
+
     // What ApproverRule needs for this round. levels: the round's chain (levels 1 to levelCount).
     public ApprovalContext context(RecruitmentRequisition requisition, Set<String> companyWideRoles,
                                    List<ApprovalLevel> levels) {

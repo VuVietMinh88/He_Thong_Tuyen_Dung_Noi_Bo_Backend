@@ -23,7 +23,7 @@ Mọi thao tác ghi còn kiểm lại hạn JWT, phiên và quyền (đọc lạ
 - Người chỉ có `SCOPED` chỉ xem, tạo và sửa yêu cầu thuộc **phòng ban mình phụ trách** (`departments.manager_user_id` là người gọi), tính cả mọi phòng ban con, cháu bên dưới trong cây. Ví dụ cây `IT > IT_DEV > IT_QA`: trưởng IT thấy và tạo được yêu cầu cho cả ba phòng; trưởng IT_DEV thấy và tạo được cho IT_DEV và IT_QA nhưng không cho IT.
 - Người tạo yêu cầu không quyết định quyền xem: khi HR đổi người phụ trách phòng ban, bản nháp của phòng ban đó chuyển sang người phụ trách mới, người phụ trách cũ không xem/sửa được nữa (nhưng `createdBy` vẫn giữ người tạo).
 - Trạng thái `active` của phòng ban không ảnh hưởng phạm vi: phòng ban ngừng áp dụng vẫn do người phụ trách của nó xem. Riêng việc **lưu** nháp vào phòng ban ngừng áp dụng bị chặn từ task 246 (xem mục kiểm tra bên dưới).
-- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở, sửa hay tạo một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). API phân công recruiter (task 284, [API phân công recruiter](requisition-recruiters.md)) đã có nhưng **không** mở rộng phạm vi này: recruiter được phân công vẫn nhận 403 khi mở yêu cầu. Mở rộng theo phân công hay theo luồng duyệt chờ BA/PO trả lời câu hỏi 2 và 14, rồi task 285.
+- Theo cách hiểu này RECRUITER và APPROVER thường không phụ trách phòng ban nào nên nhận danh sách rỗng và 403 khi mở, sửa hay tạo một yêu cầu. Cách hiểu này cần BA/PO xác nhận (câu hỏi 2 trong [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)). API phân công recruiter (task 284, [API phân công recruiter](requisition-recruiters.md)) đã có nhưng **không** mở rộng phạm vi này: recruiter được phân công vẫn nhận 403 khi mở yêu cầu. Mở rộng theo phân công chờ BA/PO trả lời câu hỏi 2 và 14, rồi task 285. Từ task 262, người tham gia duyệt một yêu cầu xem được nó qua `GET /requisitions/{id}` (xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md), mục "Ai được xem yêu cầu"); danh sách vẫn chỉ theo phòng ban.
 - Yêu cầu tồn tại nhưng ngoài phạm vi trả 403 `FORBIDDEN` theo quy ước chung của [thiết kế phân quyền](../architecture/authorization.md), không trả 404. UUID không tồn tại trả 404 `REQUISITION_NOT_FOUND` cho mọi người gọi; vì vậy người `SCOPED` phân biệt được "không tồn tại" và "không được phép", nhưng UUID là ngẫu nhiên nên không đoán được mã của phòng ban khác.
 
 Task 245 giới hạn **yêu cầu đã có** mà người gọi được xem/sửa. Task 249 (kết quả Jira: "Bảo đảm Trưởng bộ phận tạo và cập nhật yêu cầu thuộc phạm vi phòng ban được phép") giới hạn thêm **phòng ban ghi vào body** (`departmentId`):
@@ -301,7 +301,7 @@ Story S3-04: "cần Trưởng phòng Nhân sự xác nhận ghi đè kèm lý do
 
 Luồng gợi ý: Trưởng bộ phận lưu nháp và nhận 409, báo cho Trưởng phòng Nhân sự. HR mở nháp của phòng ban đó (HR có `REQUISITIONS_WRITE_ALL`) và lưu lại kèm lý do; với nháp mới bị chặn ngay khi tạo, HR tạo nháp cho phòng ban đó kèm lý do. Nháp đi theo phòng ban, không theo người tạo, nên Trưởng bộ phận vẫn xem và sửa tiếp được. HR cũng có thể tăng chỉ tiêu bằng `PUT /headcount-plans/{id}` thay vì ghi đè từng yêu cầu.
 
-`GET /requisitions/{id}/headcount-overrides` trả lịch sử ngoại lệ của một yêu cầu, mới nhất trước, với cùng quyền và phạm vi như `GET /requisitions/{id}` (404 nếu không có yêu cầu, 403 nếu ngoài phạm vi `SCOPED`):
+`GET /requisitions/{id}/headcount-overrides` trả lịch sử ngoại lệ của một yêu cầu, mới nhất trước, với cùng quyền như `GET /requisitions/{id}` nhưng chỉ theo phạm vi phòng ban: người tham gia duyệt không phụ trách phòng ban đó vẫn bị 403 (task 262). 404 nếu không có yêu cầu, 403 nếu ngoài phạm vi `SCOPED`:
 
 ```json
 {
@@ -364,7 +364,7 @@ Hạn JWT, phiên và quyền ghi được kiểm lại sau các khóa dòng ch�
 |400|REQUISITION_DEPARTMENT_INACTIVE|Phòng ban `departmentId` đã ngừng áp dụng (`active = false`); `fieldErrors.departmentId`|
 |400|SALARY_JUSTIFICATION_REQUIRED|Một mức lương đề xuất đã nhập nằm ngoài dải lương chuẩn của chức danh và `salaryJustification` trống; `fieldErrors.salaryJustification`. Lời nhắn không chứa dải chuẩn|
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
-|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách; hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
+|403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách (trừ xem yêu cầu mà người đó tham gia duyệt, task 262); hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT`, lịch sử ngoại lệ hoặc sao chép với UUID không có yêu cầu nào|
 |409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không còn ở trạng thái `DRAFT` (đã gửi duyệt, đã duyệt hoặc bị từ chối)|
 |409|HEADCOUNT_LIMIT_EXCEEDED|Lưu yêu cầu làm phòng ban vượt chỉ tiêu headcount của năm kế hoạch (task 274); lời nhắn nêu số chỉ tiêu còn lại|

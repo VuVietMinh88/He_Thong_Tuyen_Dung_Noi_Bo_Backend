@@ -181,6 +181,10 @@ public class SecurityConfiguration {
                         // RequisitionService also checks that the caller may read it (the answer shows it).
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/submit")
                                 .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
+                        // Task 262: a decision of the current approval level changes the requisition's status, a write;
+                        // RequisitionApprovalService decides who may take the level (ApproverRule), not the scope.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/approvals")
+                                .hasAnyAuthority("PERM_REQUISITIONS_WRITE_ALL", "PERM_REQUISITIONS_WRITE_SCOPED")
                         // Task 284: assigning or handing over recruiters is for ALL writers only (HR_MANAGER, ADMIN); a
                         // department head (REQUISITIONS_WRITE_SCOPED) is refused. RequisitionRecruiterService checks the
                         // code again after its locks.
