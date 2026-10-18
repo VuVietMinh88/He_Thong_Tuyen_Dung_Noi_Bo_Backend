@@ -182,8 +182,28 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         assertThat(count("interview_events")).isEqualTo(2);
     }
 
+    @Test
+    void cancelRequiresReasonAndVersionKeepsHistoryAndFreesSlot() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        error(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\" \"}", recruiterToken), 400, "VALIDATION_ERROR");
+        var cancelled = ok(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\"Ứng viên đổi kế hoạch\"}", recruiterToken));
+        assertThat(cancelled.path("status").asText()).isEqualTo("CANCELLED");
+        assertThat(cancelled.path("version").asLong()).isEqualTo(1);
+        created(create(other.applicationId(), hrToken, schedule(START, panel, "Room")));
+        error(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":1,\"reason\":\"Lặp lại\"}", recruiterToken), 409, "INTERVIEW_CANCELLED");
+    }
 
 
+    @Test
+    void cancellationAfterWithdrawalOrPausedRequisitionStillFreesBookedResources() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        jdbc.update("UPDATE job_applications SET stage='WITHDRAWN' WHERE id=?", first.applicationId());
+        jdbc.update("UPDATE recruitment_requisitions SET status='PAUSED' WHERE id=?", requisition);
+        var cancelled = ok(call("POST", "/api/v1/interviews/" + id + "/cancel",
+                "{\"expectedVersion\":0,\"reason\":\"Ứng viên đã rút hồ sơ\"}", recruiterToken));
+        assertThat(cancelled.path("status").asText()).isEqualTo("CANCELLED");
+        created(create(other.applicationId(), hrToken, schedule(START, panel, "Room")));
+    }
 
     @Test
     void closedApplicationOrPausedRequisitionCannotBeScheduled() throws Exception {
