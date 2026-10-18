@@ -20,11 +20,13 @@ Phạm vi TKNHTTDNB1-195–198. URL dùng tiền tố `/api/v1`. Gửi `Authoriz
 
 | Trường | Quy tắc |
 |---|---|
-|code|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 50 ký tự; duy nhất và phân biệt hoa/thường theo schema V5|
-|name|Bắt buộc, bỏ khoảng trắng đầu/cuối, tối đa 255 ký tự|
+|code|Bắt buộc, bỏ khoảng trắng và ký tự vô hình đầu/cuối, tối đa 50 ký tự (đếm sau khi bỏ); duy nhất và phân biệt hoa/thường theo schema V5|
+|name|Bắt buộc, bỏ khoảng trắng và ký tự vô hình đầu/cuối, tối đa 255 ký tự (đếm sau khi bỏ)|
 |parentId|UUID phòng ban cha; null hoặc bỏ trường nghĩa là phòng ban gốc|
 |managerUserId|UUID người phụ trách, bắt buộc|
 |active|Boolean bắt buộc; false nghĩa là ngừng áp dụng|
+
+Ký tự bị bỏ ở đầu/cuối `code` và `name` gồm khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060. Ký tự ở giữa được giữ. Vì vậy `HR` kèm một ký tự như vậy ở cuối vẫn là mã `HR` và bị báo trùng mã. Mã hoặc tên không có ký tự nhìn thấy được bị coi là trống: HTTP 400 `VALIDATION_ERROR`.
 
 PUT thay thế toàn bộ các trường trên. Frontend phải gửi lại parentId hiện tại nếu muốn giữ phòng ban cha. Trường ngoài hợp đồng như id, createdAt, children hoặc roles bị từ chối với HTTP 400.
 
