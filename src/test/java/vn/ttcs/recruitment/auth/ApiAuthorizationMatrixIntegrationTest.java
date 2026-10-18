@@ -60,6 +60,7 @@ import static org.junit.jupiter.api.DynamicTest.dynamicTest;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true", "app.application-intake.enabled=false",
+        "app.interview-invitation.enabled=false", "app.interview-invitation.delivery-enabled=false",
         "app.bootstrap.email=admin@example.test", "app.bootstrap.password=TestingOnly123!",
         "logging.level.io.zonky.test.db.postgres.embedded=warn"
 })
@@ -115,6 +116,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/interviews/me", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 200),
             endpoint("POST", "/api/v1/interviews/conflicts", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
+            // Bulk validates the empty request before checking invitation readiness or creating any appointment.
+            // All seeded interview readers also hold candidate read; the service intersects their scopes.
+            // Invitation delivery/public token access are opt-in and remain disabled in this authorization fixture.
             endpoint("PUT", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/interviews/{id}/cancel", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/interviews/{id}/evaluations/me", anyOf(EVALUATIONS_WRITE_ALL, EVALUATIONS_WRITE_SCOPED), null, 404),

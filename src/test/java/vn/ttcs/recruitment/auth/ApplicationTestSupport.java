@@ -87,6 +87,7 @@ final class ApplicationTestSupport {
         // Tests use disposable databases only. Clear the interview tree and its immutable audit rows before
         // deleting applications/accounts; CASCADE also clears the evaluation children introduced by V56.
         jdbc.execute("TRUNCATE interview_sessions CASCADE");
+        jdbc.execute("TRUNCATE interview_bulk_requests, interview_invitation_request_buckets");
         jdbc.execute("TRUNCATE candidate_access_events");
         jdbc.update("DELETE FROM referral_attempts");
         jdbc.update("DELETE FROM referral_quotas");
