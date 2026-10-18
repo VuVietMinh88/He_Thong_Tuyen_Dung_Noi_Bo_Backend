@@ -117,14 +117,135 @@ class InterviewBulkSchedulingIntegrationTest extends ScreeningTestSupport {
         assertThat(count("interview_bulk_requests")).isZero();
     }
 
+    @Test
+    void oneOutsideScopeOrUnknownApplicationCannotPartiallyScheduleTheAccessibleApplication() throws Exception {
+        error(post("", body(List.of(first.applicationId(), other.applicationId())), recruiterToken), 403, "FORBIDDEN");
+        error(post("/preview", body(List.of(first.applicationId(), other.applicationId())), recruiterToken), 403, "FORBIDDEN");
+        error(post("", body(List.of(first.applicationId(), UUID.randomUUID())), hrToken), 404, "APPLICATION_NOT_FOUND");
+        assertNothingScheduled();
+        assertThat(jdbc.queryForList("SELECT outcome FROM candidate_access_events WHERE application_id=?",
+                String.class, other.applicationId())).containsOnly("DENIED");
+    }
 
+    @Test
+    void oneInactiveApplicationRejectsTheWholeBatch() throws Exception {
+        jdbc.update("UPDATE job_applications SET stage='WITHDRAWN' WHERE id=?", other.applicationId());
+        error(post("", body(List.of(first.applicationId(), other.applicationId())), hrToken), 409, "INTERVIEW_APPLICATION_INACTIVE");
+        assertNothingScheduled();
+    }
 
+    @Test
+    void onlyRecruiterMayConfirmConflictsAndEachOverriddenSlotHasTheReason() throws Exception {
+        single(START.plusSeconds(3600));
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        request.put("overrideConflicts", true);
+        error(post("", request, recruiterToken), 400, "VALIDATION_ERROR");
+        request.put("overrideReason", "Đã thống nhất đổi ca với người tham gia.");
+        error(post("/preview", request, hrToken), 403, "FORBIDDEN");
+        applications.assign(otherRequisition, recruiter, "SUPPORTING", hr);
+        assertThat(ok(post("/preview", request, recruiterToken)).path("canCreate").asBoolean()).isTrue();
+        var result = created(post("", request, recruiterToken));
+        UUID firstId = UUID.fromString(result.path("items").get(0).path("id").asText());
+        UUID secondId = UUID.fromString(result.path("items").get(1).path("id").asText());
+        assertThat(jdbc.queryForObject("SELECT conflict_override FROM interview_events WHERE interview_id=?", Boolean.class, firstId)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT conflict_override FROM interview_events WHERE interview_id=?", Boolean.class, secondId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT override_reason FROM interview_events WHERE interview_id=?", String.class, secondId))
+                .isEqualTo(request.get("overrideReason"));
+    }
 
+    @Test
+    void identicalRetryReturnsSavedResponseWhileChangedPayloadOrOrderIsRejected() throws Exception {
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        var firstResponse = created(post("", request, hrToken));
+        assertThat(created(post("", request, hrToken))).isEqualTo(firstResponse);
+        request.put("room", "Different room");
+        error(post("", request, hrToken), 409, "INTERVIEW_BULK_REQUEST_CHANGED");
+        request.put("room", "Bulk room");
+        request.put("applicationIds", List.of(other.applicationId(), first.applicationId()));
+        error(post("", request, hrToken), 409, "INTERVIEW_BULK_REQUEST_CHANGED");
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_events")).isEqualTo(2);
+        assertThat(count("interview_bulk_requests")).isEqualTo(1);
+    }
 
+    @Test
+    void successfulRetryStillWorksAfterTheOriginalSlotPassesOrApplicationStops() throws Exception {
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        var firstResponse = created(post("", request, hrToken));
+        jdbc.update("UPDATE job_applications SET stage='WITHDRAWN' WHERE id=?", first.applicationId());
+        jdbc.update("UPDATE user_accounts SET enabled=false WHERE id=?", panel);
+        try {
+            clock.set(START.plusSeconds(86400));
+            assertThat(created(post("", request, token(hr)))).isEqualTo(firstResponse);
+        } finally { clock.set(ApplicationTestSupport.NOW); }
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_bulk_requests")).isEqualTo(1);
+    }
 
+    @Test
+    void successfulRetryStillRequiresCurrentApplicationScope() throws Exception {
+        applications.assign(otherRequisition, recruiter, "SUPPORTING", hr);
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        created(post("", request, recruiterToken));
+        jdbc.update("DELETE FROM requisition_recruiters WHERE requisition_id=? AND recruiter_id=?",
+                otherRequisition, recruiter);
+        error(post("", request, recruiterToken), 403, "FORBIDDEN");
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_bulk_requests")).isEqualTo(1);
+    }
 
+    @Test
+    void simultaneousRetriesCreateExactlyOneBatch() throws Exception {
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        var barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(() -> { barrier.await(10, TimeUnit.SECONDS); return post("", request, hrToken); });
+            var b = executor.submit(() -> { barrier.await(10, TimeUnit.SECONDS); return post("", request, hrToken); });
+            assertThat(created(a.get(20, TimeUnit.SECONDS))).isEqualTo(created(b.get(20, TimeUnit.SECONDS)));
+        }
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_events")).isEqualTo(2);
+        assertThat(count("interview_bulk_requests")).isEqualTo(1);
+    }
 
+    @Test
+    void concurrentOppositeOrderBatchesCannotSaveHalfOrDeadlock() throws Exception {
+        applications.assign(otherRequisition, recruiter, "SUPPORTING", hr);
+        var firstRequest = body(List.of(first.applicationId(), other.applicationId()));
+        var secondRequest = body(List.of(other.applicationId(), first.applicationId()));
+        UUID differentPanel = applications.account("Other bulk interviewer", "bulk-other@example.test", Role.INTERVIEWER);
+        secondRequest.put("participantIds", List.of(differentPanel));
+        var barrier = new CyclicBarrier(2);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var a = executor.submit(() -> { barrier.await(10, TimeUnit.SECONDS); return post("", firstRequest, hrToken); });
+            var b = executor.submit(() -> { barrier.await(10, TimeUnit.SECONDS); return post("", secondRequest, recruiterToken); });
+            var responses = List.of(a.get(20, TimeUnit.SECONDS), b.get(20, TimeUnit.SECONDS));
+            assertThat(responses.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(201, 409);
+        }
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_events")).isEqualTo(2);
+        assertThat(count("interview_bulk_requests")).isEqualTo(1);
+    }
 
+    @Test
+    void removedWriteGrantDuringResourceWaitPreventsEverySlotFromBeingCreated() throws Exception {
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        ok(call("GET", "/api/v1/interviews/me", null, hrToken));
+        try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
+            blocker.setAutoCommit(false);
+            try (var statement = blocker.createStatement()) { statement.execute("SELECT pg_advisory_xact_lock(743882,1)"); }
+            var pending = executor.submit(() -> post("", request, hrToken));
+            try {
+                applications.awaitWaiterOf(ApplicationTestSupport.backendPid(blocker));
+                assertThat(jdbc.update("DELETE FROM role_permissions WHERE role_code='HR_MANAGER' AND permission_code='INTERVIEWS_WRITE_ALL'"))
+                        .isEqualTo(1);
+            } finally { blocker.rollback(); }
+            error(pending.get(10, TimeUnit.SECONDS), 403, "FORBIDDEN");
+        } finally {
+            jdbc.update("INSERT INTO role_permissions(role_code,permission_code) VALUES ('HR_MANAGER','INTERVIEWS_WRITE_ALL') ON CONFLICT DO NOTHING");
+        }
+        assertNothingScheduled();
+    }
 
     private Map<String, Object> body(List<UUID> applications) {
         var body = new LinkedHashMap<String, Object>();
