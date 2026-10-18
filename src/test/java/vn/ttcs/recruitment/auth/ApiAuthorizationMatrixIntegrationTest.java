@@ -122,10 +122,16 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/offers/{id}", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/offers/{id}/preview", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/offers/{id}/history", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/offers/{id}/negotiations", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/offers/{id}/talent-pool-suggestion",
+                    new Rule(List.of(OFFERS_READ_ALL, OFFERS_READ_SCOPED), true, false, false,
+                            List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404),
             endpoint("PUT", "/api/v1/offers/{id}", offerWriter(), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/offers/{id}/submit", offerWriter(), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/offers/{id}/cancel", offerWriter(), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/offers/{id}/send", offerWriter(), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/offers/{id}/negotiations", offerWriter(), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/offers/{id}/revisions", offerWriter(), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/offers/approvers", offerWriter(), null, 200),
             endpoint("POST", "/api/v1/offers/{id}/approval", new Rule(List.of(OFFERS_READ_ALL, OFFERS_READ_SCOPED), true,
                     false, false, List.of(List.of(OFFERS_WRITE_ALL, OFFERS_WRITE_SCOPED)), Set.of("HR_MANAGER", "APPROVER")), INVALID_BODY, 400),
@@ -359,7 +365,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
             "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events",
             "interview_question_usage", "hiring_decisions", "offers", "offer_events",
-            "offer_response_tokens", "offer_delivery_outbox");
+            "offer_response_tokens", "offer_delivery_outbox", "offer_negotiations");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;

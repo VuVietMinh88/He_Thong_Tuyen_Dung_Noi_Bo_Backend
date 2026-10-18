@@ -55,9 +55,9 @@ Hai API dùng chung giới hạn 120 request trong mỗi cửa sổ 15 phút the
 
 `lookup` trả `positionTitle`, `salary`, `allowance`, `startDate`, `responseDeadline`, `status`, `respondedAt`. Lương và phụ cấp là số VND mỗi tháng. Kết quả không chứa email, mã phản hồi, ID hồ sơ, dải lương nội bộ, giải trình hoặc lịch sử duyệt.
 
-`respond` nhận `action` là `ACCEPT` hoặc `DECLINE`; `note` không bắt buộc, tối đa 2.000 ký tự. Backend chuẩn hóa xuống dòng và khoảng trắng đầu/cuối. Cả hai lựa chọn đều cho phép để trống ý kiến.
+`respond` nhận `action` là `ACCEPT` hoặc `DECLINE`; `note` không bắt buộc, tối đa 2.000 ký tự. Backend chuẩn hóa xuống dòng và khoảng trắng đầu/cuối. Cả hai lựa chọn đều cho phép để trống ý kiến. `DECLINE` nhận thêm `declineReason` tùy chọn với bốn mã `SALARY`, `LOCATION`, `OTHER_JOB`, `PERSONAL`; `ACCEPT` chỉ nhận trường này bị bỏ qua hoặc `null`. Trang phản hồi yêu cầu chọn danh mục khi từ chối. Xem [hợp đồng thương lượng offer](offer-negotiation.md).
 
-Response có `status` (`ACCEPTED` hoặc `DECLINED`) và `respondedAt`. Gửi lại đúng lựa chọn cùng ý kiến đã chuẩn hóa trả lại kết quả cũ mà không ghi thêm lịch sử. Gửi lựa chọn hoặc ý kiến khác trả HTTP 409 `OFFER_ALREADY_RESPONDED`.
+Response có `status` (`ACCEPTED` hoặc `DECLINED`) và `respondedAt`. Gửi lại đúng lựa chọn, lý do và ý kiến đã chuẩn hóa trả lại kết quả cũ mà không ghi thêm lịch sử. Gửi nội dung khác trả HTTP 409 `OFFER_ALREADY_RESPONDED`.
 
 Mã không hợp lệ, hết hạn, đã thu hồi hoặc không còn khớp hồ sơ đều trả HTTP 400 `OFFER_LINK_INVALID`. Liên kết chỉ còn dùng được khi chưa đến `responseDeadline`; ngay đúng thời điểm hạn chót cũng không nhận phản hồi mới. Sau khi trả lời, liên kết có thể hiển thị kết quả và chấp nhận retry cùng nội dung trong khoảng hiệu lực còn lại.
 
@@ -69,7 +69,7 @@ Lịch sử giai đoạn ghi tác nhân `CANDIDATE` và liên kết đến đún
 
 Các thao tác đồng thời dùng cùng thứ tự khóa: yêu cầu tuyển dụng → hồ sơ → offer → mã phản hồi. Thời gian nghiệp vụ được đọc lại sau khi chờ khóa. Vì vậy, hai phản hồi trái ngược hoặc phản hồi đua với tác vụ hết hạn chỉ có một kết quả được ghi.
 
-Offer đã chấp nhận vẫn giữ ràng buộc một offer hiệu lực cho ứng viên. Các trạng thái `DECLINED`, `REJECTED`, `EXPIRED`, `CANCELLED` giải phóng ràng buộc này.
+Offer đã chấp nhận vẫn giữ ràng buộc một offer hiệu lực cho ứng viên. Các trạng thái `DECLINED`, `REJECTED`, `EXPIRED`, `CANCELLED`, `SUPERSEDED` giải phóng ràng buộc này.
 
 ## Hết hạn và thu hồi quyền phản hồi
 

@@ -15,8 +15,8 @@ public final class OfferReplyPage {
             body{font-family:Arial,sans-serif;line-height:1.6;background:#f3f4f6;color:#172033;margin:0}
             main{max-width:640px;margin:24px auto;background:white;padding:24px;border-radius:8px}
             h1{font-size:1.6rem}dl{display:grid;grid-template-columns:1fr 2fr;gap:8px}dt{font-weight:bold}dd{margin:0;overflow-wrap:anywhere}
-            textarea{box-sizing:border-box;width:100%;font:inherit;padding:8px}button{font:inherit;padding:10px 18px;margin:12px 8px 0 0;cursor:pointer}
-            button:disabled{opacity:.6;cursor:not-allowed}button:focus-visible,textarea:focus-visible{outline:3px solid #2563eb}
+            textarea,select{box-sizing:border-box;width:100%;font:inherit;padding:8px}button{font:inherit;padding:10px 18px;margin:12px 8px 0 0;cursor:pointer}
+            button:disabled{opacity:.6;cursor:not-allowed}button:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #2563eb}
             [hidden]{display:none!important}.error{color:#b91c1c}
             </style><script src="/api/v1/public/offers/reply.js" defer></script></head>
             <body><main><h1>Phản hồi thư mời nhận việc</h1>
@@ -25,6 +25,15 @@ public final class OfferReplyPage {
             <button id="retry" type="button" hidden>Thử lại</button>
             <section id="details" hidden><h2>Điều kiện tuyển dụng</h2><dl id="facts"></dl></section>
             <section id="reply" hidden><h2>Phản hồi của bạn</h2>
+            <label for="decline-reason">Lý do từ chối</label>
+            <select id="decline-reason" aria-describedby="reason-help">
+            <option value="">Chọn lý do nếu bạn từ chối</option>
+            <option value="SALARY">Mức lương chưa phù hợp</option>
+            <option value="LOCATION">Địa điểm làm việc chưa phù hợp</option>
+            <option value="OTHER_JOB">Đã nhận công việc khác</option>
+            <option value="PERSONAL">Lý do cá nhân</option>
+            </select>
+            <p id="reason-help">Bắt buộc chọn lý do khi từ chối. Bạn có thể bỏ qua khi chấp nhận.</p>
             <label for="note">Ý kiến (không bắt buộc, tối đa 2000 ký tự)</label>
             <textarea id="note" rows="4" maxlength="2000"></textarea>
             <p>Bạn chỉ có thể phản hồi một lần. Vui lòng kiểm tra các điều kiện trước khi chọn.</p>
@@ -49,12 +58,13 @@ public final class OfferReplyPage {
               var details = document.getElementById('details');
               var reply = document.getElementById('reply');
               var note = document.getElementById('note');
+              var declineReason = document.getElementById('decline-reason');
               var accept = document.getElementById('accept');
               var decline = document.getElementById('decline');
               var retry = document.getElementById('retry');
               var error = document.getElementById('error');
               var busy = false, locked = true;
-              function controls() { accept.disabled = decline.disabled = note.disabled = busy || locked; }
+              function controls() { accept.disabled = decline.disabled = note.disabled = declineReason.disabled = busy || locked; }
               function fact(label, value) {
                 var dt = document.createElement('dt'), dd = document.createElement('dd');
                 dt.textContent = label; dd.textContent = value == null ? '' : String(value);
@@ -108,12 +118,21 @@ public final class OfferReplyPage {
               }
               async function respond(action) {
                 if (busy || locked || !token) return;
+                if (action === 'DECLINE' && !declineReason.value) {
+                  error.textContent = 'Vui lòng chọn lý do từ chối.';
+                  declineReason.setAttribute('aria-invalid', 'true');
+                  declineReason.focus(); return;
+                }
+                declineReason.removeAttribute('aria-invalid');
                 error.textContent = ''; busy = true; controls();
-                var result = await post('respond', {token:token,action:action,note:note.value.trim() || null});
+                var result = await post('respond', {
+                  token:token, action:action, note:note.value.trim() || null,
+                  declineReason:action === 'DECLINE' ? declineReason.value : null
+                });
                 busy = false;
                 if (result.ok) { state(result.data); return; }
                 if (result.status === 400 && result.data && result.data.code === 'OFFER_RESPONSE_VALIDATION') {
-                  error.textContent = 'Ý kiến tối đa 2000 ký tự và không chứa ký tự điều khiển.';
+                  error.textContent = 'Vui lòng kiểm tra lý do từ chối và ý kiến (tối đa 2000 ký tự, không chứa ký tự điều khiển).';
                   controls(); return;
                 }
                 error.textContent = message(result.status);
@@ -122,6 +141,7 @@ public final class OfferReplyPage {
               }
               accept.addEventListener('click', function () { respond('ACCEPT'); });
               decline.addEventListener('click', function () { respond('DECLINE'); });
+              declineReason.addEventListener('change', function () { declineReason.removeAttribute('aria-invalid'); });
               retry.addEventListener('click', load); controls();
               if (token) load(); else status.textContent = 'Vui lòng mở lại liên kết phản hồi trong email offer.';
             })();
