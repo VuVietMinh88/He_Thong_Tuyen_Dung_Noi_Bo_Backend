@@ -76,11 +76,25 @@ public class JobPostingController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.preview(jwt, id));
     }
 
-    // Task 309: the published postings candidates may apply to, newest publication first.
+    // Task 309: the published postings candidates may apply to, newest publication first. Task 315 (story S4-01):
+    // filtered by department, work location, employment type and a keyword in the title or job description; every
+    // filter given narrows the list, an empty value is no filter. An id that is not a UUID fails as 400
+    // VALIDATION_ERROR in ApiExceptionHandler; other parameters (for example utm_source) are ignored.
     @GetMapping("/api/v1/public/job-postings")
-    public ResponseEntity<PublicJobPostingPage> publicPage(@RequestParam(defaultValue = "0") int page,
+    public ResponseEntity<PublicJobPostingPage> publicPage(@RequestParam(required = false) UUID departmentId,
+                                                           @RequestParam(required = false) UUID workLocationId,
+                                                           @RequestParam(required = false) UUID employmentTypeId,
+                                                           @RequestParam(required = false) String q,
+                                                           @RequestParam(defaultValue = "0") int page,
                                                            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.publicPage(page, size));
+        var query = PublicJobPostingQuery.of(departmentId, workLocationId, employmentTypeId, q);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.publicPage(query, page, size));
+    }
+
+    // Task 315: the values of the portal's filter lists. The literal path is matched before /{id}.
+    @GetMapping("/api/v1/public/job-postings/filters")
+    public ResponseEntity<PublicJobPostingFilters> publicFilters() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.publicFilters());
     }
 
     // Task 309: every posting that is not public answers 404 like an id that does not exist.

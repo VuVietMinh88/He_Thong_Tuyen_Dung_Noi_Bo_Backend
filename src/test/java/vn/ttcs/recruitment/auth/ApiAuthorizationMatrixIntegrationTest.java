@@ -230,6 +230,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/job-postings/{id}/preview", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             endpoint("GET", "/api/v1/public/job-postings", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/public/job-postings/{id}", PUBLIC, null, 404),
+            // Task 315: the values of the portal's filter lists, public like the list; empty lists to everyone here.
+            endpoint("GET", "/api/v1/public/job-postings/filters", PUBLIC, null, 200),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
@@ -736,6 +738,8 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/submit",
                 // Task 309: candidates only read the portal.
                 "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID,
+                // Task 315: nor change the values of its filter lists.
+                "POST /api/v1/public/job-postings/filters",
                 // Task 310: the review and publication history is never edited or deleted.
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/history",
                 "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history",

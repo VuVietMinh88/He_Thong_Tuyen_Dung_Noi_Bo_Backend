@@ -283,8 +283,10 @@ public class SecurityConfiguration {
                         // postings without an account; the service answers 404 for every other posting.
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/preview")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 315: the filter values are named although "/*" covers them, so they stay public if
+                        // "/*" is ever narrowed to ids.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/job-postings",
-                                "/api/v1/public/job-postings/*").permitAll()
+                                "/api/v1/public/job-postings/filters", "/api/v1/public/job-postings/*").permitAll()
                         // Task 310: the review and publication history is read like the posting.
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/history")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")

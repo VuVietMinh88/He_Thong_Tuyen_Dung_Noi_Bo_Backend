@@ -11,6 +11,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -61,6 +62,34 @@ class JobPostingReadRepository {
              WHERE p.status IN (:public) AND p.application_deadline >= :today
                AND r.status IN (:sourceStatuses)
             """;
+
+    // Task 315 (story S4-01): the keyword is searched in the posting's own title and job description only, never in
+    // its candidate requirements or benefits, nor in the requisition's texts (internal, V21:2-5). Stored texts are not
+    // NFC (JobPostingRequest only fixes line breaks), so the texts are compared in NFC; the keyword is NFC in Java
+    // (PublicJobPostingQuery). normalize() needs a UTF8 database (zonky initdb -E UTF-8; the postgres:16 default). Each
+    // run of spaces, tabs and line breaks in the text counts as one space, like the keyword; lower() on both sides
+    // ignores upper/lower case, Vietnamese letters included, but not the accents. The keyword is a bound LIKE pattern
+    // whose wildcards are escaped with "!" (PublicJobPostingQuery.likePattern).
+    private static final String KEYWORD_MATCH = """
+             AND (lower(regexp_replace(normalize(p.title, NFC), '[[:space:]]+', ' ', 'g'))
+                  LIKE lower(:keyword) ESCAPE '!'
+               OR lower(regexp_replace(normalize(p.job_description, NFC), '[[:space:]]+', ' ', 'g'))
+                  LIKE lower(:keyword) ESCAPE '!')
+            """;
+
+    // Task 315: the postings' tables as the public count reads them; SELECT_ROW joins the same two first.
+    private static final String PUBLIC_FROM = """
+             FROM job_postings p
+             JOIN recruitment_requisitions r ON r.id = p.requisition_id
+            """;
+
+    // Task 315: the values of the public filter lists, taken only from the postings the list shows today
+    // (PUBLIC_WHERE), each value once. A value HR has made inactive since stays while a listed posting uses it.
+    private static final String DEPARTMENT_OPTIONS = "SELECT DISTINCT d.id, d.name" + PUBLIC_FROM
+            + " JOIN departments d ON d.id = r.department_id" + PUBLIC_WHERE + " ORDER BY d.name, d.id";
+    private static final String WORK_LOCATION_OPTIONS = catalogOptions("p.work_location_id");
+    private static final String EMPLOYMENT_TYPE_OPTIONS = catalogOptions("p.employment_type_id");
+
     private final NamedParameterJdbcTemplate jdbc;
 
     JobPostingReadRepository(NamedParameterJdbcTemplate jdbc) {
@@ -105,15 +134,54 @@ class JobPostingReadRepository {
     // Task 309: one page of the public postings, newest publication first; the id keeps the order stable. Task 310:
     // the publication time is the posting's own published_at (V23 job_postings_published_at_idx), no longer read from
     // the PUBLISHED event.
-    PublicJobPostingPage publicPage(LocalDate today, int page, int size) {
+    // Task 315 (story S4-01): every filter of the query adds its condition to the one WHERE that both the count and
+    // the page use, so totalElements and totalPages count only the postings that match. The department is the
+    // requisition's own department, without its sub-departments. Every value is a bound parameter; the SQL text is
+    // made of constant fragments only.
+    PublicJobPostingPage publicPage(LocalDate today, PublicJobPostingQuery query, int page, int size) {
         var parameters = publicParameters(today);
-        long total = jdbc.queryForObject("SELECT count(*) FROM job_postings p"
-                + " JOIN recruitment_requisitions r ON r.id = p.requisition_id" + PUBLIC_WHERE, parameters, Long.class);
+        StringBuilder where = new StringBuilder(PUBLIC_WHERE);
+        if (query.departmentId() != null) {
+            parameters.addValue("departmentId", query.departmentId());
+            where.append(" AND r.department_id = :departmentId ");
+        }
+        if (query.workLocationId() != null) {
+            parameters.addValue("workLocationId", query.workLocationId());
+            where.append(" AND p.work_location_id = :workLocationId ");
+        }
+        if (query.employmentTypeId() != null) {
+            parameters.addValue("employmentTypeId", query.employmentTypeId());
+            where.append(" AND p.employment_type_id = :employmentTypeId ");
+        }
+        if (!query.keyword().isEmpty()) {
+            parameters.addValue("keyword", query.likePattern());
+            where.append(KEYWORD_MATCH);
+        }
+        long total = jdbc.queryForObject("SELECT count(*)" + PUBLIC_FROM + where, parameters, Long.class);
         parameters.addValue("size", size).addValue("offset", (long) page * size);
-        var items = jdbc.query(SELECT_ROW + PUBLIC_WHERE
+        var items = jdbc.query(SELECT_ROW + where
                         + " ORDER BY p.published_at DESC, p.id DESC LIMIT :size OFFSET :offset", parameters,
                 (row, number) -> PublicJobPostingSummary.of(PublicJobPostingView.of(map(row))));
         return new PublicJobPostingPage(items, page, size, total, (total + size - 1) / size);
+    }
+
+    // Task 315: the departments, work locations and employment types of the postings publicPage lists today.
+    PublicJobPostingFilters publicFilters(LocalDate today) {
+        return new PublicJobPostingFilters(options(DEPARTMENT_OPTIONS, today), options(WORK_LOCATION_OPTIONS, today),
+                options(EMPLOYMENT_TYPE_OPTIONS, today));
+    }
+
+    private List<PublicJobPostingFilterOption> options(String sql, LocalDate today) {
+        return jdbc.query(sql, publicParameters(today), (row, number) ->
+                new PublicJobPostingFilterOption(row.getObject("id", UUID.class), row.getString("name")));
+    }
+
+    // The values of one catalog (V10) the listed postings use, in the catalog's order. column is one of the two
+    // constants above, never a request value.
+    private static String catalogOptions(String column) {
+        return "SELECT DISTINCT c.id, c.name, c.sort_order" + PUBLIC_FROM
+                + " JOIN recruitment_catalog_items c ON c.id = " + column + PUBLIC_WHERE
+                + " ORDER BY c.sort_order, c.name, c.id";
     }
 
     private static MapSqlParameterSource publicParameters(LocalDate today) {
