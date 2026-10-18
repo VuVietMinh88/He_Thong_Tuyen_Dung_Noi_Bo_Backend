@@ -267,6 +267,12 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/approvals",
                                 "/api/v1/job-postings/*/publish")
                                 .hasAuthority("PERM_JOB_POSTINGS_WRITE_ALL")
+                        // Task 309: the authoring preview is read like the posting. Candidates read published
+                        // postings without an account; the service answers 404 for every other posting.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/preview")
+                                .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/job-postings",
+                                "/api/v1/public/job-postings/*").permitAll()
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")

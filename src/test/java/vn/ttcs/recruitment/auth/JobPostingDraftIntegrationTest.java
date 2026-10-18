@@ -555,6 +555,8 @@ class JobPostingDraftIntegrationTest {
         String token = api.token("both@example.test");
 
         postings.forbidden(postings.get(id, token));
+        // Task 309: the preview is an internal read too.
+        postings.forbidden(postings.preview(id, token));
         postings.forbidden(postings.update(id, postings.putBody(posting), token));
         postings.forbidden(postings.create(Map.of("requisitionId", vacant), token));
         assertThat(api.expect(postings.list("", token), 200).path("totalElements").asLong()).isZero();
@@ -567,6 +569,7 @@ class JobPostingDraftIntegrationTest {
         postings.assign(requisition, both, RequisitionRecruiterRole.PRIMARY, hrId, START);
         postings.assign(vacant, both, RequisitionRecruiterRole.PRIMARY, hrId, START);
         api.expect(postings.get(id, token), 200);
+        api.expect(postings.preview(id, token), 200);
         assertThat(api.expect(postings.update(id, postings.putBody(posting), token), 200).path("revision").asInt())
                 .isEqualTo(2);
         assertThat(ids(api.expect(postings.list("", token), 200), "id")).containsExactly(id);

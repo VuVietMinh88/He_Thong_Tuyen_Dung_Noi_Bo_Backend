@@ -7,7 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 // Task 303: a new JobPostingStatus makes these switches fail to compile until someone decides whether a posting in that
 // status may still be edited (JobPostingService.EDITABLE_STATUSES). Task 308: and whether it may be sent for review
-// (JobPostingService.SUBMITTABLE_STATUSES) and published (JobPostingApprovalService.PUBLISHABLE_STATUSES).
+// (JobPostingService.SUBMITTABLE_STATUSES) and published (JobPostingApprovalService.PUBLISHABLE_STATUSES). Task 309:
+// and whether candidates see it on the public portal (JobPostingService.PUBLIC_STATUSES).
 class JobPostingStatusTest {
 
     @ParameterizedTest
@@ -41,5 +42,17 @@ class JobPostingStatusTest {
         };
 
         assertThat(JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(status)).isEqualTo(publishable);
+    }
+
+    @ParameterizedTest
+    @EnumSource(JobPostingStatus.class)
+    void everyStatusIsClassifiedForThePublicPortal(JobPostingStatus status) {
+        boolean shown = switch (status) {
+            case PUBLISHED -> true;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED -> false;
+        };
+
+        assertThat(JobPostingService.PUBLIC_STATUSES.contains(status)).isEqualTo(shown);
+        assertThat(JobPostingService.PUBLIC_STATUS_NAMES.contains(status.name())).isEqualTo(shown);
     }
 }

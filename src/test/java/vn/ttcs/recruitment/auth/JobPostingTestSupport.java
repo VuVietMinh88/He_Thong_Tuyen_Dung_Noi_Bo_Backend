@@ -203,6 +203,19 @@ final class JobPostingTestSupport {
         return api.request("POST", POSTINGS + "/" + posting + "/publish", json.writeValueAsString(body), token);
     }
 
+    // Task 309: the authors' preview, and the public portal called the way candidates call it, without a token.
+    HttpResponse<String> preview(UUID posting, String token) throws Exception {
+        return api.request("GET", POSTINGS + "/" + posting + "/preview", null, token);
+    }
+
+    HttpResponse<String> publicDetail(UUID posting) throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + "/" + posting, null, null);
+    }
+
+    HttpResponse<String> publicList(int page, int size) throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + "?page=" + page + "&size=" + size, null, null);
+    }
+
     // Creates a posting through the API and returns its view.
     JsonNode created(Map<String, Object> body, String token) throws Exception {
         var response = create(body, token);
