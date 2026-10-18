@@ -67,6 +67,16 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
                 .rootCause().hasMessageContaining("evaluation_events rows are never changed");
     }
 
+    @Test
+    void submittedViewAndScoresKeepOriginalFrameworkWeightsAfterCatalogEdits() throws Exception {
+        form(panelToken);
+        jdbc.update("UPDATE competency_criteria SET weight=CASE WHEN id=? THEN 90 ELSE 10 END,name=name||' updated' WHERE framework_id=?", criterionA, framework);
+        JsonNode submitted = ok(write("POST", payload(0, 1, 5, "HIRE"), panelToken));
+        assertThat(submitted.path("totalScore").decimalValue()).isEqualByComparingTo("3.80");
+        assertThat(submitted.path("items").get(0).path("name").asText()).isEqualTo("Technical");
+        JsonNode newPeer = form(peerToken);
+        assertThat(newPeer.path("items").get(0).path("weight").decimalValue()).isEqualByComparingTo("90");
+    }
 
     @Test
     void submitRejectsMissingNullDuplicateAndForeignCriteriaOrMissingConclusionWithoutPartialChanges() throws Exception {
@@ -214,6 +224,13 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
         assertThat(json.readTree(snapshots.get(1)).path("totalScore").decimalValue()).isEqualByComparingTo("4.70");
     }
 
+    @Test
+    void roundingUsesDecimalWeightsAndHalfUp() throws Exception {
+        jdbc.update("UPDATE competency_criteria SET weight=CASE WHEN id=? THEN 33.33 ELSE 66.67 END WHERE framework_id=?", criterionA, framework);
+        form(panelToken);
+        JsonNode submitted = ok(write("POST", payload(0, 1, 2, "CONSIDER"), panelToken));
+        assertThat(submitted.path("totalScore").decimalValue()).isEqualByComparingTo("1.67");
+    }
 
     @Test
     void missingFrameworkOrInvalidTotalCannotCreatePartialForm() throws Exception {
