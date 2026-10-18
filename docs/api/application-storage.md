@@ -38,6 +38,9 @@ READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, khô
 - Task 360: ngay sau insert hồ sơ (sau bộ chặn trùng), trước CV, `CandidateLinks.link` gắn hồ sơ vào
   hồ sơ ứng viên của email chuẩn hóa trong cùng transaction; cần READ_COMMITTED, caller không được
   chạy `store()` trong REPEATABLE READ. Xem [hồ sơ ứng viên](candidate-profiles.md#khóa-và-transaction).
+- Task 350: `ReferralApplicationStorage.store` gọi `store()` trong transaction của bên gọi cho hồ sơ do nhân
+  viên giới thiệu: tự khóa yêu cầu `FOR NO KEY UPDATE` trước (quy tắc của task 321), rồi ghi dòng
+  `application_referrals` sau hồ sơ; `store()` không đổi. Xem [giới thiệu ứng viên](application-referrals.md#lưu-giới-thiệu-task-350).
 
 Input: tên 120, email 254, thư giới thiệu 5000 ký tự; văn bản thuần, trim Unicode ngoài cùng.
 Phone giữ số 0 đầu, bỏ dấu phân cách, nhận `+` đầu và 8–15 số; không thêm mã quốc gia.

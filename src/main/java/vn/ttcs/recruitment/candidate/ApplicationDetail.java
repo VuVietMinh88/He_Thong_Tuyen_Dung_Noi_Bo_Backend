@@ -23,6 +23,9 @@ import java.util.UUID;
  * Task 345 (story S4-06): withdrawnAt and withdrawalReason (the frontend's ApplicationRecord name) come from the
  * candidate's withdrawal (V34); a reader sees them only for an application in their scope, like everything here.
  * <p>
+ * Task 350 (story S4-07): source of a referred application is INTERNAL_REFERRAL with the referrer as id and full name
+ * and the referral note (ApplicationSource); the referrer's email is never selected.
+ * <p>
  * Never here: a CV URL, the CV bytes or hash, the tracking code or its hash, the requisition id, the normalized email,
  * any staff email, a candidate code or a rating. NON_NULL leaves out what an application does not have (cover letter,
  * recruiter, CV, withdrawal). toString shows ids only.

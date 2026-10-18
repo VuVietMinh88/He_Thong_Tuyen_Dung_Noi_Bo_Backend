@@ -33,17 +33,27 @@ record ReadableApplication(
         // Task 345: when the candidate withdrew and the optional reason, from the WITHDRAWN stage event; both null when
         // the application was not withdrawn by the candidate.
         Instant withdrawnAt,
-        String withdrawalReason) {
+        String withdrawalReason,
+        // Task 350: the referral row (V36): the referrer's account id and current full name and the note; all three
+        // null for an application that was not referred.
+        UUID referrerId,
+        String referrerName,
+        String referralNote) {
 
     private static final String PDF = "application/pdf";
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     ApplicationDetail detail(boolean current) {
         return new ApplicationDetail(id, current, jobPostingId, postingTitle, departmentName, receivedAt, stage,
-                stage.displayName(), withdrawnAt, withdrawalReason, fullName, email, phone,
-                ApplicationSource.careerPage(sourceName),
+                stage.displayName(), withdrawnAt, withdrawalReason, fullName, email, phone, source(),
                 primaryRecruiterId, primaryRecruiterName, managerId, managerName, coverLetter, cvFilename,
                 cvFileType(cvContentType), cvSizeBytes);
+    }
+
+    // Task 350: a referral row makes the application an internal referral; otherwise it came through the career page.
+    private ApplicationSource source() {
+        return referrerId != null ? ApplicationSource.referral(referrerId, referrerName, referralNote)
+                : ApplicationSource.careerPage(sourceName);
     }
 
     // The two types V26's CHECK application_cvs_valid_type allows; null when the application has no CV row. Any other

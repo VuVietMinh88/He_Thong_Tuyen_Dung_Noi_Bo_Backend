@@ -16,6 +16,7 @@ import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.application.ApplicationStorageService;
 import vn.ttcs.recruitment.application.ApplicationSubmission;
 import vn.ttcs.recruitment.application.CvValidator;
+import vn.ttcs.recruitment.application.ReferralApplicationStorage;
 import vn.ttcs.recruitment.application.ValidatedCv;
 
 import java.net.URI;
@@ -83,6 +84,7 @@ class CandidateProfileIntegrationTest {
     @Autowired private CvValidator validator;
     @Autowired private AuthIntegrationTest.MutableClock clock;
     @Autowired private TokenService tokens;
+    @Autowired private ReferralApplicationStorage referrals;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private ApplicationTestSupport applications;
@@ -449,6 +451,69 @@ class CandidateProfileIntegrationTest {
         assertThat(java.path("departmentName").asText()).isEqualTo("Khối Công nghệ");
         assertThat(java.path("recruiterId").asText()).isEqualTo(primary.toString());
         assertThat(response.body()).doesNotContain(otherRecruiter.toString()).doesNotContain("Đỗ Văn Dũng");
+    }
+
+    // Task 350 (story S4-07, "Hồ sơ được gắn nhãn nguồn Giới thiệu nội bộ và tên người giới thiệu"): a staff member
+    // referred Lan to a data-engineering posting whose PRIMARY is the Java recruiter. HR, ADMIN and that recruiter see
+    // the referred application with source INTERNAL_REFERRAL "Giới thiệu nội bộ", the referrer as id and full name and
+    // the note (line breaks kept), never the referrer's email; Lan's career-page applications keep CAREER_PAGE. The
+    // SUPPORTING Java recruiter, outside the data requisition, sees nothing of the referral, and being the referrer
+    // gives no access to the profile.
+    @Test
+    void aReferredApplicationShowsItsReferrerAndNoteOnlyToReadersInScope() throws Exception {
+        UUID dataPosting = applications.publishedPosting("Kỹ sư dữ liệu");
+        applications.assign(applications.requisitionOf(dataPosting), primary, "PRIMARY", hr);
+        UUID referrer = account("Đinh Văn Khoa", "khoa.referrer@example.test", Role.INTERVIEWER);
+        String note = "Bạn học cũ của tôi,\nmạnh Java và SQL";
+        clock.set(NOW.plusSeconds(120));
+        ApplicationTestSupport.Stored referred;
+        try {
+            referred = applications.referred(referrals, transactions, dataPosting,
+                    new ApplicationSubmission(LAN_NAME, LAN_TYPED, LAN_PHONE, null, null), applications.pdf(), referrer,
+                    note);
+        } finally {
+            clock.set(NOW);
+        }
+        assertThat(referred.candidateId()).isEqualTo(lanJava.candidateId());
+
+        List<String> referredKeys = new ArrayList<>(FULL_ROW_KEYS);
+        referredKeys.remove("coverLetter");
+        for (UUID reader : List.of(hr, admin, primary)) {
+            var response = get(profilePath(lanJava.candidateId()), token(reader));
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+            JsonNode profile = json.readTree(response.body());
+            assertThat(ids(profile).getFirst()).isEqualTo(referred.applicationId());
+            JsonNode row = profile.path("applications").get(0);
+            assertThat(row.propertyNames()).containsExactlyInAnyOrderElementsOf(referredKeys);
+            JsonNode source = row.path("source");
+            assertThat(source.propertyNames()).containsExactly("type", "label", "referrerId", "referrerName", "note");
+            assertThat(source.path("type").asText()).isEqualTo("INTERNAL_REFERRAL");
+            assertThat(source.path("label").asText()).isEqualTo("Giới thiệu nội bộ");
+            assertThat(source.path("referrerId").asText()).isEqualTo(referrer.toString());
+            assertThat(source.path("referrerName").asText()).isEqualTo("Đinh Văn Khoa");
+            assertThat(source.path("note").asText()).isEqualTo(note);
+            assertThat(row.path("recruiterId").asText()).isEqualTo(primary.toString());
+            for (JsonNode other : profile.path("applications")) {
+                if (!other.path("id").asText().equals(referred.applicationId().toString())) {
+                    assertThat(other.path("source").path("type").asText()).isEqualTo("CAREER_PAGE");
+                    assertThat(other.path("source").has("referrerId")).isFalse();
+                }
+            }
+            assertThat(response.body()).doesNotContain("khoa.referrer@example.test");
+        }
+        assertThat(ids(profile(lanJava.candidateId(), primary)))
+                .containsExactly(referred.applicationId(), lanJava.applicationId());
+
+        var outside = get(profilePath(lanJava.candidateId()), token(supporting));
+        assertThat(outside.statusCode()).isEqualTo(200);
+        assertThat(ids(json.readTree(outside.body()))).containsExactly(lanJava.applicationId());
+        for (String hidden : List.of(referred.applicationId().toString(), referrer.toString(), "Đinh Văn Khoa",
+                "INTERNAL_REFERRAL", "Giới thiệu nội bộ", "mạnh Java và SQL", "Kỹ sư dữ liệu")) {
+            assertThat(outside.body()).as("the SUPPORTING recruiter sees %s", hidden).doesNotContain(hidden);
+        }
+
+        var asReferrer = get(profilePath(lanJava.candidateId()), token(referrer));
+        assertThat(asReferrer.statusCode()).isEqualTo(403);
     }
 
     private JsonNode profile(UUID candidate, UUID reader) throws Exception {

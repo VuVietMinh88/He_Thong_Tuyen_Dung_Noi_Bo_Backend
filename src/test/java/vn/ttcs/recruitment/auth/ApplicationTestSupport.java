@@ -4,12 +4,16 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.application.ApplicationStorageService;
 import vn.ttcs.recruitment.application.ApplicationSubmission;
 import vn.ttcs.recruitment.application.ApplicationTrackingRoutes;
 import vn.ttcs.recruitment.application.CvValidator;
+import vn.ttcs.recruitment.application.ReferralApplicationStorage;
 import vn.ttcs.recruitment.application.ValidatedCv;
 
 import java.io.ByteArrayInputStream;
@@ -71,10 +75,11 @@ final class ApplicationTestSupport {
     // link cannot be deleted, and nothing else deletes a profile. The access log (task 363) has no keys but rejects
     // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) and the withdrawal notices
     // (task 346, whose recipients are staff accounts) would go with their applications (CASCADE) but are deleted
-    // first, like every child table.
+    // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too).
     void reset() {
         jdbc.execute("TRUNCATE candidate_access_events");
         jdbc.update("DELETE FROM application_notice_outbox");
+        jdbc.update("DELETE FROM application_referrals");
         jdbc.update("DELETE FROM application_stage_events");
         jdbc.update("DELETE FROM candidate_applications");
         jdbc.update("DELETE FROM candidates");
@@ -132,6 +137,28 @@ final class ApplicationTestSupport {
         try {
             String code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(token);
             var saved = storage.store(posting, submission, cv, MessageDigest.getInstance("SHA-256").digest(token));
+            return new Stored(saved.id(), code, candidateOf(saved.id()));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(exception);
+        } finally {
+            Arrays.fill(token, (byte) 0);
+        }
+    }
+
+    // Task 350: a referral of this submission by this referrer, stored through the production
+    // ReferralApplicationStorage in its own READ COMMITTED transaction (the referral API's), with a tracking code whose
+    // bytes the test knows, like stored(...).
+    Stored referred(ReferralApplicationStorage referrals, PlatformTransactionManager transactions, UUID posting,
+                    ApplicationSubmission submission, ValidatedCv cv, UUID referrer, String note) {
+        byte[] token = new byte[32];
+        random.nextBytes(token);
+        try {
+            String code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(token);
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(token);
+            var transaction = new TransactionTemplate(transactions);
+            transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+            var saved = transaction.execute(status -> referrals.store(posting, submission, cv, hash,
+                    new ReferralApplicationStorage.ReferralDeclaration(referrer, note, true)));
             return new Stored(saved.id(), code, candidateOf(saved.id()));
         } catch (java.security.NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
