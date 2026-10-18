@@ -268,6 +268,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
             // scope check.
             endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/timeline", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 380: a stage change is a CANDIDATES write (ALL or SCOPED); the empty body fails validation before
             // any lock or lookup. "/stage-changes" falls under stageHistoryHasNoEditOrDeleteRoute.
             endpoint("POST", "/api/v1/applications/{id}/stage-changes", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
