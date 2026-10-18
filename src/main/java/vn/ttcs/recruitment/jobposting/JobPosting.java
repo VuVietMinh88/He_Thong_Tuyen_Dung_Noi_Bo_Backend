@@ -71,6 +71,12 @@ public class JobPosting {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    // Task 310: who published the posting and when, set once by publish(); both null until then. V23 requires both on
+    // a published posting and neither before it.
+    private UUID publishedBy;
+
+    private Instant publishedAt;
+
     protected JobPosting() {
     }
 
@@ -120,6 +126,18 @@ public class JobPosting {
         this.revision++;
     }
 
+    // Task 310: the publication of an approved posting, with its trail: the publisher (from the token, never the body)
+    // and the server time, the same values as the PUBLISHED event. A posting is published once; nothing clears the
+    // trail.
+    void publish(UUID publishedBy, Instant publishedAt) {
+        if (this.publishedAt != null) {
+            throw new IllegalStateException("Job posting " + id + " was already published at " + this.publishedAt);
+        }
+        moveTo(JobPostingStatus.APPROVED, JobPostingStatus.PUBLISHED);
+        this.publishedBy = publishedBy;
+        this.publishedAt = publishedAt;
+    }
+
     public UUID getId() { return id; }
     public UUID getRequisitionId() { return requisitionId; }
     public JobPostingStatus getStatus() { return status; }
@@ -135,4 +153,6 @@ public class JobPosting {
     public UUID getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public UUID getPublishedBy() { return publishedBy; }
+    public Instant getPublishedAt() { return publishedAt; }
 }

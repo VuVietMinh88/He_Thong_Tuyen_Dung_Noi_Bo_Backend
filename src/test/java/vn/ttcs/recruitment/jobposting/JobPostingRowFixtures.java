@@ -17,7 +17,8 @@ final class JobPostingRowFixtures {
     private JobPostingRowFixtures() {
     }
 
-    // A published posting of an approved requisition (20-22 million proposed), with benefits and HR's approval.
+    // A published posting of an approved requisition (20-22 million proposed), with benefits and HR's approval. The
+    // publication trail of task 310 stays empty: the public view never reads it.
     static JobPostingRow row(boolean showSalary) {
         return row(showSalary, "Bảo hiểm đầy đủ.");
     }
@@ -33,6 +34,6 @@ final class JobPostingRowFixtures {
                 UUID.fromString("00000000-0000-0000-0000-000000000022"), "Toàn thời gian",
                 LocalDate.of(2026, 11, 30), showSalary, CREATOR, "Trần Văn Tuyển", created, created, CREATOR,
                 JobPostingEventType.APPROVED, "Đồng ý đăng tin.", REVIEWER, "Nguyễn Thị Hoa",
-                Instant.parse("2026-10-11T03:03:00.333333Z"));
+                Instant.parse("2026-10-11T03:03:00.333333Z"), null, null, null);
     }
 }

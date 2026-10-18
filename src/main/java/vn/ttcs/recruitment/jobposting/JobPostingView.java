@@ -13,13 +13,15 @@ import java.util.UUID;
 // JSON null. People are an id and a name, never an email.
 // actions tells the viewer what it may do with the posting now, so the frontend hides buttons the server would refuse.
 // Task 308: lastReview is HR's latest decision (approval or request for changes), null before the first one.
+// Task 310: publishedById, publishedByName and publishedAt say who published the posting and when; null until then.
 public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus status, int revision, String title,
                              UUID positionId, String positionName, UUID departmentId, String departmentName,
                              int headcount, String jobDescription, String candidateRequirements, String benefits,
                              UUID workLocationId, String workLocationName, UUID employmentTypeId,
                              String employmentTypeName, LocalDate applicationDeadline, boolean showSalary,
                              Long salaryMin, Long salaryMax, UUID createdById, String createdByName,
-                             Instant createdAt, Instant updatedAt, Actions actions, LastReview lastReview) {
+                             Instant createdAt, Instant updatedAt, Actions actions, LastReview lastReview,
+                             UUID publishedById, String publishedByName, Instant publishedAt) {
 
     // canEdit: PUT would pass the status checks (the posting is editable and its requisition is still approved).
     // Task 308: canSubmit the same for sending it for review; canApprove, canRequestRevision and canPublish the status
@@ -53,6 +55,7 @@ public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus statu
                 row.jobDescription(), row.candidateRequirements(), row.benefits(), row.workLocationId(),
                 row.workLocationName(), row.employmentTypeId(), row.employmentTypeName(), row.applicationDeadline(),
                 row.showSalary(), row.proposedSalaryMin(), row.proposedSalaryMax(), row.createdBy(),
-                row.createdByName(), row.createdAt(), row.updatedAt(), actions, lastReview);
+                row.createdByName(), row.createdAt(), row.updatedAt(), actions, lastReview, row.publishedBy(),
+                row.publishedByName(), row.publishedAt());
     }
 }

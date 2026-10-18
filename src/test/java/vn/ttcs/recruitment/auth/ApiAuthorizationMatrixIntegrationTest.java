@@ -224,7 +224,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // 404 for anything not published (here the unknown id) and an empty first page to everyone.
             endpoint("GET", "/api/v1/job-postings/{id}/preview", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             endpoint("GET", "/api/v1/public/job-postings", PUBLIC, null, 200),
-            endpoint("GET", "/api/v1/public/job-postings/{id}", PUBLIC, null, 404));
+            endpoint("GET", "/api/v1/public/job-postings/{id}", PUBLIC, null, 404),
+            // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
+            endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -317,6 +319,24 @@ class ApiAuthorizationMatrixIntegrationTest {
             }
         });
         assertThat(editing).as("approval routes that edit or delete").isEmpty();
+    }
+
+    @Test
+    void jobPostingTrailHasNoEditOrDeleteRoute() {
+        // Task 310: who published a posting and when, and its review history, are only ever added to.
+        Set<String> editing = new TreeSet<>();
+        handlerMapping.getHandlerMethods().forEach((info, handler) -> {
+            for (String pattern : info.getPatternValues()) {
+                boolean trail = pattern.startsWith("/api/v1/job-postings/")
+                        && (pattern.contains("/publish") || pattern.contains("/history"));
+                info.getMethodsCondition().getMethods().stream()
+                        .filter(method -> method == RequestMethod.PUT || method == RequestMethod.PATCH
+                                || method == RequestMethod.DELETE)
+                        .filter(method -> trail)
+                        .forEach(method -> editing.add(method.name() + " " + pattern));
+            }
+        });
+        assertThat(editing).as("job posting trail routes that edit or delete").isEmpty();
     }
 
     @Test
@@ -686,7 +706,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/approvals",
                 "PATCH /api/v1/job-postings/" + UNKNOWN_ID + "/submit",
                 // Task 309: candidates only read the portal.
-                "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID)) {
+                "POST /api/v1/public/job-postings", "PUT /api/v1/public/job-postings/" + UNKNOWN_ID,
+                // Task 310: the review and publication history is never edited or deleted.
+                "DELETE /api/v1/job-postings/" + UNKNOWN_ID + "/history",
+                "PUT /api/v1/job-postings/" + UNKNOWN_ID + "/history")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }

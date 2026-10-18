@@ -216,6 +216,11 @@ final class JobPostingTestSupport {
         return api.request("GET", PUBLIC_POSTINGS + "?page=" + page + "&size=" + size, null, null);
     }
 
+    // Task 310: the review and publication history, newest step first.
+    HttpResponse<String> history(UUID posting, String token) throws Exception {
+        return api.request("GET", POSTINGS + "/" + posting + "/history", null, token);
+    }
+
     // Creates a posting through the API and returns its view.
     JsonNode created(Map<String, Object> body, String token) throws Exception {
         var response = create(body, token);

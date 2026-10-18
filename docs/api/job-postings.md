@@ -8,7 +8,7 @@ Tiêu chí của story S3-09:
 - "Khai báo địa điểm, hình thức làm việc, hạn nhận hồ sơ, có hiển thị mức lương hay không": đã có (303, 304). Task 304 kiểm hạn nộp không ở quá khứ, giá trị danh mục còn dùng và văn bản thuần (mục "Kiểm tra dữ liệu trước khi lưu").
 - "Chỉ yêu cầu ở trạng thái Đã duyệt mới tạo được tin": đã có (303), mục "Tạo tin từ yêu cầu đã duyệt".
 
-Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308), bản xem trước và cổng tuyển dụng công khai (task 309) nằm ở [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md). Tài liệu này mô tả phần soạn tin; từ task 308, tin còn sửa được ở trạng thái `DRAFT` và `REVISION_REQUESTED` (HR yêu cầu chỉnh sửa).
+Gửi duyệt, duyệt và xuất bản tin (story S3-10, task 308), bản xem trước và cổng tuyển dụng công khai (task 309), người xuất bản, thời điểm công khai và lịch sử duyệt (task 310) nằm ở [API duyệt và xuất bản tin tuyển dụng](job-posting-publication.md). Tài liệu này mô tả phần soạn tin; từ task 308, tin còn sửa được ở trạng thái `DRAFT` và `REVISION_REQUESTED` (HR yêu cầu chỉnh sửa).
 
 ## Quyền
 
@@ -154,7 +154,10 @@ Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi
   "createdAt": "2026-10-07T08:00:00.123456Z",
   "updatedAt": "2026-10-07T08:00:00.123456Z",
   "actions": { "canEdit": true, "canSubmit": true, "canApprove": false, "canRequestRevision": false, "canPublish": false },
-  "lastReview": null
+  "lastReview": null,
+  "publishedById": null,
+  "publishedByName": null,
+  "publishedAt": null
 }
 ```
 
@@ -170,10 +173,11 @@ Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi
 |actions.canEdit|`true` khi `PUT` sẽ qua được phần kiểm trạng thái: tin ở trạng thái sửa được (`DRAFT` hoặc `REVISION_REQUESTED`) và yêu cầu nguồn vẫn `APPROVED`. Người đọc được tin cũng sửa được tin, nên cờ này không phụ thuộc người xem|
 |actions.canSubmit, canApprove, canRequestRevision, canPublish|Task 308: gửi duyệt, duyệt, yêu cầu chỉnh sửa, xuất bản có qua được phần kiểm trạng thái và quyền của người xem không; `canApprove` còn `false` với người đã soạn, sửa hoặc gửi duyệt tin lần gần nhất. Chi tiết ở [API duyệt và xuất bản](job-posting-publication.md), mục "Kết quả trả về và lịch sử"|
 |lastReview|Task 308: quyết định gần nhất của HR (`action` là `APPROVED` hoặc `REVISION_REQUESTED`, `comment`, `actorId`, `actorName`, `occurredAt`); `null` khi chưa có quyết định nào|
+|publishedById, publishedByName, publishedAt|Task 310: người xuất bản (id và họ tên, không có email) và thời điểm công khai (UTC, micro giây); `null` khi tin chưa xuất bản. Chi tiết ở [API duyệt và xuất bản](job-posting-publication.md), mục "Người xuất bản và thời điểm công khai"|
 
 Tên chức danh, phòng ban, giá trị danh mục và người tạo được đọc lúc trả, nên đổi tên ở danh mục hiện tên mới. Thứ tự kiểm: quyền (401/403), tin tồn tại (404 `JOB_POSTING_NOT_FOUND`), phạm vi (403). `{id}` không phải UUID trả 400 `VALIDATION_ERROR`.
 
-`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`; văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (một trong năm trạng thái, ví dụ `PENDING_APPROVAL` cho danh sách chờ duyệt); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
+`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`, `publishedAt` (task 310, `null` khi chưa xuất bản); văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (một trong năm trạng thái, ví dụ `PENDING_APPROVAL` cho danh sách chờ duyệt); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
 
 ## Lưu bản nháp (PUT)
 

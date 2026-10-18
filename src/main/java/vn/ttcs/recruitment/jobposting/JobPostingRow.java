@@ -10,6 +10,7 @@ import java.util.UUID;
 // (position, department, headcount, the approved salary proposal) and the names of its catalog values and creator.
 // Task 308: who sent it for review last (null before the first submission) and its latest review (APPROVED or
 // REVISION_REQUESTED event; all five review fields null when HR has not decided yet).
+// Task 310: who published it and when (V23), and the publisher's name; all three null until the publication.
 record JobPostingRow(UUID id, UUID requisitionId, RequisitionStatus requisitionStatus, JobPostingStatus status,
                      int revision, String title, UUID positionId, String positionName, UUID departmentId,
                      String departmentName, int headcount, Long proposedSalaryMin, Long proposedSalaryMax,
@@ -17,4 +18,5 @@ record JobPostingRow(UUID id, UUID requisitionId, RequisitionStatus requisitionS
                      String workLocationName, UUID employmentTypeId, String employmentTypeName,
                      LocalDate applicationDeadline, boolean showSalary, UUID createdBy, String createdByName,
                      Instant createdAt, Instant updatedAt, UUID latestSubmitterId, JobPostingEventType reviewAction,
-                     String reviewComment, UUID reviewActorId, String reviewActorName, Instant reviewAt) { }
+                     String reviewComment, UUID reviewActorId, String reviewActorName, Instant reviewAt,
+                     UUID publishedBy, String publishedByName, Instant publishedAt) { }
