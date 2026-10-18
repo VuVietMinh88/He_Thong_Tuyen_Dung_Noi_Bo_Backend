@@ -62,6 +62,8 @@ class JobPostingReviewIntegrationTest {
             "Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.";
     private static final String DEADLINE_PASSED = "Hạn nộp hồ sơ của tin đã qua. Vui lòng yêu cầu chỉnh sửa để đổi "
             + "hạn nộp trước khi duyệt hoặc xuất bản.";
+    private static final String CLOSED_WITH_REQUISITION = "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không "
+            + "thể sửa, gửi duyệt, duyệt hay xuất bản nữa.";
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -200,6 +202,8 @@ class JobPostingReviewIntegrationTest {
             case APPROVED -> null;
             case PUBLISHED -> "JOB_POSTING_ALREADY_PUBLISHED";
             case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED -> "JOB_POSTING_NOT_APPROVED";
+            // Task 292: a posting closed with its requisition is told so before anything else.
+            case CLOSED -> "JOB_POSTING_CLOSED";
         };
         if (refusal == null) {
             assertThat(ok(response).path("status").asText()).isEqualTo("PUBLISHED");
@@ -207,8 +211,11 @@ class JobPostingReviewIntegrationTest {
                     .isEqualTo(new Step(postings.revision(id), "PUBLISHED", "APPROVED", "PUBLISHED", hrId, null));
         } else {
             JsonNode error = postings.error(response, 409, refusal);
-            assertThat(error.path("message").asText()).isEqualTo(status == JobPostingStatus.PUBLISHED
-                    ? "Tin tuyển dụng đã được xuất bản." : NOT_APPROVED);
+            assertThat(error.path("message").asText()).isEqualTo(switch (status) {
+                case PUBLISHED -> "Tin tuyển dụng đã được xuất bản.";
+                case CLOSED -> CLOSED_WITH_REQUISITION;
+                default -> NOT_APPROVED;
+            });
             assertThat(postings.row(id)).isEqualTo(rowBefore);
             assertThat(steps(id)).isEqualTo(stepsBefore);
         }
@@ -776,20 +783,27 @@ class JobPostingReviewIntegrationTest {
     }
 
     // A complete posting brought to the status through the API: ADMIN writes and sends it (revisions 1, 2), HR
-    // approves it or asks for changes (3) and publishes it (4).
+    // approves it or asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills
+    // its requisition (task 290), which closes it (5).
     private UUID postingIn(JobPostingStatus status) throws Exception {
-        UUID id = id(postings.created(postings.body(requisition(), workLocation, employmentType), adminToken));
+        UUID requisition = requisition();
+        UUID id = id(postings.created(postings.body(requisition, workLocation, employmentType), adminToken));
         if (status != JobPostingStatus.DRAFT) {
             ok(postings.submit(id, 1, null, adminToken));
         }
         if (status == JobPostingStatus.REVISION_REQUESTED) {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
-        if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED) {
+        if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
+                || status == JobPostingStatus.CLOSED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
-        if (status == JobPostingStatus.PUBLISHED) {
+        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED) {
             ok(postings.publish(id, 3, hrToken));
+        }
+        if (status == JobPostingStatus.CLOSED) {
+            ok(api.request("POST", "/api/v1/requisitions/" + requisition + "/status-changes", json.writeValueAsString(
+                    Map.of("status", "FILLED", "reason", "Đã tuyển đủ", "expectedRevision", 0)), hrToken));
         }
         assertThat(postings.row(id).get("status")).isEqualTo(status.name());
         return id;

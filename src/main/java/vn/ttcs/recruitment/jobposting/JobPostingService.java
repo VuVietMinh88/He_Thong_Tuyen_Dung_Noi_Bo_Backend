@@ -42,7 +42,7 @@ import java.util.UUID;
 public class JobPostingService {
     // Task 303: the statuses of a requisition that postings are made from and may still be changed for.
     // RequisitionStatus asks every new status to be classified here; JobPostingSourceStatusTest does not compile until
-    // it is. Closing postings when their requisition closes is task 292.
+    // it is. JobPostingRequisitionSync closes the postings of a filled or cancelled requisition (task 292).
     static final Set<RequisitionStatus> SOURCE_STATUSES = EnumSet.of(RequisitionStatus.APPROVED);
 
     // Task 303: the statuses in which a posting may still be edited (PUT). JobPostingStatus asks every new status to be
@@ -133,9 +133,9 @@ public class JobPostingService {
 
     /**
      * Saves the draft again with the whole new content (PUT). Checks in order: write and read access (401/403), the
-     * posting exists (404), it is in the caller's scope (403), it is editable (409), the caller saw its latest revision
-     * (409), its requisition is still approved (409), the application deadline and the catalog values (400). A
-     * successful save makes the caller an author of the posting.
+     * posting exists (404), it is in the caller's scope (403), it is not closed (409, task 292), it is editable (409),
+     * the caller saw its latest revision (409), its requisition is still approved (409), the application deadline and
+     * the catalog values (400). A successful save makes the caller an author of the posting.
      */
     @Transactional
     public JobPostingView update(Jwt jwt, UUID id, JobPostingRequest request) {
@@ -150,6 +150,7 @@ public class JobPostingService {
         Caller caller = access.requireComposer(jwt, writer);
         JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
         access.requireInScope(caller, requisitionId);
+        requireNotClosed(posting);
         requireEditable(posting);
         requireRevision(posting, request.expectedRevision());
         requireSourceApproved(source);
@@ -168,10 +169,11 @@ public class JobPostingService {
      * Task 308: the authors send the saved posting for review (story S3-10). Everything sent comes from the saved
      * posting, and from now on it is frozen, so HR reviews, then publishes, exactly what was saved.
      * Checks in order: write and read access (401/403, before any lookup), the posting exists (404), it is in the
-     * caller's scope (403), it may be submitted (409), the caller saw its latest revision (409), its requisition is
-     * still approved (409), the portal details are filled in and the saved texts still pass the rules of a save (400
-     * JOB_POSTING_INCOMPLETE, listing every field), the application deadline is not in the past and the catalog values
-     * are still in use (400, the checks of a save). Lock order and re-checks like update.
+     * caller's scope (403), it is not closed (409, task 292), it may be submitted (409), the caller saw its latest
+     * revision (409), its requisition is still approved (409), the portal details are filled in and the saved texts
+     * still pass the rules of a save (400 JOB_POSTING_INCOMPLETE, listing every field), the application deadline is
+     * not in the past and the catalog values are still in use (400, the checks of a save). Lock order and re-checks
+     * like update.
      * The posting moves to PENDING_APPROVAL with a new revision, and a SUBMITTED event records who sent it, when, and
      * the optional comment. updatedAt (the last content edit) does not change. Sending does not make the caller an
      * author, but the latest submitter may not approve the posting (JobPostingReviewRule).
@@ -187,6 +189,7 @@ public class JobPostingService {
         Caller caller = access.requireComposer(jwt, writer);
         JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
         access.requireInScope(caller, requisitionId);
+        requireNotClosed(posting);
         if (!SUBMITTABLE_STATUSES.contains(posting.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_NOT_SUBMITTABLE",
                     "Chỉ gửi duyệt được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa.");
@@ -366,6 +369,15 @@ public class JobPostingService {
         if (!SOURCE_STATUSES.contains(source.status())) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_REQUISITION_NOT_APPROVED",
                     "Chỉ tạo và xử lý được tin tuyển dụng của yêu cầu tuyển dụng đã duyệt.");
+        }
+    }
+
+    // Task 292: a posting closed with its requisition never changes again; said before the step's own status check, so
+    // a write that lost the race to the closure gets this message, not "chưa được duyệt" or "không sửa được".
+    static void requireNotClosed(JobPosting posting) {
+        if (posting.getStatus() == JobPostingStatus.CLOSED) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_CLOSED", "Tin tuyển dụng đã đóng cùng yêu cầu "
+                    + "tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa.");
         }
     }
 

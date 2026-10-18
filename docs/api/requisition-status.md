@@ -1,11 +1,11 @@
 # Tạm dừng, đóng và hủy yêu cầu tuyển dụng
 
-Phạm vi TKNHTTDNB1-293 (lịch sử trạng thái và lý do) và TKNHTTDNB1-290 (kiểm quyền, trạng thái và lý do), story TKNHTTDNB1-36 (S3-07). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Task 293 thêm ba trạng thái, xếp chúng vào các nhóm trạng thái và lưu mỗi lần đổi trạng thái vào lịch sử. Task 290 thêm API đổi trạng thái `POST /requisitions/{id}/status-changes` (mục "Đổi trạng thái"); lịch sử đọc qua [tiến độ duyệt](requisition-approvals.md).
+Phạm vi TKNHTTDNB1-293 (lịch sử trạng thái và lý do), TKNHTTDNB1-290 (kiểm quyền, trạng thái và lý do) và TKNHTTDNB1-292 (tự gỡ tin tuyển dụng khi đóng yêu cầu), story TKNHTTDNB1-36 (S3-07). URL dùng tiền tố `/api/v1`. Gửi `Authorization: Bearer <accessToken>`; mọi response thành công và lỗi nghiệp vụ dùng `Cache-Control: no-store`. Task 293 thêm ba trạng thái, xếp chúng vào các nhóm trạng thái và lưu mỗi lần đổi trạng thái vào lịch sử. Task 290 thêm API đổi trạng thái `POST /requisitions/{id}/status-changes` (mục "Đổi trạng thái"); lịch sử đọc qua [tiến độ duyệt](requisition-approvals.md). Task 292 đóng tin tuyển dụng của yêu cầu đã tuyển đủ hoặc bị hủy (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)").
 
 Tiêu chí của story S3-07:
 
 - "Ba trạng thái kết thúc có lý do riêng: Đã tuyển đủ, Tạm dừng, Huỷ": đã có (290, 293). Task 293 thêm ba trạng thái và lưu người thao tác, thời điểm, trạng thái trước/sau và lý do; task 290 thêm API, chỉ cho Trưởng phòng Nhân sự, bắt lý do khi tạm dừng, đóng hay hủy.
-- "Đóng yêu cầu tự động gỡ tin tuyển dụng đang đăng": chưa có (task 292).
+- "Đóng yêu cầu tự động gỡ tin tuyển dụng đang đăng": đã có (292). Đã tuyển đủ hoặc hủy chuyển mọi tin chưa đóng của yêu cầu sang `CLOSED` (Đã đóng) trong cùng transaction: tin rời cổng tuyển dụng ngay, không sửa, duyệt hay xuất bản được nữa, và lịch sử tin ghi người đóng, thời điểm và lý do. Tạm dừng chỉ ẩn tin (task 309), không đóng.
 - "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng": thuộc task 291, chưa làm vì chưa có module ứng viên; backend không trả số ứng viên giả.
 
 ## Quyền
@@ -29,8 +29,8 @@ Tiêu chí của story S3-07:
 |`APPROVED`|Đã duyệt|Đang tuyển; [tin tuyển dụng](job-postings.md) được tạo từ yêu cầu ở trạng thái này|V19|
 |`REJECTED`|Bị từ chối|Kết thúc|V19|
 |`PAUSED`|Tạm dừng|Trưởng phòng Nhân sự tạm ngừng tuyển. Vẫn giữ chỗ trong định biên và nhóm recruiter; tin tuyển dụng bị ẩn khỏi cổng và không sửa, duyệt hay xuất bản được; mở lại thì về `APPROVED`|V24 (task 293)|
-|`FILLED`|Đã tuyển đủ|Kết thúc; người đã tuyển vẫn tính vào định biên|V24 (task 293)|
-|`CANCELLED`|Đã hủy|Kết thúc; trả lại chỗ trong định biên|V24 (task 293)|
+|`FILLED`|Đã tuyển đủ|Kết thúc; người đã tuyển vẫn tính vào định biên; tin tuyển dụng của nó bị đóng (task 292)|V24 (task 293)|
+|`CANCELLED`|Đã hủy|Kết thúc; trả lại chỗ trong định biên; tin tuyển dụng của nó bị đóng (task 292)|V24 (task 293)|
 
 `FILLED` là "Đã tuyển đủ" mà frontend đang gửi là `CLOSED`. Muốn tuyển lại một yêu cầu đã kết thúc (`REJECTED`, `FILLED`, `CANCELLED`) thì sao chép nó (`POST /requisitions/{id}/copy`, task 278): bản sao là nháp mới, không mang trạng thái hay lịch sử của bản gốc, và giữ chỗ trong định biên như mọi bản nháp.
 
@@ -99,27 +99,28 @@ Lỗi trạng thái (9) đứng trước lỗi phiên bản (10), như khi quy�
 
 Mỗi trạng thái được xếp vào mọi nhóm sau. `RequisitionStatus` liệt kê các nhóm, và các test có `switch` đủ mọi trạng thái không biên dịch được cho tới khi một trạng thái mới được xếp nhóm.
 
-| Mã | Sửa (`PUT`) / gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Trễ hạn (298) | Tạo tin tuyển dụng (303) | Sao chép | Đổi trạng thái từ đây |
-|---|---|---|---|---|---|---|---|---|
-|`DRAFT`|Có|Có|Có|Có|Có|Không|Có|Hủy|
-|`PENDING_APPROVAL`|Không|Có|Có|Có|Có|Không|Có|Hủy|
-|`RETURNED`|Có|Có|Có|Có|Có|Không|Có|Hủy|
-|`APPROVED`|Không|Có|Có|Có|Có|**Có**|Có|Tạm dừng, đã tuyển đủ, hủy|
-|`REJECTED`|Không|Không|Không|Không (khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Không|Có|–|
-|`PAUSED`|Không|**Có**|**Có**|**Có**|**Không**|Không (tin bị ẩn, ghi trả 409)|Có|Mở lại, đã tuyển đủ, hủy|
-|`FILLED`|Không|Không|**Có**|Không (khóa ngoại)|Không|Không|Có|–|
-|`CANCELLED`|Không|Không|**Không**|Không (khóa ngoại)|Không|Không|Có|–|
+| Mã | Sửa (`PUT`) / gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Trễ hạn (298) | Tạo tin tuyển dụng (303) | Đóng tin tuyển dụng (292) | Sao chép | Đổi trạng thái từ đây |
+|---|---|---|---|---|---|---|---|---|---|
+|`DRAFT`|Có|Có|Có|Có|Có|Không|Không|Có|Hủy|
+|`PENDING_APPROVAL`|Không|Có|Có|Có|Có|Không|Không|Có|Hủy|
+|`RETURNED`|Có|Có|Có|Có|Có|Không|Không|Có|Hủy|
+|`APPROVED`|Không|Có|Có|Có|Có|**Có**|Không|Có|Tạm dừng, đã tuyển đủ, hủy|
+|`REJECTED`|Không|Không|Không|Không (khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Không|Không|Có|–|
+|`PAUSED`|Không|**Có**|**Có**|**Có**|**Không**|Không (tin bị ẩn, ghi trả 409)|Không|Có|Mở lại, đã tuyển đủ, hủy|
+|`FILLED`|Không|Không|**Có**|Không (khóa ngoại)|Không|Không|**Có**|Có|–|
+|`CANCELLED`|Không|Không|**Không**|Không (khóa ngoại)|Không|Không|**Có**|Có|–|
 
-Chủ của từng nhóm: `RequisitionService.EDITABLE_STATUSES`/`SUBMITTABLE_STATUSES`, `RequisitionRecruiterService.ASSIGNABLE_STATUSES`, `HeadcountPlanRepository.COUNTED_REQUISITION_STATUSES`, `DepartmentRepository.OPEN_REQUISITION_STATUSES`, `RequisitionListItemView.OVERDUE_STATUSES`, `JobPostingService.SOURCE_STATUSES`.
+Chủ của từng nhóm: `RequisitionService.EDITABLE_STATUSES`/`SUBMITTABLE_STATUSES`, `RequisitionRecruiterService.ASSIGNABLE_STATUSES`, `HeadcountPlanRepository.COUNTED_REQUISITION_STATUSES`, `DepartmentRepository.OPEN_REQUISITION_STATUSES`, `RequisitionListItemView.OVERDUE_STATUSES`, `JobPostingService.SOURCE_STATUSES`, `JobPostingRequisitionSync.CLOSING_STATUSES` (task 292).
 
 - Yêu cầu tạm dừng vẫn cần người: giữ chỗ trong định biên, vẫn chặn xóa phòng ban, vẫn bàn giao recruiter được. Nó không bao giờ trễ hạn trong danh sách, vì đã được dừng có chủ ý. Tin tuyển dụng của nó không hiện trên cổng (cổng chỉ hiện tin của yêu cầu `APPROVED`), và mọi thao tác ghi tin bị từ chối: tạo tin nhận 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`; sửa, gửi duyệt, duyệt và xuất bản kiểm trạng thái của chính tin trước yêu cầu nguồn, nên nhận mã đó khi trạng thái của tin cho phép bước này, còn không thì nhận 409 về trạng thái của tin (ví dụ sửa tin đã xuất bản: `JOB_POSTING_NOT_EDITABLE`; quyết định trên tin không chờ duyệt: `JOB_POSTING_NOT_UNDER_REVIEW`). Thứ tự kiểm đầy đủ ở [tin tuyển dụng](job-postings.md) và [duyệt, xuất bản tin](job-posting-publication.md).
 - Yêu cầu đã tuyển đủ vẫn tính vào định biên (người đã được tuyển); yêu cầu đã hủy trả lại chỗ.
 
-Ba quy tắc giữ các nhóm nhất quán, mỗi quy tắc có test riêng:
+Bốn quy tắc giữ các nhóm nhất quán, mỗi quy tắc có test riêng:
 
 1. Không thay đổi nào đưa yêu cầu từ trạng thái không tính vào định biên (`REJECTED`, `CANCELLED`, đều là kết thúc) sang trạng thái có tính, nên đổi trạng thái không bao giờ phải khóa và kiểm định biên lại (`CountedRequisitionStatusChangeTest`).
 2. Không thay đổi nào đưa yêu cầu đã đóng (`REJECTED`, `FILLED`, `CANCELLED`) về trạng thái còn mở, nên một lần xóa phòng ban đã thấy không còn yêu cầu mở vẫn đúng (`OpenRequisitionStatusChangeTest`).
 3. `PAUSED` không sửa được, nên yêu cầu tạm dừng vẫn có nội dung đã duyệt và mở lại không cần duyệt lại (`RequisitionWorkflowStatusTest`).
+4. Trạng thái đóng tin (`FILLED`, `CANCELLED`) không bao giờ là trạng thái tạo và hiện tin (`APPROVED`), nên tin đã đóng không thuộc yêu cầu nào còn dùng được nó (`JobPostingClosingStatusTest`, task 292).
 
 Bảng chuyển trạng thái được ghim bởi `RequisitionStatusChangeTest` (một `switch` đủ mọi trạng thái).
 
@@ -134,6 +135,8 @@ Task 290 không thêm code nào cho các ảnh hưởng dưới đây; chúng đ
 - Tin tuyển dụng khi yêu cầu tạm dừng: sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa và xuất bản trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; mọi cờ `actions` của tin là `false` (từ task 290, cả `canApprove`, `canRequestRevision`, `canPublish` cũng cần yêu cầu còn `APPROVED`); tin đã xuất bản biến khỏi cổng tuyển dụng (404) và hiện lại khi mở lại yêu cầu, nếu hạn nộp chưa qua.
 - Danh sách: yêu cầu tạm dừng, đã tuyển đủ, đã hủy quá ngày cần người vẫn có `overdue` là `false`.
 - Sao chép yêu cầu đã tuyển đủ hoặc đã hủy trả 201 với một bản nháp mới.
+
+Riêng tin tuyển dụng của yêu cầu đã tuyển đủ hoặc bị hủy thì có code riêng của task 292: tin bị đóng hẳn (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)").
 
 ## Lịch sử trạng thái và lý do
 
@@ -200,7 +203,52 @@ Kết quả khi hai thao tác đến cùng lúc (thao tác đến trước chạ
 - `afterChange` chạy khi dòng lịch sử và trạng thái mới đã được ghi. Task 292 đóng tin tuyển dụng của yêu cầu ở đây.
 - Lỗi của một trong hai được trả nguyên cho người gọi và làm hủy toàn bộ thay đổi, kể cả dòng lịch sử.
 
-Task 290 chưa có listener nào. Chưa có cảnh báo ứng viên vì chưa có module ứng viên, và backend không trả số ứng viên giả: frontend đừng gọi `active-candidates-count` (route này chưa tồn tại, gọi sẽ nhận 403).
+Task 292 thêm listener đầu tiên, `JobPostingRequisitionSync` (mục sau). Chưa có cảnh báo ứng viên vì chưa có module ứng viên, và backend không trả số ứng viên giả: frontend đừng gọi `active-candidates-count` (route này chưa tồn tại, gọi sẽ nhận 403).
+
+## Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)
+
+Khi Trưởng phòng Nhân sự đóng yêu cầu vì đã tuyển đủ (`FILLED`) hoặc hủy yêu cầu (`CANCELLED`), mọi tin tuyển dụng chưa đóng của yêu cầu chuyển sang `CLOSED` (Đã đóng) trong **cùng transaction** với thay đổi trạng thái (`JobPostingRequisitionSync`, chỗ nối `afterChange`). Không có API riêng để đóng tin: tin chỉ đóng cùng yêu cầu, và `POST /job-postings/{id}/close` trả 403 như mọi route không khai báo.
+
+| Thay đổi của yêu cầu | Tin tuyển dụng của nó |
+|---|---|
+|Tạm dừng (`PAUSED`)|Không đổi: giữ trạng thái, `revision` và lịch sử; chỉ bị ẩn khỏi cổng (404) và không ghi được (409 về trạng thái của tin, ví dụ `JOB_POSTING_NOT_EDITABLE` khi sửa tin đã xuất bản, hoặc `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; xem [Nhóm trạng thái](#nhóm-trạng-thái))|
+|Mở lại (`APPROVED`)|Không đổi; tin `PUBLISHED` còn hạn nộp hiện lại trên cổng|
+|Đã tuyển đủ (`FILLED`), hủy (`CANCELLED`)|Mọi tin `DRAFT`, `PENDING_APPROVAL`, `REVISION_REQUESTED`, `APPROVED`, `PUBLISHED` chuyển `CLOSED` vĩnh viễn (`JobPostingRequisitionSync.CLOSABLE_STATUSES`)|
+
+Tạm dừng không đóng tin vì `CLOSED` là trạng thái cuối và mỗi yêu cầu chỉ có một tin (`job_postings_requisition_id_key`): đóng khi tạm dừng thì mở lại cũng không đăng tin được nữa. Tin chưa xuất bản (nháp, chờ duyệt, cần chỉnh sửa, đã duyệt) cũng bị đóng, vì chúng không bao giờ đi tiếp được và nếu để lại sẽ nằm mãi trong danh sách chờ duyệt của HR.
+
+Tin sau khi đóng:
+
+- `status` là `CLOSED`, `revision` tăng 1. `updatedAt` (lần sửa nội dung gần nhất) và dấu vết xuất bản (`publishedById`, `publishedByName`, `publishedAt`) giữ nguyên; tin chưa từng xuất bản vẫn không có dấu vết.
+- Không bao giờ công khai: `GET /public/job-postings/{id}` trả 404 `JOB_POSTING_NOT_FOUND` giống hệt tin không tồn tại, và tin biến khỏi `GET /public/job-postings` (cả `totalElements`).
+- Mọi cờ `actions` là `false`. Sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa và xuất bản trả 409 `JOB_POSTING_CLOSED` "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa.". Đây là bước kiểm trạng thái **đầu tiên** sau phạm vi (403), nên người duyệt dù không phải người soạn cũng nhận 409 này, không phải 403 hay "không còn ở bước duyệt". Tạo tin mới cho yêu cầu đã đóng trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` (yêu cầu được kiểm trước khi xem nó đã có tin chưa).
+- Người soạn và HR vẫn đọc được tin, bản xem trước và lịch sử; `GET /job-postings?status=CLOSED` liệt kê các tin đã đóng.
+- Lịch sử tin (`GET /job-postings/{id}/history`) có thêm đúng một bước `CLOSED`: người làm là người đóng yêu cầu, thời điểm đúng bằng `occurredAt` của dòng `FILLED`/`CANCELLED` trong lịch sử yêu cầu, `comment` là lý do của yêu cầu.
+
+```json
+{ "id": "…", "revision": 5, "action": "CLOSED", "statusBefore": "PUBLISHED", "statusAfter": "CLOSED",
+  "actorId": "…", "actorName": "Phạm Thu Trang", "occurredAt": "2026-10-11T03:01:30.123456Z",
+  "comment": "Đã tuyển đủ 2 người qua đợt tháng 10." }
+```
+
+Quyền, transaction và khóa:
+
+- Người đóng yêu cầu **không cần** quyền `JOB_POSTINGS_*`: đóng tin là một phần quyết định về yêu cầu mà mục "Quyền" đã kiểm. Theo seed hiện tại HR_MANAGER và ADMIN đều có quyền tin tuyển dụng, nên điều này chỉ có tác dụng khi ma trận quyền đổi.
+- Một transaction: nếu không đóng được tin (ví dụ lỗi database), yêu cầu cũng không đổi trạng thái, lịch sử yêu cầu không có dòng mới và tin vẫn như cũ; lỗi lúc commit cũng hủy cả hai. Việc đóng tin không bao giờ chạy trong transaction riêng hay sau khi commit.
+- Khóa: tài khoản, phiên, dòng yêu cầu, rồi các tin của yêu cầu (`FOR NO KEY UPDATE`, theo id), đúng thứ tự mọi thao tác ghi tin dùng, nên không có deadlock. Tin được đọc sau khi đã khóa yêu cầu (READ COMMITTED), nên tin vừa được tạo hay vừa xuất bản ngay trước đó cũng bị đóng.
+
+Kết quả khi một thao tác ghi tin và việc đóng yêu cầu đến cùng lúc (thao tác đến trước chạy trước):
+
+| Trước | Sau | Kết quả |
+|---|---|---|
+|Xuất bản tin|Đóng yêu cầu (đã tuyển đủ)|200; 200; tin `CLOSED` từ `PUBLISHED`, giữ dấu vết xuất bản|
+|Đóng yêu cầu|Xuất bản tin|200; 409 `JOB_POSTING_CLOSED`; tin `CLOSED` từ `APPROVED`, không có dấu vết|
+|Duyệt, gửi duyệt hoặc lưu tin|Đóng yêu cầu|200; 200; tin `CLOSED` từ trạng thái sau thao tác đầu|
+|Đóng yêu cầu|Duyệt, gửi duyệt hoặc lưu tin|200; 409 `JOB_POSTING_CLOSED`; nội dung tin không đổi|
+|Tạo tin|Hủy yêu cầu|201; 200; bản nháp vừa tạo bị đóng|
+|Hủy yêu cầu|Tạo tin|200; 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`; không có tin|
+
+Trong mọi trường hợp tin có đúng một bước `CLOSED` và không còn trên cổng. V25 (mục "Database và phạm vi") thêm trạng thái và bước `CLOSED`, và đóng tin của các yêu cầu đã tuyển đủ hoặc bị hủy trước khi V25 chạy.
 
 ## Lỗi
 
@@ -215,7 +263,7 @@ Task 290 chưa có listener nào. Chưa có cảnh báo ứng viên vì chưa c�
 |409|`REQUISITION_STATUS_CHANGE_NOT_ALLOWED`|Thay đổi không được phép từ trạng thái hiện tại ("Không thể chuyển yêu cầu tuyển dụng từ trạng thái hiện tại sang trạng thái đã chọn. Vui lòng tải lại để xem trạng thái mới nhất.")|
 |409|`REQUISITION_STATE_CHANGED`|`expectedRevision` không còn là phiên bản mới nhất ("Yêu cầu tuyển dụng vừa có thay đổi khác (có thể người khác vừa xử lý). Vui lòng tải lại trước khi thao tác.")|
 
-Các 409 có sẵn mà nay gặp được với yêu cầu tạm dừng, đã tuyển đủ hoặc đã hủy: `REQUISITION_NOT_ASSIGNABLE`, `REQUISITION_NOT_DRAFT`, `REQUISITION_NOT_SUBMITTABLE`, `REQUISITION_NOT_PENDING_APPROVAL`, `JOB_POSTING_REQUISITION_NOT_APPROVED` (mục "Ảnh hưởng tới phần khác").
+Các 409 có sẵn mà nay gặp được với yêu cầu tạm dừng, đã tuyển đủ hoặc đã hủy: `REQUISITION_NOT_ASSIGNABLE`, `REQUISITION_NOT_DRAFT`, `REQUISITION_NOT_SUBMITTABLE`, `REQUISITION_NOT_PENDING_APPROVAL`, `JOB_POSTING_REQUISITION_NOT_APPROVED` (mục "Ảnh hưởng tới phần khác"). Task 292 thêm 409 `JOB_POSTING_CLOSED` ở mọi thao tác ghi tin đã đóng cùng yêu cầu (mục "Tự gỡ tin tuyển dụng khi đóng yêu cầu (task 292)"). Lỗi bất ngờ khi đóng tin (lỗi database) trả 500 và hủy toàn bộ thay đổi.
 
 ## Database và phạm vi
 
@@ -228,6 +276,14 @@ V24 (task 293) không đổi dòng nào, không thêm quyền, không thêm rout
 Các CHECK `_round`, `_level`, `_snapshot` của V19 không phải sửa: chúng có dạng "loại của luồng duyệt = cột có giá trị", nên đã buộc dòng đổi trạng thái để trống lượt, cấp và bản chụp. `_comment` và hai khóa ngoại của V19 cũng giữ nguyên. Ràng buộc mới là DDL, không chạy trigger của V20. Test của migration: `RequisitionStatusChangeMigrationTest`; với hai CHECK bị xóa rồi tạo lại (`_transition`, `comment_required`), test kiểm ở V24 cả điều kiện cũ của V19 (bước gửi duyệt và quyết định sai trạng thái trước/sau, từ chối hay yêu cầu bổ sung không có nhận xét đều bị từ chối).
 
 Task 290 không thêm migration và không thêm mã quyền: route mới dùng `REQUISITIONS_WRITE_ALL` sẵn có.
+
+V25 (task 292) chỉ đổi bảng tin tuyển dụng, không thêm quyền, không thêm route:
+
+- `job_postings`: CHECK `valid_job_posting_status` thêm `CLOSED`; `job_posting_details_required` cho tin `CLOSED` chưa từng xuất bản được thiếu địa điểm, hình thức làm việc, hạn nộp (bản nháp viết dở cũng bị đóng), còn tin đóng sau khi xuất bản vẫn phải có đủ. Hai CHECK dấu vết của V23 không liệt kê `CLOSED`, nên dấu vết xuất bản được giữ;
+- `job_posting_events`: `valid_job_posting_event_type` thêm `CLOSED`; `valid_job_posting_event_transition` thêm bước đóng từ năm trạng thái kia sang `CLOSED` (không bước nào rời `CLOSED`); `job_posting_event_comment_required` bắt lý do ở `CLOSED`; chỉ mục `job_posting_events_one_closure_idx` cho mỗi tin tối đa một dòng `CLOSED`. Trigger chỉ thêm của V23 áp dụng cho cả dòng này;
+- nâng cấp: tin chưa đóng của yêu cầu đã có dòng `FILLED` hoặc `CANCELLED` (đóng bằng API của task 290 trước V25) được đóng ngay, cùng người, thời điểm và lý do của dòng đó.
+
+Test của migration: `JobPostingClosureMigrationTest`; với hai CHECK bị xóa rồi tạo lại (`valid_job_posting_event_transition`, `job_posting_event_comment_required`), test kiểm ở V25 cả điều kiện cũ của V22 (bước gửi duyệt, duyệt, yêu cầu chỉnh sửa, xuất bản sai trạng thái trước/sau, yêu cầu chỉnh sửa không có nhận xét đều bị từ chối). Code: `JobPostingRequisitionSync`, `JobPostingRepository.findByRequisitionIdForUpdate`, `JobPostingService.requireNotClosed`.
 
 ## Ghi chú cho frontend
 
@@ -243,6 +299,7 @@ Màn hình đổi trạng thái ở nhánh `UI` (`jobReqStatusService.ts`, `JobR
 |Câu mô tả `CLOSED` "tuyển đủ người hoặc không còn nhu cầu… mở lại sẽ cần duyệt lại"|`FILLED` là đã tuyển đủ; "không còn nhu cầu" là `CANCELLED`; muốn tuyển lại thì sao chép (`POST /requisitions/{id}/copy`)|Sửa câu chữ|
 |Luôn hiện ba nút, không có nút mở lại|Chỉ gắn khi `permissions.includes('REQUISITIONS_WRITE_ALL')`. `APPROVED`: Tạm dừng / Đã tuyển đủ / Hủy; `PAUSED`: Mở lại / Đã tuyển đủ / Hủy; `DRAFT`, `PENDING_APPROVAL`, `RETURNED`: Hủy; trạng thái khác: không có nút|Thêm props và điều kiện hiện|
 |Dòng thời gian lịch sử|`.history[].action` thêm `PAUSED` "Tạm dừng", `RESUMED` "Mở lại", `FILLED` "Đã tuyển đủ", `CANCELLED` "Hủy"; `comment` là lý do; `round`, `level` là `null`|Thêm nhãn|
+|Huy hiệu và lịch sử tin tuyển dụng|Tin của yêu cầu đã tuyển đủ hoặc bị hủy có `status` `CLOSED` "Đã đóng" (task 292); nhãn bước "Đóng tin tuyển dụng" đã có trong `JobPostingAuditHistory.tsx`; mọi cờ `actions` là `false`; gặp 409 `JOB_POSTING_CLOSED` thì hiện `message`|Thêm nhãn `CLOSED` "Đã đóng" nếu chưa có|
 |Mọi 403 không phải lỗi đăng nhập đều chuyển sang `/unauthorized`|Người duyệt bấm quyết định trên trang cũ sau khi HR hủy yêu cầu nhận 409 `REQUISITION_NOT_PENDING_APPROVAL` (tải lại), không nhận 403, và vẫn mở được yêu cầu và tiến độ. Cấp đang chờ hiện `NOT_REACHED` ("Chưa đến lượt")|Không cần sửa; hiện thông báo của 409|
 
 ## Giả định chờ BA/PO
@@ -256,6 +313,8 @@ Các quy tắc trên là giả định của backend, chờ BA/PO xác nhận. G
 - lý do là văn bản tự do, bắt buộc khi tạm dừng, đóng vì đã tuyển đủ và hủy (tối đa 2.000 ký tự), không bắt buộc khi mở lại; không có danh mục mã lý do. Nếu cần danh mục lý do thì thêm một cột mới mà không đổi dòng cũ;
 - định biên: tạm dừng và đã tuyển đủ vẫn giữ chỗ; hủy trả lại chỗ;
 - vẫn đổi được recruiter khi tạm dừng; không đổi khi đã tuyển đủ hoặc đã hủy;
-- tạm dừng ẩn tin tuyển dụng khỏi cổng và không cho sửa, duyệt hay xuất bản tin;
+- tạm dừng chỉ ẩn tin tuyển dụng khỏi cổng (tin vẫn "đã xuất bản", hiện lại khi mở lại nếu còn hạn nộp) và không cho sửa, duyệt hay xuất bản tin;
+- đã tuyển đủ hoặc hủy: mọi tin chưa đóng của yêu cầu (kể cả nháp, chờ duyệt) chuyển "Đã đóng" vĩnh viễn, giữ người và thời điểm xuất bản; lý do của yêu cầu được chép vào lịch sử tin (task 292);
+- người đóng yêu cầu không cần quyền tin tuyển dụng (task 292);
 - hủy khi đang chờ duyệt kết thúc lượt duyệt; người duyệt của cấp đang chờ vẫn xem được yêu cầu và tiến độ, bấm quyết định trên trang cũ thì nhận 409 để tải lại; người của cấp chưa tới không xem được; cấp đang chờ hiện "Chưa đến lượt", chưa có trạng thái riêng cho cấp bị dừng;
 - cảnh báo ứng viên còn trong quy trình (task 291) chưa làm vì chưa có module ứng viên.

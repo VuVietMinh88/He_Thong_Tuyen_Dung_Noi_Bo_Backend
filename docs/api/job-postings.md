@@ -177,7 +177,7 @@ Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi
 
 Tên chức danh, phòng ban, giá trị danh mục và người tạo được đọc lúc trả, nên đổi tên ở danh mục hiện tên mới. Thứ tự kiểm: quyền (401/403), tin tồn tại (404 `JOB_POSTING_NOT_FOUND`), phạm vi (403). `{id}` không phải UUID trả 400 `VALIDATION_ERROR`.
 
-`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`, `publishedAt` (task 310, `null` khi chưa xuất bản); văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (một trong năm trạng thái, ví dụ `PENDING_APPROVAL` cho danh sách chờ duyệt); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
+`GET /job-postings?status=DRAFT&page=0&size=20` trả **200** các tin người gọi được xem theo mục "Phạm vi dữ liệu": `{items, page, size, totalElements, totalPages}`. Mỗi item gồm `id`, `requisitionId`, `title`, `positionName`, `departmentName`, `status`, `revision`, `applicationDeadline`, `createdByName`, `createdAt`, `updatedAt`, `publishedAt` (task 310, `null` khi chưa xuất bản); văn bản và lương chỉ có ở chi tiết. Sắp xếp tin tạo sau lên trước (`createdAt` giảm dần, rồi UUID); lưu tin không đổi vị trí của nó. `status` không bắt buộc, đúng chữ hoa (một trong sáu trạng thái, ví dụ `PENDING_APPROVAL` cho danh sách chờ duyệt, `CLOSED` cho tin đã đóng cùng yêu cầu, task 292); giá trị khác (ví dụ `draft`) trả 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ.". `page`, `size` như danh sách yêu cầu nguồn, lời nhắn "Trang hoặc số lượng tin tuyển dụng không hợp lệ.". Recruiter không được phân công yêu cầu nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0.
 
 ## Lưu bản nháp (PUT)
 
@@ -221,11 +221,12 @@ Thứ tự kiểm tra:
 4. Tin tồn tại: 404 `JOB_POSTING_NOT_FOUND`.
 5. Khóa dòng yêu cầu tuyển dụng của tin, kiểm lại người gọi; khóa dòng tin, kiểm lại người gọi.
 6. Phạm vi: 403 `FORBIDDEN`.
-7. Tin ở trạng thái sửa được (`DRAFT` hoặc `REVISION_REQUESTED`), nếu không thì 409 `JOB_POSTING_NOT_EDITABLE`.
-8. `expectedRevision` đúng `revision` hiện tại, nếu không thì 409 `JOB_POSTING_CHANGED`.
-9. Yêu cầu nguồn vẫn `APPROVED`, nếu không thì 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
-10. Hạn nộp, rồi địa điểm và hình thức làm việc như bước 8, 9 của tạo (400).
-11. Kiểm lại người gọi và phạm vi, rồi lưu; người gọi được ghi là người soạn của tin.
+7. Tin chưa đóng cùng yêu cầu, nếu đã đóng thì 409 `JOB_POSTING_CLOSED` (task 292).
+8. Tin ở trạng thái sửa được (`DRAFT` hoặc `REVISION_REQUESTED`), nếu không thì 409 `JOB_POSTING_NOT_EDITABLE`.
+9. `expectedRevision` đúng `revision` hiện tại, nếu không thì 409 `JOB_POSTING_CHANGED`.
+10. Yêu cầu nguồn vẫn `APPROVED`, nếu không thì 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`.
+11. Hạn nộp, rồi địa điểm và hình thức làm việc như bước 8, 9 của tạo (400).
+12. Kiểm lại người gọi và phạm vi, rồi lưu; người gọi được ghi là người soạn của tin.
 
 Mỗi lần chỉ trả lỗi đầu tiên gặp từ bước 3 trở đi. Lỗi nào cũng không đổi dòng nào.
 
@@ -325,6 +326,7 @@ API yêu cầu tuyển dụng chỉ chặn ký tự NUL, nên mô tả công vi�
 |409|`JOB_POSTING_ALREADY_EXISTS`|Yêu cầu đã có tin ("Yêu cầu tuyển dụng này đã có tin tuyển dụng.")|
 |409|`JOB_POSTING_NOT_EDITABLE`|Sửa tin đã gửi duyệt, đã duyệt hoặc đã xuất bản ("Chỉ sửa được tin tuyển dụng đang ở trạng thái nháp hoặc cần chỉnh sửa."), từ task 308|
 |409|`JOB_POSTING_CHANGED`|`expectedRevision` cũ ("Tin tuyển dụng đã thay đổi (có thể người khác vừa sửa hoặc xử lý). Vui lòng tải lại trước khi thao tác.")|
+|409|`JOB_POSTING_CLOSED`|Sửa tin đã đóng cùng yêu cầu ("Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa."), từ task 292|
 |409|`RECRUITMENT_CATALOG_ITEM_IN_USE`|Ở [API danh mục tuyển dụng](recruitment-catalogs.md): xóa giá trị địa điểm hoặc hình thức làm việc đang được tin dùng|
 
 Ví dụ lỗi một trường:
@@ -356,7 +358,7 @@ Frontend nhánh `UI` (`src/services/jobPostingService.ts`, `JobPostingForm.tsx`)
 |Khối `catch` giả thành công, tên người cứng ("Trần Thị Thu Hà")|Bỏ; hiện `message` của lỗi, gắn `fieldErrors` (`title`, `jobDescription`, `candidateRequirements`, `benefits`, `workLocationId`, `employmentTypeId`, `applicationDeadline`, `showSalary`, `requisitionId`, `expectedRevision`) vào ô tương ứng; dùng `createdByName`|
 |Route và menu tin tuyển dụng dựa vào `REQUISITIONS_READ_*` hoặc `can('view','job_posting')` (`JOB_POSTINGS_READ_*`)|Mọi màn hình nội bộ của tin (danh sách, chi tiết, form) dựa vào `JOB_POSTINGS_WRITE_ALL` hoặc `JOB_POSTINGS_WRITE_SCOPED` (`can('edit','job_posting')`). HIRING_MANAGER và APPROVER (chỉ `JOB_POSTINGS_READ_ALL`) không được thấy các link này, nếu không sẽ bị 403 và bị đưa sang `/unauthorized` (task 300)|
 
-Hiện nút sửa theo `actions.canEdit`, nút gửi duyệt theo `actions.canSubmit` (các nút duyệt, xuất bản: [API duyệt và xuất bản](job-posting-publication.md)). Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Ô chọn địa điểm và hình thức chỉ liệt kê giá trị còn dùng (`?active=true`); tin đang giữ giá trị đã ngừng dùng thì báo người soạn chọn giá trị khác (lỗi `JOB_POSTING_*_INACTIVE`). Mô tả công việc kế thừa có thẻ HTML phải được sửa trước lần lưu kế tiếp (lỗi ở `fieldErrors.jobDescription`). Nhãn trạng thái: `DRAFT` Nháp, `PENDING_APPROVAL` Chờ duyệt, `REVISION_REQUESTED` Cần chỉnh sửa, `APPROVED` Đã duyệt, `PUBLISHED` Đã xuất bản.
+Hiện nút sửa theo `actions.canEdit`, nút gửi duyệt theo `actions.canSubmit` (các nút duyệt, xuất bản: [API duyệt và xuất bản](job-posting-publication.md)). Gặp 409 `JOB_POSTING_CHANGED` thì báo và tải lại tin. Hiển thị mọi văn bản của tin dạng chữ, không dùng `dangerouslySetInnerHTML`, `v-html` hay `innerHTML`. Ô chọn địa điểm và hình thức chỉ liệt kê giá trị còn dùng (`?active=true`); tin đang giữ giá trị đã ngừng dùng thì báo người soạn chọn giá trị khác (lỗi `JOB_POSTING_*_INACTIVE`). Mô tả công việc kế thừa có thẻ HTML phải được sửa trước lần lưu kế tiếp (lỗi ở `fieldErrors.jobDescription`). Nhãn trạng thái: `DRAFT` Nháp, `PENDING_APPROVAL` Chờ duyệt, `REVISION_REQUESTED` Cần chỉnh sửa, `APPROVED` Đã duyệt, `PUBLISHED` Đã xuất bản, `CLOSED` Đã đóng (task 292: yêu cầu đã tuyển đủ hoặc bị hủy; không còn nút nào).
 
 QA cần chuẩn bị: V10 không tạo sẵn giá trị danh mục, nên HR phải tạo giá trị `WORK_LOCATION` và `EMPLOYMENT_TYPE` trước; HR phải phân công recruiter (`POST /requisitions/{id}/assign`) trước khi recruiter thấy hay tạo được tin.
 
@@ -378,7 +380,7 @@ Các quy tắc trên là giả định của backend, liệt kê ở câu hỏi 
 - `JOB_POSTINGS_READ_ALL` đơn lẻ (HIRING_MANAGER, APPROVER) không xem bản nháp, chỉ xem cổng công khai (task 309), giống trang giới thiệu công ty;
 - mỗi yêu cầu chỉ có một tin;
 - không có trạng thái Từ chối cho tin; người duyệt dùng "yêu cầu chỉnh sửa" (task 308);
-- chỉ tin nháp và tin cần chỉnh sửa sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); gỡ hay đóng tin khi đóng yêu cầu là task 292;
+- chỉ tin nháp và tin cần chỉnh sửa sửa được; tin đã gửi duyệt, đã duyệt hoặc đã xuất bản không sửa được (task 308); tin đã xuất bản chưa sửa hay gỡ được; tin chỉ đóng (`CLOSED`, V25, task 292, trạng thái cuối) khi yêu cầu được đóng vì đã tuyển đủ hoặc bị hủy;
 - bản nháp lưu được khi chưa có địa điểm, hình thức làm việc, hạn nộp; gửi duyệt (task 308) mới bắt buộc;
 - hạn nộp không trước hôm nay theo giờ Việt Nam, tính cả ngày hạn; không giới hạn ngày xa nhất; không so với ngày cần người của yêu cầu;
 - văn bản của tin chỉ nhận văn bản thuần (không HTML); mô tả công việc kế thừa có thẻ HTML được giữ trong nháp và phải sửa trước khi lưu lại hoặc gửi duyệt;

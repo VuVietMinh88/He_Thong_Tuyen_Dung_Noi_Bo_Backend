@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,4 +27,11 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, UUID> {
     // writer can lock the requisition before the posting.
     @Query("select p.requisitionId from JobPosting p where p.id = :id")
     Optional<UUID> findRequisitionIdById(@Param("id") UUID id);
+
+    // Task 292: the postings of a requisition, locked after the requisition (lock order of every posting writer). At
+    // most one under job_postings_requisition_id_key; ordered by id so the order stays safe if that key is ever
+    // relaxed.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from JobPosting p where p.requisitionId = :requisitionId order by p.id")
+    List<JobPosting> findByRequisitionIdForUpdate(@Param("requisitionId") UUID requisitionId);
 }

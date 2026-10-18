@@ -272,7 +272,7 @@ class JobPostingPublicViewIntegrationTest {
     }
 
     // S3-10 AC1: only a published posting reaches candidates; a draft, a posting under review or an approved one that
-    // is not published yet answers exactly like an id that does not exist.
+    // is not published yet answers exactly like an id that does not exist. Task 292: so does a closed one.
     @ParameterizedTest
     @EnumSource(JobPostingStatus.class)
     void onlyLivePublishedPostingsArePublic(JobPostingStatus status) throws Exception {
@@ -285,7 +285,7 @@ class JobPostingPublicViewIntegrationTest {
 
         boolean shown = switch (status) {
             case PUBLISHED -> true;
-            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED -> false;
+            case DRAFT, PENDING_APPROVAL, REVISION_REQUESTED, APPROVED, CLOSED -> false;
         };
         if (shown) {
             assertThat(ok(detail).path("id").asText()).isEqualTo(id.toString());
@@ -552,7 +552,8 @@ class JobPostingPublicViewIntegrationTest {
     }
 
     // A posting brought to the status through the API: the recruiter writes and sends it (1, 2), HR approves it or
-    // asks for changes (3) and publishes it (4).
+    // asks for changes (3) and publishes it (4). Task 292: a closed posting is published, then HR fills its
+    // requisition (task 290), which closes it (5).
     private UUID postingIn(JobPostingStatus status) throws Exception {
         UUID id = draft(false);
         if (status != JobPostingStatus.DRAFT) {
@@ -561,11 +562,17 @@ class JobPostingPublicViewIntegrationTest {
         if (status == JobPostingStatus.REVISION_REQUESTED) {
             ok(postings.decide(id, "REQUEST_REVISION", "Bổ sung quyền lợi.", 2, hrToken));
         }
-        if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED) {
+        if (status == JobPostingStatus.APPROVED || status == JobPostingStatus.PUBLISHED
+                || status == JobPostingStatus.CLOSED) {
             ok(postings.decide(id, "APPROVE", null, 2, hrToken));
         }
-        if (status == JobPostingStatus.PUBLISHED) {
+        if (status == JobPostingStatus.PUBLISHED || status == JobPostingStatus.CLOSED) {
             ok(postings.publish(id, 3, hrToken));
+        }
+        if (status == JobPostingStatus.CLOSED) {
+            ok(api.request("POST", "/api/v1/requisitions/" + postings.row(id).get("requisition_id")
+                    + "/status-changes", json.writeValueAsString(Map.of("status", "FILLED", "reason", "Đã tuyển đủ",
+                    "expectedRevision", 0)), hrToken));
         }
         assertThat(postings.row(id).get("status")).isEqualTo(status.name());
         return id;

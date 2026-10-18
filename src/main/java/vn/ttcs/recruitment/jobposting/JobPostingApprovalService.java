@@ -68,11 +68,12 @@ public class JobPostingApprovalService {
      * HR approves a posting sent for review, or asks its authors for changes (from PENDING_APPROVAL, or from APPROVED
      * while it is not published yet). Checks in order: the body (400), a comment when asking for changes (400, before
      * any lock), JOB_POSTINGS_WRITE_ALL and the read permission (401/403, before any lookup), the posting exists (404),
-     * it is in the caller's read scope (403), the decision may be taken in its status (409), the caller saw its
-     * latest revision (409), for APPROVE the caller did not write, edit or last submit it (403), its requisition is
-     * still approved (409), and for APPROVE the application deadline has not passed (409: HR cannot change the
-     * deadline of a frozen posting and asks for changes instead). The two 409s come before the 403 on purpose, like
-     * the requisition approval: someone who lost a race to another reviewer gets a message to reload.
+     * it is in the caller's read scope (403), it is not closed (409, task 292), the decision may be taken in its
+     * status (409), the caller saw its latest revision (409), for APPROVE the caller did not write, edit or last
+     * submit it (403), its requisition is still approved (409), and for APPROVE the application deadline has not
+     * passed (409: HR cannot change the deadline of a frozen posting and asks for changes instead). The 409s about the
+     * posting come before the 403 on purpose, like the requisition approval: someone who lost a race to another
+     * reviewer, or to the requisition's closure, gets a message to reload.
      */
     @Transactional
     public JobPostingView decide(Jwt jwt, UUID id, JobPostingDecisionRequest request) {
@@ -90,6 +91,7 @@ public class JobPostingApprovalService {
         Caller caller = access.requireReviewer(jwt, writer);
         JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
         access.requireInScope(caller, requisitionId);
+        JobPostingService.requireNotClosed(posting);
         if (!decision.from().contains(posting.getStatus())) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_NOT_UNDER_REVIEW",
                     "Tin tuyển dụng không còn ở bước duyệt này. Vui lòng tải lại để xem trạng thái mới nhất.");
@@ -119,11 +121,12 @@ public class JobPostingApprovalService {
     /**
      * HR publishes an approved posting. Anyone with JOB_POSTINGS_WRITE_ALL may, the approver included. Checks in
      * order: JOB_POSTINGS_WRITE_ALL and the read permission (401/403, before any lookup), the posting exists (404), it
-     * is in the caller's read scope (403), it is not published yet (409 JOB_POSTING_ALREADY_PUBLISHED) and it is
-     * approved (409 JOB_POSTING_NOT_APPROVED), the caller saw its latest revision (409), its requisition is still
-     * approved (409), the application deadline has not passed (409). The PUBLISHED event records the caller from the
-     * token and the server time, never anything from the body. Candidates see the posting from task 309 on. Task 310:
-     * the posting keeps the same publisher and time (publishedById, publishedAt in every internal view).
+     * is in the caller's read scope (403), it is not closed (409 JOB_POSTING_CLOSED, task 292), it is not published
+     * yet (409 JOB_POSTING_ALREADY_PUBLISHED) and it is approved (409 JOB_POSTING_NOT_APPROVED), the caller saw its
+     * latest revision (409), its requisition is still approved (409), the application deadline has not passed (409).
+     * The PUBLISHED event records the caller from the token and the server time, never anything from the body.
+     * Candidates see the posting from task 309 on. Task 310: the posting keeps the same publisher and time
+     * (publishedById, publishedAt in every internal view).
      */
     @Transactional
     public JobPostingView publish(Jwt jwt, UUID id, JobPostingPublishRequest request) {
@@ -136,6 +139,7 @@ public class JobPostingApprovalService {
         Caller caller = access.requireReviewer(jwt, writer);
         JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
         access.requireInScope(caller, requisitionId);
+        JobPostingService.requireNotClosed(posting);
         if (posting.getStatus() == JobPostingStatus.PUBLISHED) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_ALREADY_PUBLISHED",
                     "Tin tuyển dụng đã được xuất bản.");

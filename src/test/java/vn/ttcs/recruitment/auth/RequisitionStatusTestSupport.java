@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-// Tasks 290/293: the HTTP and SQL helpers the status change tests share. It composes JobPostingTestSupport, so
+// Tasks 290/292/293: the HTTP and SQL helpers the status change tests share. It composes JobPostingTestSupport, so
 // accounts, departments, flows, requisitions and postings come from there.
 final class RequisitionStatusTestSupport {
     static final String REQUISITIONS = "/api/v1/requisitions/";
@@ -59,6 +59,18 @@ final class RequisitionStatusTestSupport {
     // A requisition approved through the API by hrToken, the only level of its department's flow: revision 2.
     UUID approved(UUID position, UUID department, String creatorToken, String hrToken) throws Exception {
         return postings.approvedRequisition(position, department, creatorToken, hrToken);
+    }
+
+    // Task 292: a complete posting of the approved requisition, published through the API: hrToken writes and sends
+    // it (1, 2), adminToken approves it (3; an author never approves) and hrToken publishes it (4).
+    UUID publishedPosting(UUID requisition, UUID workLocation, UUID employmentType, String hrToken,
+                          String adminToken) throws Exception {
+        UUID id = UUID.fromString(postings.created(postings.body(requisition, workLocation, employmentType), hrToken)
+                .path("id").asText());
+        api.expect(postings.submit(id, 1, null, hrToken), 200);
+        api.expect(postings.decide(id, "APPROVE", null, 2, adminToken), 200);
+        api.expect(postings.publish(id, 3, hrToken), 200);
+        return id;
     }
 
     // GET /requisitions/{id}/approvals: the progress, with the history newest first.
