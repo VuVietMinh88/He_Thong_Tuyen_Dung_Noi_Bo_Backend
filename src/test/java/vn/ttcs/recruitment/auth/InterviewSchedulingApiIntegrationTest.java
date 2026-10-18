@@ -119,6 +119,19 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         assertThat(count("interview_sessions")).isZero();
     }
 
+    @Test
+    void panelOverlapAndNormalizedRoomOverlapBlockWhileAdjacentSlotsAreAllowed() throws Exception {
+        created(create(first.applicationId(), hrToken, schedule(START, panel, "Room   One")));
+        error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(60), panel, "Different")), 409, "INTERVIEW_CONFLICT");
+        error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(60), otherPanel, "  ROOM ONE  ")), 409, "INTERVIEW_CONFLICT");
+        String nbsp = Character.toString(0x00a0);
+        error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(60), otherPanel, nbsp + "Room One" + nbsp)),
+                409, "INTERVIEW_CONFLICT");
+        error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(60), otherPanel, nbsp + nbsp)),
+                400, "VALIDATION_ERROR");
+        created(create(other.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "room one")));
+        assertThat(count("interview_sessions")).isEqualTo(2);
+    }
 
     @Test
     void previewReturnsOnlyResourceConflictsAndDoesNotSave() throws Exception {
