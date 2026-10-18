@@ -15,7 +15,7 @@ class JobPostingSourceStatusTest {
     void everyRequisitionStatusIsClassifiedAsASourceOfPostings(RequisitionStatus status) {
         boolean source = switch (status) {
             case APPROVED -> true;
-            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED -> false;
+            case DRAFT, PENDING_APPROVAL, RETURNED, REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
 
         assertThat(JobPostingService.SOURCE_STATUSES.contains(status)).isEqualTo(source);

@@ -14,7 +14,7 @@ class RequisitionOverdueStatusTest {
     void everyStatusIsClassifiedForOverdue(RequisitionStatus status) {
         boolean overdue = switch (status) {
             case DRAFT, PENDING_APPROVAL, RETURNED, APPROVED -> true;
-            case REJECTED -> false;
+            case REJECTED, PAUSED, FILLED, CANCELLED -> false;
         };
 
         assertThat(RequisitionListItemView.OVERDUE_STATUSES.contains(status)).isEqualTo(overdue);

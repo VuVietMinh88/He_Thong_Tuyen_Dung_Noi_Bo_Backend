@@ -12,8 +12,9 @@ import jakarta.validation.constraints.Size;
  * without any visible character, such as only spaces or only zero-width spaces, counts as none (WorkflowComment), and
  * line breaks inside a visible comment are kept. expectedRevision is the revision of the approval progress the
  * approver is looking at: the sequence number of the requisition's latest approval event, 1 after the first submit
- * and one more for each decision or submit (GET /requisitions/{id}/approvals, task 267, returns it). A decision taken
- * on an outdated view, such as a second click or a decision someone else took meanwhile, is refused.
+ * and one more for each submit, decision or status change (task 293; GET /requisitions/{id}/approvals, task 267,
+ * returns it). A decision taken on an outdated view, such as a second click or a decision someone else took meanwhile,
+ * is refused.
  */
 public record ApprovalDecisionRequest(
         @NotNull(message = "Vui lòng chọn thao tác duyệt.")

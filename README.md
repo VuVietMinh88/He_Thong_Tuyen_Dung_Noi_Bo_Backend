@@ -53,6 +53,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [recruitment-catalogs](docs/api/recruitment-catalogs.md)
 - [requisition-approvals](docs/api/requisition-approvals.md)
 - [requisition-recruiters](docs/api/requisition-recruiters.md)
+- [requisition-status](docs/api/requisition-status.md)
 - [requisitions](docs/api/requisitions.md)
 
 Phân quyền: [thiết kế](docs/architecture/authorization.md) và [ma trận vai trò và quyền](docs/architecture/role-permission-matrix.md) (đề xuất chờ BA/PO xác nhận).

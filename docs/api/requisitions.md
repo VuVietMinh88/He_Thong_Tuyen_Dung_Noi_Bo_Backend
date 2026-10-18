@@ -181,7 +181,7 @@ UUID trong ví dụ chỉ minh họa. Trường chưa nhập có giá trị `nul
 
 | Tham số | Ý nghĩa | Giá trị sai |
 |---|---|---|
-|status|Không bắt buộc. Mã trạng thái đúng chữ hoa: `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `REJECTED` (task 257, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md)). Nhận nhiều giá trị (task 297): lặp lại tham số (`status=DRAFT&status=APPROVED`) hoặc ngăn bằng dấu phẩy (`status=DRAFT,APPROVED`), không trộn hai cách trong một yêu cầu. Phần tử rỗng (`status=DRAFT,`) bị bỏ qua. Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ." (mã sai, chữ thường, hoặc `PENDING`, `OPEN`, `CLOSED`)|
+|status|Không bắt buộc. Mã trạng thái đúng chữ hoa: `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `REJECTED` (task 257, xem [API duyệt yêu cầu tuyển dụng](requisition-approvals.md)), `PAUSED`, `FILLED`, `CANCELLED` (task 293, xem [Tạm dừng, đóng và hủy yêu cầu tuyển dụng](requisition-status.md)). Nhận nhiều giá trị (task 297): lặp lại tham số (`status=DRAFT&status=APPROVED`) hoặc ngăn bằng dấu phẩy (`status=DRAFT,APPROVED`), không trộn hai cách trong một yêu cầu. Phần tử rỗng (`status=DRAFT,`) bị bỏ qua. Bỏ qua (hoặc để rỗng) để lấy mọi trạng thái|400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ." (mã sai, chữ thường, hoặc `PENDING`, `OPEN`, `CLOSED`)|
 |departmentId|Không bắt buộc. UUID của phòng ban: chỉ yêu cầu của **đúng** phòng ban đó, không gồm phòng ban con (task 297)|Không phải UUID: như dòng trên|
 |recruiterId|Không bắt buộc. UUID tài khoản: yêu cầu mà người này đang là **recruiter chính** (`PRIMARY`, [API phân công recruiter](requisition-recruiters.md)). Recruiter hỗ trợ không khớp; sau bàn giao chỉ recruiter chính mới khớp (task 297)|Không phải UUID: như dòng trên|
 |startDate, endDate|Không bắt buộc. Khoảng **ngày cần người** (`neededBy`), dạng `yyyy-MM-dd`, tính cả hai đầu; gửi một đầu cũng được. Khi có ít nhất một đầu, yêu cầu chưa có ngày cần người bị loại (task 297)|Sai định dạng (`2026-02-30`, `11/10/2026`, `2026-10-11T00:00`, `2026-10-11+07:00`): như dòng trên. `startDate` sau `endDate`, hoặc năm ngoài 1–9999 (`0000-01-01`, `+10000-01-01`): 400 `VALIDATION_ERROR` "Khoảng ngày cần người không hợp lệ."|
@@ -239,7 +239,7 @@ Response: `{items, page, size, totalElements, totalPages}`; mỗi item có 15 tr
 
 `daysOpen` là số ngày từ ngày tạo tới hôm nay (ngày tạo tính là 0). `daysUntilNeededBy` là số ngày từ hôm nay tới `neededBy`, âm khi đã trễ và `null` nếu chưa có ngày cần người. `overdue` chỉ là `true` khi `neededBy` trước hôm nay; đến hạn hôm nay chưa trễ. Các ngày được tính theo `app.business-zone`, mặc định `Asia/Ho_Chi_Minh`, tại thời điểm đọc danh sách.
 
-`overdue` chỉ có thể `true` khi trạng thái là `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED`; `REJECTED` luôn `false` dù `daysUntilNeededBy` âm (task 297). `daysOpen` vẫn đếm từ ngày tạo với mọi trạng thái.
+`overdue` chỉ có thể `true` khi trạng thái là `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED`; `REJECTED` (task 297) và `PAUSED`, `FILLED`, `CANCELLED` (task 293) luôn `false` dù `daysUntilNeededBy` âm. `daysOpen` vẫn đếm từ ngày tạo với mọi trạng thái.
 
 Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi UUID) để phân trang ổn định; sửa bản nháp không đổi vị trí của nó. Trang ngoài phạm vi có `items` rỗng. Người `SCOPED` không phụ trách phòng ban nào nhận `items` rỗng với `totalElements` và `totalPages` bằng 0. Điều kiện phòng ban nằm trong câu truy vấn SQL, nên yêu cầu của phòng ban khác không được đọc ra khỏi database. `totalElements` và `totalPages` tính sau khi lọc.
 
@@ -253,7 +253,7 @@ Sắp xếp yêu cầu tạo sau lên trước (`createdAt` giảm dần, rồi 
 
 `PUT /requisitions/{id}` lưu lại bản nháp với nội dung mới, trả **200** cùng yêu cầu sau khi sửa. Body có đúng các trường và quy tắc của `POST` ở trên. `PUT` **thay toàn bộ** nội dung: trường không gửi, gửi `null` hoặc văn bản không có ký tự nhìn thấy được trở thành `null`, nên giao diện phải gửi lại mọi trường đang có trên form. `id`, `status`, `createdBy`, `createdAt` không sửa được (gửi lên là `INVALID_JSON`); `createdBy` và `createdAt` giữ nguyên kể cả khi người sửa không phải người tạo, `updatedAt` là thời điểm sửa (UTC, micro giây).
 
-Chỉ yêu cầu ở trạng thái `DRAFT`, hoặc `RETURNED` (người duyệt yêu cầu bổ sung, task 264), được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
+Chỉ yêu cầu ở trạng thái `DRAFT`, hoặc `RETURNED` (người duyệt yêu cầu bổ sung, task 264), được sửa; trạng thái khác trả 409 `REQUISITION_NOT_DRAFT`. Từ task 257, yêu cầu đã gửi duyệt (`PENDING_APPROVAL`), đã duyệt hay bị từ chối không sửa được; từ task 293, yêu cầu tạm dừng, đã tuyển đủ hay đã hủy cũng vậy. Yêu cầu `APPROVED` (task 263) là yêu cầu được dùng để soạn tin tuyển dụng (story S3-09).
 
 Thứ tự kiểm tra:
 
@@ -338,7 +338,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 Story S3-04: "Vượt chỉ tiêu là cảnh báo chặn". Khi tạo hoặc sửa nháp, backend so yêu cầu với [định biên](headcount-plans.md) của **phòng ban trong body** cho **năm kế hoạch** của yêu cầu: năm của `neededBy`, chưa có ngày thì năm tạo yêu cầu theo múi giờ nghiệp vụ (khi sửa, vẫn là năm tạo ban đầu, không phải năm sửa).
 
 - Phòng ban chưa có định biên cho năm đó: không giới hạn, không kiểm.
-- Chỉ tiêu headcount: số người của các yêu cầu khác đã tính vào định biên đó (mọi yêu cầu ở trạng thái `DRAFT`, `PENDING_APPROVAL`, `RETURNED` hoặc `APPROVED`, kể cả của người khác) cộng `headcount` của yêu cầu này không được vượt `headcountLimit`. Lấp đúng chỉ tiêu là được.
+- Chỉ tiêu headcount: số người của các yêu cầu khác đã tính vào định biên đó (mọi yêu cầu ở trạng thái `DRAFT`, `PENDING_APPROVAL`, `RETURNED`, `APPROVED`, `PAUSED` hoặc `FILLED`, kể cả của người khác) cộng `headcount` của yêu cầu này không được vượt `headcountLimit`. Lấp đúng chỉ tiêu là được.
 - Ngân sách (khi định biên có `salaryBudget`): chi phí năm của các yêu cầu khác cộng của yêu cầu này (`headcount` × lương đề xuất tối đa, thiếu thì tối thiểu, × 12; chưa đề xuất lương thì 0) không được vượt `salaryBudget`.
 - Vượt chỉ tiêu: 409 `HEADCOUNT_LIMIT_EXCEEDED`, lời nhắn ví dụ "Phòng ban chỉ còn 0 chỉ tiêu headcount năm 2026 nhưng yêu cầu cần 1 người. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Nếu vượt cả ngân sách, lời nhắn thêm "Yêu cầu cũng vượt ngân sách lương năm 2026."
 - Chỉ vượt ngân sách: 409 `SALARY_BUDGET_EXCEEDED`, "Yêu cầu vượt ngân sách lương năm 2026 của phòng ban. Cần Trưởng phòng Nhân sự xác nhận vượt định biên kèm lý do." Lời nhắn **không** nêu số tiền, vì chỉ HR được xem ngân sách.
@@ -429,7 +429,7 @@ Hạn JWT, phiên và quyền ghi được kiểm lại sau các khóa dòng ch�
 |401|UNAUTHORIZED hoặc SESSION_INVALID|Thiếu, sai, hết hạn token; phiên bị thu hồi; người gọi bị khóa, kể cả khi điều này xảy ra lúc yêu cầu ghi đang chờ khóa|
 |403|FORBIDDEN|Thiếu quyền của thao tác (bảng đầu trang); hoặc người `SCOPED` xem/sửa yêu cầu của phòng ban mình không phụ trách (trừ xem yêu cầu mà người đó tham gia duyệt, task 262); hoặc người `SCOPED` tạo yêu cầu cho, hay chuyển nháp sang, phòng ban mình không phụ trách (task 249)|
 |404|REQUISITION_NOT_FOUND|`GET`/`PUT`, lịch sử ngoại lệ hoặc sao chép với UUID không có yêu cầu nào|
-|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không ở trạng thái `DRAFT` hay `RETURNED` (đang chờ duyệt, đã duyệt hoặc bị từ chối)|
+|409|REQUISITION_NOT_DRAFT|`PUT` một yêu cầu không ở trạng thái `DRAFT` hay `RETURNED` (đang chờ duyệt, đã duyệt, bị từ chối, tạm dừng, đã tuyển đủ hoặc đã hủy)|
 |409|HEADCOUNT_LIMIT_EXCEEDED|Lưu yêu cầu làm phòng ban vượt chỉ tiêu headcount của năm kế hoạch (task 274); lời nhắn nêu số chỉ tiêu còn lại|
 |409|SALARY_BUDGET_EXCEEDED|Lưu yêu cầu làm phòng ban vượt ngân sách lương của năm kế hoạch (task 274); lời nhắn không nêu số tiền|
 |403|FORBIDDEN|Lưu vượt định biên kèm `headcountOverrideReason` nhưng người gọi không có `HEADCOUNT_PLANS_WRITE_ALL` (task 275); sao chép khi không có quyền đọc yêu cầu tuyển dụng, bản gốc ngoài phạm vi đọc, hoặc phòng ban của bản gốc ngoài phạm vi ghi (task 278)|
@@ -457,7 +457,7 @@ Frontend nhánh `UI` (`src/services/business.service.ts`, `RequisitionList.tsx`)
 | Frontend hiện tại | Backend | Cần sửa? |
 |---|---|---|
 |`getRequisitions` gửi `status`, `departmentId`, `recruiterId`, `startDate`, `endDate`, `page`, `size` và bỏ tham số rỗng|Đúng tên và ý nghĩa; `startDate`/`endDate` là ngày cần người, dạng `yyyy-MM-dd`, tính cả hai đầu|Không|
-|`STATUSES` = `DRAFT, PENDING, APPROVED, REJECTED, OPEN, CLOSED, CANCELLED`|`DRAFT, PENDING_APPROVAL, RETURNED, APPROVED, REJECTED`; trạng thái tạm dừng, đã tuyển đủ và đã hủy của story S3-07 thêm ở task 293. `PENDING`, `OPEN`, `CLOSED` trả 400|**Có** (một dòng)|
+|`STATUSES` = `DRAFT, PENDING, APPROVED, REJECTED, OPEN, CLOSED, CANCELLED`|`DRAFT, PENDING_APPROVAL, RETURNED, APPROVED, REJECTED, PAUSED, FILLED, CANCELLED` (ba trạng thái cuối của story S3-07 có từ task 293; "Đã tuyển đủ" là `FILLED`). `PENDING`, `OPEN`, `CLOSED` trả 400|**Có** (một dòng)|
 |`status` chỉ gửi một giá trị|Nhận nhiều giá trị (`status=A&status=B` hoặc `status=A,B`)|Tùy chọn|
 |Tự tính `openDays`/`daysLeft`/`isOverdue` bằng date-fns theo giờ của trình duyệt|Dùng `daysOpen`, `daysUntilNeededBy` (`null` là chưa có ngày cần người) và `overdue` của item (ngày nghiệp vụ giờ Việt Nam; `false` với yêu cầu không còn đang tuyển, ví dụ bị từ chối). Thêm ba trường vào một kiểu `RequisitionListItem` (kiểu `Requisition` hiện chưa có). `GET /requisitions/{id}` không có ba trường này|Nên sửa|
 |`recruiterId` đã khai báo nhưng chưa có ô chọn|Recruiter chính hiện tại; danh sách chọn lấy từ `GET /accounts?role=RECRUITER` (chỉ HR_MANAGER và ADMIN có `USER_ADMIN_READ_ALL`)|Tùy chọn|

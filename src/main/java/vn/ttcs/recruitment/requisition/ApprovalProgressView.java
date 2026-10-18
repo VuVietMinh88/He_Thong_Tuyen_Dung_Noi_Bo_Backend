@@ -6,9 +6,10 @@ import java.util.UUID;
 
 /**
  * Task 267: the approval progress and history of a requisition (GET /requisitions/{id}/approvals, story S3-03).
- * revision is what a decision sends back as expectedRevision (0 before the first submission). levels describes the
- * chain of the latest round; history lists every event of every round, newest first. Salary thresholds are never
- * shown, only whether a level was added by the salary (addedBySalaryLimit).
+ * revision is what a decision sends back as expectedRevision (0 before the first submission, then one more for each
+ * submit, decision or status change). levels describes the chain of the latest round; history lists every event of
+ * every round, newest first, with HR's status changes (task 293) among them. Salary thresholds are never shown, only
+ * whether a level was added by the salary (addedBySalaryLimit).
  */
 public record ApprovalProgressView(UUID requisitionId, RequisitionStatus status, UUID createdById,
                                    String createdByName, int revision, Integer round, Flow flow, Integer levelCount,

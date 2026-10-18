@@ -18,7 +18,8 @@ import java.util.stream.Collectors;
  * the progress is stored besides the history and the requisition status: the round's SUBMITTED event is its snapshot
  * (flow version, number of levels, salary), and its decisions say how far it got. Levels are decided in order, one
  * decision per level; the round is open while every decision so far approved, not every level has, and nothing
- * happened after it (a later round, or a later event of another kind such as closing the requisition).
+ * happened after it (a later round, or a later event of another kind such as closing the requisition). A round that
+ * a status change interrupted (task 293) is not open, but the level it waited for counts as reached.
  */
 public final class ApprovalRound {
     private final ApprovalEvent submission;
@@ -96,9 +97,17 @@ public final class ApprovalRound {
         return open() ? approvedLevels() + 1 : null;
     }
 
-    // The levels this round actually got to: every decided level, plus the current one while open.
+    // Task 293: the round still waited for a level when something outside the workflow ended it (HR cancelling the
+    // requisition, task 290): every decision so far approved, not every level has, and an event came after it. Only an
+    // event without a round can do this: a later round needs a REQUEST_INFO decision first, and REJECTED is final.
+    public boolean interrupted() {
+        return followedByLaterEvent && approvedLevels() == decisions.size() && approvedLevels() < levelCount();
+    }
+
+    // The levels this round actually got to: every decided level, plus the current one while open or the one it waited
+    // for when it was interrupted (task 293: its approvers keep read access, so a late decision gets a 409, not a 403).
     public int reachedLevel() {
-        return decisions.size() + (open() ? 1 : 0);
+        return decisions.size() + (open() || interrupted() ? 1 : 0);
     }
 
     // Who decided a level of this round (one level per person and round).

@@ -19,7 +19,8 @@ import java.util.UUID;
  * The approval history of requisitions (V19 requisition_workflow_events). This class only adds and reads rows: no
  * event is ever changed or removed. Every writer holds the requisition row lock, which every writer of a requisition
  * takes first, so the next revision cannot be taken by another writer in between; one that skipped the lock would
- * fail on requisition_workflow_events_revision_key.
+ * fail on requisition_workflow_events_revision_key. Task 293: also HR's status changes (pause, resume, fill, cancel),
+ * with no round, level or snapshot.
  */
 @Repository
 public class RequisitionApprovalRepository {
@@ -82,6 +83,29 @@ public class RequisitionApprovalRepository {
                 .addValue("actorId", actorId)
                 .addValue("occurredAt", at)
                 .addValue("comment", comment));
+    }
+
+    // Task 293: HR paused, resumed, closed as filled or cancelled the requisition: who, when, the status before and
+    // after, and the reason (stored in comment; V24 requires it except on RESUMED). The caller holds the requisition
+    // lock and has checked the change is allowed from before; the revision continues the requisition's one counter.
+    public void appendStatusChange(UUID requisitionId, RequisitionStatusChange change, RequisitionStatus before,
+                                   UUID actorId, Instant at, String reason) {
+        if (!change.allowedFrom(before) || (change.requiresReason() && reason == null)) {
+            throw new IllegalStateException("Status change " + change + " from " + before + " without its checks");
+        }
+        append(requisitionId, new MapSqlParameterSource()
+                .addValue("eventType", change.eventType().name())
+                .addValue("statusBefore", before.name())
+                .addValue("statusAfter", change.target().name())
+                .addValue("roundNumber", null)
+                .addValue("levelNumber", null)
+                .addValue("flowId", null)
+                .addValue("flowVersion", null)
+                .addValue("levelCount", null)
+                .addValue("salaryBasis", null)
+                .addValue("actorId", actorId)
+                .addValue("occurredAt", at)
+                .addValue("comment", reason));
     }
 
     // Task 261: the chain of a round, levels 1 to levelCount of its sealed flow version, with the names shown for them.

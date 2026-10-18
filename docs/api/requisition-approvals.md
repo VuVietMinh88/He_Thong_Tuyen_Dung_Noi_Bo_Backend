@@ -20,21 +20,29 @@ Task 256 chọn cấp duyệt, task 257 thêm `POST /requisitions/{id}/submit` (
 |`RETURNED`|Cần bổ sung|Người duyệt yêu cầu bổ sung thông tin|
 |`APPROVED`|Đã duyệt|Mọi cấp của lượt duyệt đã duyệt; [tin tuyển dụng](job-postings.md) được tạo từ yêu cầu ở trạng thái này|
 |`REJECTED`|Bị từ chối|Kết thúc; muốn thử lại thì sao chép yêu cầu|
+|`PAUSED`|Tạm dừng|Trưởng phòng Nhân sự tạm ngừng tuyển; mở lại thì về `APPROVED` (task 293)|
+|`FILLED`|Đã tuyển đủ|Kết thúc (task 293)|
+|`CANCELLED`|Đã hủy|Kết thúc (task 293)|
 
 V19 thêm bốn trạng thái mới cùng lúc. Task 257 chỉ dùng `DRAFT → PENDING_APPROVAL`; các bước còn lại đến từ quyết định duyệt.
 
-Mỗi trạng thái được xếp sẵn vào các nhóm sau. `RequisitionStatus` ghi danh sách các nhóm, và test không biên dịch được cho tới khi một trạng thái mới được xếp nhóm. Từ task 303, nhóm "Tạo tin tuyển dụng" là `JobPostingService.SOURCE_STATUSES`: tin chỉ được tạo, và chỉ được sửa tiếp, khi yêu cầu ở một trạng thái trong nhóm này.
+V24 (task 293, story S3-07) thêm `PAUSED`, `FILLED`, `CANCELLED`. Chúng không đến từ luồng duyệt mà từ thay đổi trạng thái của Trưởng phòng Nhân sự (API ở task 290); bảng chuyển trạng thái và lý do nằm ở [Tạm dừng, đóng và hủy yêu cầu tuyển dụng](requisition-status.md).
 
-| Mã | Sửa (`PUT`) | Gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Sao chép | Tạo tin tuyển dụng |
-|---|---|---|---|---|---|---|---|
-|`DRAFT`|Có|Có|Có|Có|Có|Có|Không|
-|`PENDING_APPROVAL`|Không|Không|Có|Có|Có|Có|Không|
-|`RETURNED`|Có|Có|Có|Có|Có|Có|Không|
-|`APPROVED`|Không|Không|Có|Có|Có|Có|Có|
-|`REJECTED`|Không|Không|Không|Không|Không (vẫn chặn bằng khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Có|Không|
+Mỗi trạng thái được xếp sẵn vào các nhóm sau. `RequisitionStatus` ghi danh sách các nhóm, và test không biên dịch được cho tới khi một trạng thái mới được xếp nhóm. Từ task 303, nhóm "Tạo tin tuyển dụng" là `JobPostingService.SOURCE_STATUSES`: tin chỉ được tạo, và chỉ được sửa tiếp, khi yêu cầu ở một trạng thái trong nhóm này. Từ task 297, nhóm "Trễ hạn" là `RequisitionListItemView.OVERDUE_STATUSES`: chỉ yêu cầu ở các trạng thái này mới có `overdue` trong [danh sách](requisitions.md).
+
+| Mã | Sửa (`PUT`) | Gửi duyệt | Phân công recruiter | Tính vào định biên | Chặn xóa phòng ban (còn mở) | Trễ hạn (298) | Sao chép | Tạo tin tuyển dụng |
+|---|---|---|---|---|---|---|---|---|
+|`DRAFT`|Có|Có|Có|Có|Có|Có|Có|Không|
+|`PENDING_APPROVAL`|Không|Không|Có|Có|Có|Có|Có|Không|
+|`RETURNED`|Có|Có|Có|Có|Có|Có|Có|Không|
+|`APPROVED`|Không|Không|Có|Có|Có|Có|Có|Có|
+|`REJECTED`|Không|Không|Không|Không|Không (vẫn chặn bằng khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Có|Không|
+|`PAUSED`|Không|Không|Có|Có|Có|Không|Có|Không|
+|`FILLED`|Không|Không|Không|Có|Không (khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Có|Không|
+|`CANCELLED`|Không|Không|Không|Không|Không (khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Có|Không|
 
 - Sửa yêu cầu không ở trạng thái sửa được trả 409 `REQUISITION_NOT_DRAFT`. Từ task 264, yêu cầu `RETURNED` được sửa và gửi lại như bản nháp.
-- Yêu cầu bị từ chối trả lại chỗ trong định biên. Không có bước nào đưa yêu cầu từ trạng thái không tính về trạng thái tính, nên gửi duyệt và quyết định duyệt không phải kiểm định biên lại.
+- Yêu cầu bị từ chối hoặc đã hủy trả lại chỗ trong định biên; yêu cầu tạm dừng hoặc đã tuyển đủ vẫn giữ chỗ (task 293). Không có bước nào, kể cả thay đổi trạng thái của Trưởng phòng Nhân sự, đưa yêu cầu từ trạng thái không tính về trạng thái tính, nên gửi duyệt, quyết định duyệt và đổi trạng thái không phải kiểm định biên lại.
 - Bản sao luôn là `DRAFT` và **không** có lịch sử duyệt: lịch sử gắn với `id` của yêu cầu.
 - Gửi duyệt và quyết định duyệt không đổi `updatedAt`, vốn là thời điểm sửa nội dung gần nhất.
 
@@ -105,7 +113,7 @@ Phiên bản cấu hình đã niêm phong không bao giờ đổi hay bị xóa 
 |---|---|
 |action|Bắt buộc, đúng chữ hoa: `APPROVE` (duyệt, task 263), `REJECT` (từ chối, task 262) hoặc `REQUEST_INFO` (yêu cầu bổ sung, task 264)|
 |comment|Nhận xét. Bắt buộc khi từ chối hoặc yêu cầu bổ sung; tối đa 2.000 ký tự, không chứa ký tự NUL; để trống hoặc không có ký tự nhìn thấy được (chỉ gồm khoảng trắng, kể cả U+00A0, xuống dòng, hoặc ký tự vô hình như U+200B) coi như không có; nhận xét có ký tự nhìn thấy được giữ nguyên xuống dòng|
-|expectedRevision|Bắt buộc, số nguyên dương: `revision` của tiến độ duyệt người duyệt đang xem, tức số thứ tự của sự kiện mới nhất trong lịch sử duyệt (1 ngay sau lần gửi duyệt đầu tiên, tăng 1 sau mỗi quyết định hoặc lần gửi duyệt; task 267 trả số này ở `GET /requisitions/{id}/approvals`). Lệch với lịch sử hiện tại (bấm hai lần, người khác vừa quyết định) thì trả 409 để tải lại|
+|expectedRevision|Bắt buộc, số nguyên dương: `revision` của tiến độ duyệt người duyệt đang xem, tức số thứ tự của sự kiện mới nhất trong lịch sử duyệt (1 ngay sau lần gửi duyệt đầu tiên, tăng 1 sau mỗi lần gửi duyệt, quyết định hoặc thay đổi trạng thái (task 293); task 267 trả số này ở `GET /requisitions/{id}/approvals`). Lệch với lịch sử hiện tại (bấm hai lần, người khác vừa quyết định) thì trả 409 để tải lại|
 
 Trường khác (ví dụ `reason`) trả `INVALID_JSON`. Response 200 là yêu cầu tuyển dụng với trạng thái mới.
 
@@ -156,7 +164,7 @@ Task 264 ("Yêu cầu bổ sung trả hồ sơ về cho người tạo và giữ
 Người có `REQUISITIONS_READ_SCOPED` vốn chỉ xem yêu cầu của phòng ban mình phụ trách. Từ task 262, người **tham gia duyệt** một yêu cầu cũng xem được nó, kể cả khi không phụ trách phòng ban nào (ví dụ vai trò APPROVER):
 
 - người đã quyết định một cấp của yêu cầu, ở bất kỳ lượt nào, mãi về sau;
-- người mà một cấp được chuyển tới (tài khoản được chỉ định, hoặc người giữ vai trò theo bảng ở mục "Ai được duyệt một cấp"), khi lượt duyệt đã **tới** cấp đó. Cấp chưa tới thì chưa mở gì.
+- người mà một cấp được chuyển tới (tài khoản được chỉ định, hoặc người giữ vai trò theo bảng ở mục "Ai được duyệt một cấp"), khi lượt duyệt đã **tới** cấp đó. Cấp chưa tới thì chưa mở gì. Cấp đang chờ khi Trưởng phòng Nhân sự hủy yêu cầu vẫn tính là đã tới (task 293): người được chuyển tới vẫn xem được yêu cầu, và nếu bấm quyết định trên trang cũ thì nhận 409 `REQUISITION_NOT_PENDING_APPROVAL` để tải lại, không phải 403.
 
 Quy tắc này áp dụng cho `GET /requisitions/{id}`, `GET /requisitions/{id}/assignment`, `GET /requisitions/{id}/assignment-history` và quyết định duyệt. Danh sách `GET /requisitions`, `GET /requisitions/{id}/headcount-overrides` và sao chép vẫn chỉ theo phòng ban. Quyền ghi nội dung (sửa, gửi duyệt, sao chép, phân công) không được mở rộng.
 
@@ -173,7 +181,7 @@ Mỗi cấp của một lượt chỉ có một quyết định (`requisition_wo
 
 ## Tiến độ và lịch sử duyệt
 
-`GET /requisitions/{id}/approvals` (task 267) trả tiến độ của lượt duyệt mới nhất và toàn bộ lịch sử. Quyền như `GET /requisitions/{id}` (mục "Ai được xem yêu cầu"): 401/403, 404, rồi 403 khi ngoài phạm vi.
+`GET /requisitions/{id}/approvals` (task 267) trả tiến độ của lượt duyệt mới nhất và toàn bộ lịch sử. Từ task 293, lịch sử có cả các lần Trưởng phòng Nhân sự đổi trạng thái (tạm dừng, mở lại, đã tuyển đủ, hủy), xem [Tạm dừng, đóng và hủy yêu cầu tuyển dụng](requisition-status.md). Quyền như `GET /requisitions/{id}` (mục "Ai được xem yêu cầu"): 401/403, 404, rồi 403 khi ngoài phạm vi.
 
 ```json
 {
@@ -217,12 +225,12 @@ Mỗi cấp của một lượt chỉ có một quyết định (`requisition_wo
 }
 ```
 
-- `revision` là số thứ tự của sự kiện mới nhất; gửi lại đúng số này trong `expectedRevision` khi quyết định. Chưa gửi duyệt lần nào thì `revision` là 0, `round`, `flow`, `levelCount`, `currentLevel`, `submitted*`, `waitingOn` là `null`, `levels` và `history` là mảng rỗng.
-- `levels` là các cấp của lượt mới nhất. `status`: `APPROVED`, `REJECTED`, `INFO_REQUESTED` khi cấp đã quyết định; `PENDING` với cấp đang chờ; `NOT_REACHED` với cấp chưa tới. `approverName` là người đã quyết định, hoặc người/vai trò được chuyển tới khi chưa quyết định.
+- `revision` là số thứ tự của sự kiện mới nhất (gửi duyệt, quyết định hoặc thay đổi trạng thái, task 293); gửi lại đúng số này trong `expectedRevision` khi quyết định. Chưa gửi duyệt lần nào thì `revision` là 0, `round`, `flow`, `levelCount`, `currentLevel`, `submitted*`, `waitingOn` là `null`, `levels` và `history` là mảng rỗng.
+- `levels` là các cấp của lượt mới nhất. `status`: `APPROVED`, `REJECTED`, `INFO_REQUESTED` khi cấp đã quyết định; `PENDING` với cấp đang chờ; `NOT_REACHED` với cấp chưa tới, hoặc cấp đang chờ khi yêu cầu bị hủy (task 293; không ai quyết định cấp đó). `approverName` là người đã quyết định, hoặc người/vai trò được chuyển tới khi chưa quyết định.
 - `currentLevel` chỉ có khi đang chờ duyệt.
-- `waitingOn` cho biết đang chờ ai: `APPROVAL_LEVEL` kèm những người được quyết định cấp đó lúc này (`people`); `hasEligibleApprover: false` nghĩa là hiện không ai quyết định được (ví dụ người duyệt bị khóa sau khi gửi). `REQUESTER` khi đang chờ bên yêu cầu bổ sung (`people` là người tạo). Đã duyệt hay bị từ chối thì `null`.
+- `waitingOn` cho biết đang chờ ai: `APPROVAL_LEVEL` kèm những người được quyết định cấp đó lúc này (`people`); `hasEligibleApprover: false` nghĩa là hiện không ai quyết định được (ví dụ người duyệt bị khóa sau khi gửi). `REQUESTER` khi đang chờ bên yêu cầu bổ sung (`people` là người tạo). Đã duyệt, bị từ chối, tạm dừng, đã tuyển đủ hay đã hủy thì `null`.
 - `actions.canDecide` cho biết người gọi có được quyết định cấp hiện tại không.
-- `history` gồm mọi sự kiện của mọi lượt, mới nhất trước, xếp theo `revision` (hai sự kiện có thể cùng thời điểm). `flowVersion`, `levelCount`, `salaryBasis` chỉ có ở `SUBMITTED`.
+- `history` gồm mọi sự kiện của mọi lượt, mới nhất trước, xếp theo `revision` (hai sự kiện có thể cùng thời điểm). `flowVersion`, `levelCount`, `salaryBasis` chỉ có ở `SUBMITTED`. Dòng thay đổi trạng thái (task 293) có `action` là `PAUSED`, `RESUMED`, `FILLED` hoặc `CANCELLED`, `round` và `level` là `null`, `comment` là lý do.
 - Tên người được đọc lúc trả, nên tài khoản đổi tên thì hiện tên mới. Ngưỡng lương của cấu hình **không bao giờ** được trả; chỉ có `addedBySalaryLimit`.
 
 ## Hộp chờ duyệt
@@ -309,12 +317,12 @@ Các màn hình duyệt ở nhánh `UI` (`ApprovalActionUI.tsx`, `ApprovalHistor
 |`ApprovalActionUI.tsx` bắt nhận xét cho mọi thao tác|Nhận xét chỉ bắt buộc khi từ chối và yêu cầu bổ sung|
 |Chưa có nút "Yêu cầu bổ sung"|`action: "REQUEST_INFO"`|
 |`GET /approvals/{id}/history` (mảng `{stepName, approverName, status, comment, actionDate}`)|`GET /requisitions/{id}/approvals`: hiển thị `.levels` (đủ năm trường đó), `status` thêm `INFO_REQUESTED` ("Yêu cầu bổ sung") và `NOT_REACHED` ("Chưa đến lượt"); dùng `.history` cho dòng thời gian qua các lượt; lấy `expectedRevision` từ `.revision`|
-|Trạng thái `PENDING` trong `Requisition.status` và bộ lọc|`PENDING_APPROVAL`; thêm `RETURNED`. `OPEN`, `CLOSED`, `CANCELLED` vẫn trả 400 cho tới story S3-07|
+|Trạng thái `PENDING` trong `Requisition.status` và bộ lọc|`PENDING_APPROVAL`; thêm `RETURNED`. `PENDING`, `OPEN`, `CLOSED` trả 400; `PAUSED`, `FILLED` (frontend gọi `CLOSED`), `CANCELLED` có từ V24 (task 293)|
 |Chưa có hộp chờ duyệt|`GET /requisitions/approval-inbox`, cùng dạng trang với danh sách|
 |Nút thao tác|Hiện nút quyết định theo `actions.canDecide`. Gặp 409 `APPROVAL_STATE_CHANGED` hoặc `REQUISITION_NOT_PENDING_APPROVAL` thì báo và tải lại|
 |Cấu hình luồng duyệt (`/approval-workflows/config`)|Dùng [API cấu hình luồng phê duyệt](approval-flows.md): `departmentId`, `salaryThreshold`, `approverUserId` hoặc `approverRole`, `expectedVersion`, UUID thật|
 
-Nhãn trạng thái: `DRAFT` Nháp; `PENDING_APPROVAL` Chờ duyệt; `RETURNED` Cần bổ sung; `APPROVED` Đã duyệt; `REJECTED` Bị từ chối.
+Nhãn trạng thái: `DRAFT` Nháp; `PENDING_APPROVAL` Chờ duyệt; `RETURNED` Cần bổ sung; `APPROVED` Đã duyệt; `REJECTED` Bị từ chối; `PAUSED` Tạm dừng; `FILLED` Đã tuyển đủ; `CANCELLED` Đã hủy.
 
 Người duyệt chỉ xem yêu cầu qua quyền tham gia duyệt thì vẫn nhận 403 ở `GET /requisitions/{id}/headcount-overrides` và `GET /headcount-plans/remaining` của phòng ban khác. Màn hình chi tiết không nên gọi hai API này khi người xem không phụ trách phòng ban, hoặc phải tự xử lý 403 của chúng thay vì chuyển sang `/unauthorized`.
 
@@ -331,7 +339,7 @@ Các quy tắc trên là giả định của backend. Gồm:
 - ai sửa được yêu cầu thì gửi duyệt được (người có quyền ghi theo phạm vi phòng ban), không chỉ người tạo;
 - khi gửi duyệt bắt buộc có cả hai mức lương, ngày cần người, mô tả công việc và yêu cầu ứng viên;
 - không kiểm định biên lại khi gửi duyệt hay khi duyệt, vì yêu cầu đã được tính từ lúc lưu;
-- recruiter vẫn được phân công khi yêu cầu chờ duyệt, cần bổ sung hoặc đã duyệt; không phân công khi đã bị từ chối;
+- recruiter vẫn được phân công khi yêu cầu chờ duyệt, cần bổ sung, đã duyệt hoặc tạm dừng; không phân công khi đã bị từ chối, đã tuyển đủ hoặc đã hủy;
 - gửi duyệt và duyệt không đổi `updatedAt`; bản sao không mang trạng thái hay lịch sử duyệt;
 - người tham gia duyệt xem được yêu cầu, phân công và lịch sử phân công của nó; danh sách và ngoại lệ định biên vẫn theo phòng ban;
 - `HR_MANAGER` và `ADMIN` không duyệt thay; một cấp mà người duyệt bị khóa hoặc mất quyền sau khi gửi thì chờ tới khi có người đủ điều kiện.

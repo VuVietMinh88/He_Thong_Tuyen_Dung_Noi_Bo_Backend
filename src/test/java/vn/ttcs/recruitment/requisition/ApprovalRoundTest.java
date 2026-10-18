@@ -95,16 +95,65 @@ class ApprovalRoundTest {
     }
 
     @Test
-    void aLaterEventOfAnotherKindClosesTheRound() {
+    void aCancelOfAnotherKindInterruptsTheRound() {
         submitted(1, 2);
-        // An event without a round, as closing or cancelling a requisition will add (story S3-07).
-        events.add(new ApprovalEvent(UUID.randomUUID(), 2, ApprovalEventType.APPROVED,
-                RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.PENDING_APPROVAL, null, null, null, null, null,
-                null, hr, "HR", AT.plusSeconds(2), null));
+        // Task 293: HR cancels the requisition while level 1 decides, an event without a round.
+        statusChanged(ApprovalEventType.CANCELLED, RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.CANCELLED);
 
         var round = ApprovalRound.latest(events).orElseThrow();
         assertThat(round.open()).isFalse();
-        assertThat(round.reachedLevel()).isZero();
+        assertThat(round.currentLevel()).isNull();
+        assertThat(round.interrupted()).isTrue();
+        // Level 1 was reached: its approvers keep reading the requisition, and a late decision gets a 409.
+        assertThat(round.reachedLevel()).isEqualTo(1);
+        assertThat(ApprovalRound.lastRevision(events)).isEqualTo(2);
+    }
+
+    @Test
+    void onlyARoundThatStillWaitedIsInterrupted() {
+        // Open: nothing came after it.
+        submitted(1, 3);
+        decided(1, 1, ApprovalEventType.APPROVED, hr, RequisitionStatus.PENDING_APPROVAL);
+        var open = ApprovalRound.latest(events).orElseThrow();
+        assertThat(open.interrupted()).isFalse();
+        assertThat(open.reachedLevel()).isEqualTo(2);
+
+        // Cancelled while level 2 waited.
+        events.clear();
+        submitted(1, 2);
+        decided(1, 1, ApprovalEventType.APPROVED, hr, RequisitionStatus.PENDING_APPROVAL);
+        statusChanged(ApprovalEventType.CANCELLED, RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.CANCELLED);
+        var cancelled = ApprovalRound.latest(events).orElseThrow();
+        assertThat(cancelled.interrupted()).isTrue();
+        assertThat(cancelled.reachedLevel()).isEqualTo(2);
+
+        // Complete, then paused: every level was reached already.
+        events.clear();
+        submitted(1, 2);
+        decided(1, 1, ApprovalEventType.APPROVED, hr, RequisitionStatus.PENDING_APPROVAL);
+        decided(1, 2, ApprovalEventType.APPROVED, director, RequisitionStatus.APPROVED);
+        statusChanged(ApprovalEventType.PAUSED, RequisitionStatus.APPROVED, RequisitionStatus.PAUSED);
+        var paused = ApprovalRound.latest(events).orElseThrow();
+        assertThat(paused.interrupted()).isFalse();
+        assertThat(paused.reachedLevel()).isEqualTo(paused.levelCount());
+
+        // Ended by asking for more information, then submitted again: round 1 stopped at the level that asked.
+        events.clear();
+        submitted(1, 2);
+        decided(1, 1, ApprovalEventType.APPROVED, hr, RequisitionStatus.PENDING_APPROVAL);
+        decided(1, 2, ApprovalEventType.INFO_REQUESTED, director, RequisitionStatus.RETURNED);
+        submitted(2, 1);
+        var returned = ApprovalRound.all(events).getFirst();
+        assertThat(returned.interrupted()).isFalse();
+        assertThat(returned.reachedLevel()).isEqualTo(2);
+
+        // Ended by a rejection.
+        events.clear();
+        submitted(1, 3);
+        decided(1, 1, ApprovalEventType.REJECTED, hr, RequisitionStatus.REJECTED);
+        var rejected = ApprovalRound.latest(events).orElseThrow();
+        assertThat(rejected.interrupted()).isFalse();
+        assertThat(rejected.reachedLevel()).isEqualTo(1);
     }
 
     @Test
@@ -142,5 +191,11 @@ class ApprovalRoundTest {
         events.add(new ApprovalEvent(UUID.randomUUID(), events.size() + 1, type, RequisitionStatus.PENDING_APPROVAL,
                 after, round, level, null, null, null, null, actor, "Người duyệt", AT.plusSeconds(events.size() + 1),
                 type == ApprovalEventType.APPROVED ? null : "Lý do"));
+    }
+
+    // Task 293: a status change of HR has no round, level or snapshot; its comment is the reason.
+    private void statusChanged(ApprovalEventType type, RequisitionStatus before, RequisitionStatus after) {
+        events.add(new ApprovalEvent(UUID.randomUUID(), events.size() + 1, type, before, after, null, null, null, null,
+                null, null, hr, "HR", AT.plusSeconds(events.size() + 1), "Không còn nhu cầu"));
     }
 }

@@ -1,9 +1,9 @@
 package vn.ttcs.recruitment.requisition;
 
-// V13 CHECK valid_requisition_status allowed only DRAFT; V19 (task 257) widened it to the five statuses below. A new
-// status needs a migration that widens the CHECK at the same time as the new enum value, otherwise saving it fails in
-// PostgreSQL.
-// Task 197: a new status that is still open (not closed or cancelled) must also be added to
+// V13 CHECK valid_requisition_status allowed only DRAFT; V19 (task 257) widened it to five statuses and V24 (task 293)
+// to the eight below. A new status needs a migration that widens the CHECK at the same time as the new enum value,
+// otherwise saving it fails in PostgreSQL.
+// Task 197: a new status that is still open (not filled, rejected or cancelled) must also be added to
 // DepartmentRepository.OPEN_REQUISITION_STATUSES, so that it keeps blocking the deletion of its department.
 // DepartmentDeletionIntegrationTest does not compile until the new status is given its group there.
 // Task 272: decide too whether its people still count against the headcount plan of the department
@@ -24,6 +24,9 @@ package vn.ttcs.recruitment.requisition;
 // their requisition is task 292.
 // Task 297: decide whether a requisition in the new status can still be overdue in GET /requisitions
 // (RequisitionListItemView.OVERDUE_STATUSES). RequisitionOverdueStatusTest does not compile until it is.
+// Tasks 293/290: decide from which statuses a requisition may reach the new status and where it may go next
+// (RequisitionStatusChange.from); RequisitionStatusChangeTest does not compile until it is. Widen V24's
+// valid_requisition_workflow_event_transition in a new migration if a status change reaches it.
 public enum RequisitionStatus {
     // Saved by its department, not sent for approval yet (or copied).
     DRAFT,
@@ -35,5 +38,12 @@ public enum RequisitionStatus {
     // (JobPostingService.SOURCE_STATUSES).
     APPROVED,
     // An approver rejected it (task 262). Final: copy it to try again.
-    REJECTED
+    REJECTED,
+    // HR paused recruiting (task 290); it keeps its headcount and recruiters and can be resumed to APPROVED. Its
+    // content is the approved one (not editable).
+    PAUSED,
+    // Recruited in full (task 290). Final: copy it to recruit again. Its people still count against the plan.
+    FILLED,
+    // Cancelled by HR (task 290). Final; gives its headcount back.
+    CANCELLED
 }

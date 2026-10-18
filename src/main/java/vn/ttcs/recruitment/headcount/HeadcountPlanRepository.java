@@ -24,10 +24,12 @@ public class HeadcountPlanRepository {
     // people are still needed (for example approved) and leave out those that give them back (rejected, cancelled).
     // RequisitionStatus says so too; HeadcountPlanRepositoryIntegrationTest does not compile until a new status is
     // given its group there. Task 257: a requisition waiting for approval, returned for more information or approved
-    // still needs its people; a rejected one gives them back. No transition leads from REJECTED to a counted status,
-    // so the workflow never has to check the plan again.
+    // still needs its people. Task 293: a paused requisition still needs its people and a filled one has hired them;
+    // a rejected or cancelled one gives them back. No status change leads from an uncounted status (REJECTED,
+    // CANCELLED, both final) to a counted one, so neither the workflow nor a status change ever has to check the plan
+    // again (CountedRequisitionStatusChangeTest).
     static final List<String> COUNTED_REQUISITION_STATUSES = List.of("DRAFT", "PENDING_APPROVAL", "RETURNED",
-            "APPROVED");
+            "APPROVED", "PAUSED", "FILLED");
 
     private static final String SELECT = """
             SELECT id, department_id, plan_year, headcount_limit, salary_budget, created_at, updated_at, updated_by
