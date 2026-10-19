@@ -223,7 +223,7 @@ class ApplicationIpQuotaIntegrationTest {
             assertThatThrownBy(() -> consume(IP,1)).isInstanceOf(ApplicationRateLimitException.class);
         } finally {start.countDown();}
     }
-    @Test void migrationUpgradesV26WithoutChangingExistingAccountsOrApplicationTables() throws Exception {
+    @Test void migrationUpgradesV27WithoutChangingExistingAccountsOrApplicationTables() throws Exception {
         String original=jdbc.queryForObject("SELECT current_schema()",String.class);
         String schema="quota_upgrade_"+UUID.randomUUID().toString().replace("-","");
         jdbc.execute("CREATE SCHEMA "+schema);
@@ -233,12 +233,19 @@ class ApplicationIpQuotaIntegrationTest {
             }
         };
         try {
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26").load().migrate();
+            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27").load().migrate();
             var legacy=new JdbcTemplate(isolated);UUID user=UUID.randomUUID();
             legacy.update("INSERT INTO user_accounts(id,email,password_hash,full_name,enabled,created_at) VALUES (?,'legacy@example.test','legacy-hash','Legacy',true,clock_timestamp())",user);
             var before=legacy.queryForList("SELECT * FROM user_accounts WHERE id=?",user);
             var columns=legacy.queryForList("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=? AND table_name IN ('job_applications','application_cvs') ORDER BY table_name,ordinal_position",schema);
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27").load().migrate();
+            assertThat(columns).isNotEmpty();
+            assertThat(legacy.queryForList("SELECT to_regclass('application_ip_quotas') AS quotas, to_regclass('application_ip_attempts') AS attempts"))
+                    .allSatisfy(row -> assertThat(row.values()).containsOnlyNulls());
+            var upgrade=org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27.1").load();
+            assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
+            upgrade.validate();
+            assertThat(legacy.queryForObject("SELECT script FROM flyway_schema_history WHERE version='27.1' AND success",String.class))
+                    .isEqualTo("V27_1__create_application_ip_quotas.sql");
             assertThat(legacy.queryForList("SELECT * FROM user_accounts WHERE id=?",user)).isEqualTo(before);
             assertThat(legacy.queryForList("SELECT table_name,column_name,data_type FROM information_schema.columns WHERE table_schema=? AND table_name IN ('job_applications','application_cvs') ORDER BY table_name,ordinal_position",schema)).isEqualTo(columns);
             assertThat(legacy.queryForObject("SELECT count(*) FROM application_ip_attempts",Integer.class)).isZero();

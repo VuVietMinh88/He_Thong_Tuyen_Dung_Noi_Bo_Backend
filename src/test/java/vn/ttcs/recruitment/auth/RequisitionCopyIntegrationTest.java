@@ -49,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class RequisitionCopyIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String BASE = "/api/v1/requisitions";
     private static final String PASSWORD = "TestingOnly123!";
     // 10:00 on 10 Oct 2026 in Vietnam.
@@ -238,6 +239,36 @@ class RequisitionCopyIntegrationTest {
         assertThat(count()).isEqualTo(2);
     }
 
+    // A reason without a visible character is no reason, like a blank one, so HR gets the 409 as well. Before, the
+    // no-break spaces U+00A0, U+2007, U+202F and U+0085, U+180E passed String.isBlank() and failed V15's CHECK (500),
+    // and a reason made of zero-width characters (U+200B, U+FEFF, U+2060) was stored as a confirmation that shows
+    // nothing.
+    @Test
+    void aReasonWithoutAVisibleCharacterIsNoReason() throws Exception {
+        UUID source = id(create(body(itId, 2, null, null, "2026-12-01"), headToken));
+        jdbc.update("""
+                INSERT INTO headcount_plans (id, department_id, plan_year, headcount_limit, created_at, updated_at,
+                    updated_by)
+                VALUES (?, ?, 2026, 3, ?, ?, ?)
+                """, UUID.randomUUID(), itId, Timestamp.from(START), Timestamp.from(START), hrId);
+
+        for (String missing : List.of(" \n\t ", codePoints(0x00A0), codePoints(0x2007), codePoints(0x202F),
+                codePoints(0x0085), codePoints(0x180E), codePoints(0x200B), codePoints(0xFEFF), codePoints(0x2060),
+                codePoints(0x00A0, '\n', 0x2007, 0x202F, ' ', 0x0085, 0x180E, 0x200B, 0xFEFF, 0x2060))) {
+            String description = missing.codePoints().mapToObj(Integer::toHexString).toList().toString();
+            assertThat(expect(copy(source, missing, hrToken), 409).path("code").asText()).as(description)
+                    .isEqualTo("HEADCOUNT_LIMIT_EXCEEDED");
+        }
+        assertThat(count()).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM requisition_headcount_overrides", Integer.class)).isZero();
+
+        // One visible character is enough, and the reason is stored exactly as typed, its no-break space included.
+        String reason = "Dự" + codePoints(0x00A0) + "án gấp";
+        expect(copy(source, reason, hrToken), 201);
+        assertThat(jdbc.queryForObject("SELECT reason FROM requisition_headcount_overrides", String.class))
+                .isEqualTo(reason);
+    }
+
     @Test
     void theBodyIsOptionalAndOnlyCarriesTheOverrideReason() throws Exception {
         UUID source = id(create(full(itId), headToken));
@@ -335,6 +366,11 @@ class RequisitionCopyIntegrationTest {
                 String.class, passed)).isEqualTo("2026-10-15");
     }
 
+    // Built from code points, so the characters stay readable in the source.
+    private static String codePoints(int... characters) {
+        return new String(characters, 0, characters.length);
+    }
+
     private Map<String, Object> full(UUID department) {
         Map<String, Object> body = body(department, 2, 15_000_000L, 25_000_000L, "2026-12-31");
         body.put("reason", "REPLACEMENT");
@@ -403,6 +439,9 @@ class RequisitionCopyIntegrationTest {
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
+        if ("POST".equals(method) && ("/api/v1/auth/login".equals(path) || "/login".equals(path))) {
+            builder.header("X-Device-Id", loginDeviceId);
+        }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 

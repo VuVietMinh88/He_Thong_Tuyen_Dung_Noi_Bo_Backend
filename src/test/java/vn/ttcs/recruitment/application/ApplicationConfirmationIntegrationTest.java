@@ -424,7 +424,7 @@ class ApplicationConfirmationIntegrationTest {
         assertThat(SMTP.messages().get(0).getMessageID()).isEqualTo(SMTP.messages().get(1).getMessageID());
         assertThat(count("job_applications")).isEqualTo(1);assertThat(count("application_cvs")).isEqualTo(1);
     }
-    @Test void migrationV27ToV28PreservesExistingApplicationCvAndQuotaWithoutBackfillingMail() throws Exception {
+    @Test void migrationV27Point1ToV28PreservesExistingApplicationCvAndQuotaWithoutBackfillingMail() throws Exception {
         var receipt=pending();UUID app=UUID.fromString(receipt.get("applicationId").asString());
         byte[] hash=jdbc.queryForObject("SELECT tracking_code_hash FROM job_applications",byte[].class);
         String original=jdbc.queryForObject("SELECT current_schema()",String.class);
@@ -435,14 +435,19 @@ class ApplicationConfirmationIntegrationTest {
             }
         };
         try {
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27").load().migrate();
+            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27.1").load().migrate();
             var legacy=new JdbcTemplate(isolated);
             for(String table:List.of("user_accounts","departments","positions","recruitment_catalog_items","recruitment_requisitions",
                     "job_postings","job_applications","application_cvs","application_ip_quotas")) {
                 legacy.execute("INSERT INTO "+schema+"."+table+" SELECT * FROM "+original+"."+table);
             }
             legacy.execute("INSERT INTO application_ip_attempts(client_ip,attempted_at) SELECT client_ip,attempted_at FROM "+original+".application_ip_attempts");
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("28").load().migrate();
+            assertThat(legacy.queryForObject("SELECT to_regclass('application_email_outbox') IS NULL",Boolean.class)).isTrue();
+            var upgrade=org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("28").load();
+            assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(1);
+            upgrade.validate();
+            assertThat(legacy.queryForObject("SELECT script FROM flyway_schema_history WHERE version='28' AND success",String.class))
+                    .isEqualTo("V28__create_application_email_outbox.sql");
             assertThat(legacy.queryForObject("SELECT tracking_code_hash FROM job_applications WHERE id=?",byte[].class,app)).isEqualTo(hash);
             assertThat(legacy.queryForObject("SELECT content FROM application_cvs WHERE application_id=?",byte[].class,app)).isEqualTo(pdf);
             assertThat(legacy.queryForObject("SELECT count(*) FROM application_ip_attempts",Integer.class)).isEqualTo(1);

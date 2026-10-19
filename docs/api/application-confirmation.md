@@ -150,7 +150,7 @@ tamper/AAD swapping/wrongkey, redaction, receipt/size validation.
 `ApplicationConfirmationIntegrationTest`: HTTP/DB/SMTP thật local; 201/409, hash và payload mã hóa;
 rollback, quota, plain UTF-8, giờ Việt Nam, alias người gửi, Message-ID và xóa payload SENT;
 SMTP ngoài transaction, retry tối đa 6 lần, 550/connect/restart, worker đồng thời và lease;
-lỗi DB, tamper, commit visibility, khả năng gửi trùng và migration V27→V28.
+lỗi DB, tamper, commit visibility, khả năng gửi trùng và migration V27.1→V28.
 Kiểm thêm timeout khi khóa requisition/posting/source, khóa enqueue sau khi lưu CV,
 SQL chậm và tổng nhiều SQL vượt ngân sách; giữ quota, rollback sạch, nộp lại cùng email,
 không đổi timeout của transaction caller và vẫn nhận CV đúng giới hạn 10 MiB.

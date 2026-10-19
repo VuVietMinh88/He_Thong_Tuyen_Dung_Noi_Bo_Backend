@@ -612,8 +612,8 @@ class RequisitionStatusChangeIntegrationTest {
     }
 
     // The recruiter writes and sends the postings, HR reviews and publishes them (HR is never an author here). While
-    // the requisition is paused, every posting write is refused, every action flag is off and the published posting
-    // leaves the portal; resuming brings it back.
+    // the requisition is paused, every posting write but the take-down is refused, every action flag but canUnpublish
+    // is off and the published posting leaves the portal; resuming brings it back.
     private void pausedPostingsAreFrozenAndHidden() throws Exception {
         UUID draft = postingFor(requisition(it, RequisitionStatus.APPROVED));
         UUID pending = postingFor(requisition(it, RequisitionStatus.APPROVED));
@@ -652,6 +652,8 @@ class RequisitionStatusChangeIntegrationTest {
             for (String flag : List.of("canEdit", "canSubmit", "canApprove", "canRequestRevision", "canPublish")) {
                 assertThat(actions.path(flag).asBoolean()).as(flag).isFalse();
             }
+            // Task 355: a published posting is taken down at any time, its requisition paused included.
+            assertThat(actions.path("canUnpublish").asBoolean()).isEqualTo(posting.equals(published));
         }
         postings.error(postings.publicDetail(published), 404, "JOB_POSTING_NOT_FOUND");
         assertThat(api.expect(postings.publicList(0, 20), 200).path("totalElements").asLong()).isZero();

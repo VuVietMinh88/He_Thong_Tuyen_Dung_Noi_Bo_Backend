@@ -56,7 +56,7 @@ kiểm chứng đường đi proxy. Lần triển khai này không thay cấu h�
 
 ## PostgreSQL và giao dịch
 
-Migration **V27** tạo hai bảng riêng:
+Migration **V27.1** tạo hai bảng riêng:
 
 | Bảng | Dữ liệu |
 |---|---|
@@ -119,7 +119,7 @@ số liệu hồ sơ, email, mã/hash/link hoặc SQL trong lỗi.
   header, syntax, cấu hình trust và peer rewriting.
 - `ApplicationIpQuotaIntegrationTest`: 5/6, cửa sổ và biên microsecond 60 phút, Retry-After,
   nhiều IP/instance, concurrent first requests, chờ khóa/timeout, giao dịch độc lập,
-  cleanup/batch/race, migration V26→V27, HTTP lỗi/CORS/trùng/receipt rollback/DB lỗi.
+  cleanup/batch/race, migration V27→V27.1, HTTP lỗi/CORS/trùng/receipt rollback/DB lỗi.
 - `ApplicationTrustedProxyQuotaIntegrationTest`: HTTP thật qua peer tin cậy, chain giả,
   IP độc lập, IPv4 mapped và header sai.
 - Các test intake OFF/thiếu writer xác nhận không ghi quota; test intake cũ dùng quota

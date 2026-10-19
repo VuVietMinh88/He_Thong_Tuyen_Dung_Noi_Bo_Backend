@@ -80,6 +80,7 @@ public class AuthIntegrationTest {
     @Autowired private MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final UUID deviceId = UUID.randomUUID();
 
     @DynamicPropertySource
     static void authProperties(DynamicPropertyRegistry registry) {
@@ -89,6 +90,7 @@ public class AuthIntegrationTest {
     @BeforeEach
     void resetDatabase() {
         clock.set(START);
+        jdbc.update("DELETE FROM login_devices");
         jdbc.update("DELETE FROM auth_sessions");
         jdbc.update("DELETE FROM user_roles");
         jdbc.update("DELETE FROM user_accounts");
@@ -146,7 +148,7 @@ public class AuthIntegrationTest {
     }
 
     @Test
-    void changingPasswordKeepsCallerSessionButRevokesOtherSessions() throws Exception {
+    void changingPasswordRevokesCallerAndOtherSessions() throws Exception {
         JsonNode caller = successfulLogin();
         JsonNode other = successfulLogin();
         String newPassword = "ChangedPassword123!";
@@ -157,10 +159,10 @@ public class AuthIntegrationTest {
         assertThat(changed.headers().firstValue("Cache-Control")).contains("no-store");
         assertThat(changed.body()).doesNotContain(PASSWORD, newPassword);
         assertThat(request("GET", "/api/v1/auth/me", null,
-                caller.path("accessToken").asText()).statusCode()).isEqualTo(200);
+                caller.path("accessToken").asText()).statusCode()).isEqualTo(401);
         assertThat(request("GET", "/api/v1/auth/me", null,
                 other.path("accessToken").asText()).statusCode()).isEqualTo(401);
-        assertThat(refresh(caller.path("refreshToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(refresh(caller.path("refreshToken").asText()).statusCode()).isEqualTo(401);
         assertThat(refresh(other.path("refreshToken").asText()).statusCode()).isEqualTo(401);
         assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
         assertThat(login(EMAIL, newPassword).statusCode()).isEqualTo(200);
@@ -216,15 +218,23 @@ public class AuthIntegrationTest {
     @Test
     void fiveFailuresAreCommittedAndLockExpiresAtFifteenMinutes() throws Exception {
         for (int attempt = 1; attempt <= 5; attempt++) {
-            assertThat(login(EMAIL, "WrongPassword1").statusCode()).isEqualTo(401);
+            var response = login(EMAIL, "WrongPassword1");
+            assertThat(response.statusCode()).isEqualTo(attempt == 5 ? 429 : 401);
+            if (attempt == 5) {
+                assertThat(body(response).path("code").asText()).isEqualTo("LOGIN_DEVICE_LOCKED");
+                assertThat(response.headers().firstValue("Retry-After")).contains("900");
+                assertThat(response.headers().firstValue("Cache-Control")).contains("no-store");
+            }
             assertThat(failedAttempts()).isEqualTo(attempt);
         }
-        Instant lockedUntil = jdbc.queryForObject("SELECT locked_until FROM user_accounts WHERE email = ?",
-                Timestamp.class, EMAIL).toInstant();
+        Instant lockedUntil = jdbc.queryForObject("SELECT locked_until FROM login_devices WHERE id = ?",
+                Timestamp.class, deviceId).toInstant();
         assertThat(lockedUntil).isEqualTo(START.plus(Duration.ofMinutes(15)));
-        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(429);
         clock.set(START.plusSeconds(899));
-        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
+        var lastSecond = login(EMAIL, PASSWORD);
+        assertThat(lastSecond.statusCode()).isEqualTo(429);
+        assertThat(lastSecond.headers().firstValue("Retry-After")).contains("1");
         assertThat(failedAttempts()).isEqualTo(5);
         clock.set(START.plusSeconds(900));
         assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(200);
@@ -248,12 +258,85 @@ public class AuthIntegrationTest {
             for (int index = 0; index < 5; index++) {
                 attempts.add(() -> login(EMAIL, "WrongPassword1").statusCode());
             }
-            for (var result : executor.invokeAll(attempts)) {
-                assertThat(result.get()).isEqualTo(401);
-            }
+            var results = new ArrayList<Integer>();
+            for (var result : executor.invokeAll(attempts)) results.add(result.get());
+            assertThat(results).containsExactlyInAnyOrder(401, 401, 401, 401, 429);
         }
         assertThat(failedAttempts()).isEqualTo(5);
-        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(401);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    void blockedBrowserDoesNotLockAccountOrOtherBrowsersEvenOnTheSameIp() throws Exception {
+        UUID otherBrowser = UUID.randomUUID();
+        JsonNode existing = body(loginFrom(otherBrowser.toString(), EMAIL, PASSWORD));
+        for (int attempt = 0; attempt < 5; attempt++) login(EMAIL, "WrongPassword1");
+        assertThat(loginFrom(otherBrowser.toString(), EMAIL, PASSWORD).statusCode()).isEqualTo(200);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(429);
+        assertThat(request("GET", "/api/v1/auth/me", null,
+                existing.path("accessToken").asText()).statusCode()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT failed_login_attempts FROM user_accounts WHERE email=?",
+                Integer.class, EMAIL)).isZero();
+        assertThat(jdbc.queryForObject("SELECT locked_until FROM user_accounts WHERE email=?",
+                Timestamp.class, EMAIL)).isNull();
+        var listed = request("GET", "/api/v1/accounts?status=ACTIVE", null,
+                existing.path("accessToken").asText());
+        assertThat(listed.statusCode()).isEqualTo(200);
+        assertThat(listed.body()).contains(EMAIL);
+    }
+
+    @Test
+    void unknownAccountsShareTheBrowserCounterAcrossEmails() throws Exception {
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            assertThat(login("unknown" + attempt + "@example.test", PASSWORD).statusCode()).isEqualTo(401);
+        }
+        assertThat(login(EMAIL, "WrongPassword1").statusCode()).isEqualTo(429);
+        assertThat(login("another@example.test", PASSWORD).statusCode()).isEqualTo(429);
+        assertThat(loginFrom(UUID.randomUUID().toString(), EMAIL, PASSWORD).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void expiredBrowserLockStartsANewCounterWithoutReusingFiveFailures() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt++) login(EMAIL, "WrongPassword1");
+        clock.set(START.plusSeconds(900));
+        assertThat(login(EMAIL, "WrongPassword1").statusCode()).isEqualTo(401);
+        assertThat(failedAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void missingOrMalformedDeviceCannotBypassTheBrowserCounter() throws Exception {
+        for (String invalid : List.of("", "bad-device", "1-1-1-1-1", "a".repeat(100))) {
+            var response = loginFrom(invalid, EMAIL, PASSWORD);
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(body(response).path("code").asText()).isEqualTo("LOGIN_DEVICE_REQUIRED");
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_sessions", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM login_devices", Integer.class)).isZero();
+    }
+
+    @Test
+    void legacyAccountLockDoesNotRestrictLoginButAdministrativeLockStillDoes() throws Exception {
+        jdbc.update("UPDATE user_accounts SET failed_login_attempts=5, locked_until=? WHERE email=?",
+                Timestamp.from(START.plusSeconds(900)), EMAIL);
+        assertThat(login(EMAIL, PASSWORD).statusCode()).isEqualTo(200);
+        jdbc.update("UPDATE user_accounts SET admin_locked_at=?, admin_lock_reason='Test lock', "
+                + "admin_locked_by=id WHERE email=?", Timestamp.from(START), EMAIL);
+        assertThat(loginFrom(UUID.randomUUID().toString(), EMAIL, PASSWORD).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void retryAfterHeaderIsReadableByTheAllowedFrontend() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt++) login(EMAIL, "WrongPassword1");
+        String base = "http://127.0.0.1:" + environment.getRequiredProperty("local.server.port");
+        var request = HttpRequest.newBuilder(URI.create(base + "/api/v1/auth/login"))
+                .header("Origin", "http://localhost:5173")
+                .header("X-Device-Id", deviceId.toString()).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of(
+                        "email", EMAIL, "password", PASSWORD)))).build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(429);
+        assertThat(response.headers().firstValue("Access-Control-Expose-Headers").orElseThrow().split("\\s*,\\s*"))
+                .contains("Retry-After", "Content-Disposition");
     }
 
     @Test
@@ -626,7 +709,7 @@ public class AuthIntegrationTest {
             HttpRequest preflight = HttpRequest.newBuilder(URI.create(baseUrl + "/api/v1/auth/login"))
                     .header("Origin", origin)
                     .header("Access-Control-Request-Method", "POST")
-                    .header("Access-Control-Request-Headers", "Content-Type,Authorization")
+                    .header("Access-Control-Request-Headers", "Content-Type,Authorization,X-Device-Id")
                     .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build();
             var response = client.send(preflight, HttpResponse.BodyHandlers.ofString());
             if (origin.equals("http://localhost:5173")) {
@@ -674,6 +757,7 @@ public class AuthIntegrationTest {
         String baseUrl = "http://127.0.0.1:" + environment.getRequiredProperty("local.server.port");
         var request = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
+                .header("X-Device-Id", deviceId.toString())
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
         if (accessToken != null) {
             request.header("Authorization", "Bearer " + accessToken);
@@ -686,7 +770,17 @@ public class AuthIntegrationTest {
     }
 
     private int failedAttempts() {
-        return jdbc.queryForObject("SELECT failed_login_attempts FROM user_accounts WHERE email = ?", Integer.class, EMAIL);
+        return jdbc.queryForObject("SELECT failed_attempts FROM login_devices WHERE id = ?", Integer.class, deviceId);
+    }
+
+    private HttpResponse<String> loginFrom(String browserId, String email, String password) throws Exception {
+        String base = "http://127.0.0.1:" + environment.getRequiredProperty("local.server.port");
+        var request = HttpRequest.newBuilder(URI.create(base + "/api/v1/auth/login"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of(
+                        "email", email, "password", password))));
+        if (!browserId.isEmpty()) request.header("X-Device-Id", browserId);
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static String randomSecret() {
@@ -695,6 +789,10 @@ public class AuthIntegrationTest {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    // The database and clock of every integration test. Task 356: these contexts run without a Spring profile, so
+    // src/test/resources/application-default.properties turns the daily job posting expiry off
+    // (app.job-posting-expiry.cron=-) while the tests move this clock. A test that activates a profile does not read
+    // that file and must set the property itself.
     @TestConfiguration(proxyBeanMethods = false)
     @PropertySource("classpath:isolated-mail-test.properties")
     public static class DatabaseConfiguration {
