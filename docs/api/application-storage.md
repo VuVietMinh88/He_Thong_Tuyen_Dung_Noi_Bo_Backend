@@ -6,7 +6,7 @@ API công khai, quota IP, mã/email xác nhận còn thuộc 326–329.
 
 ## Schema
 
-V26 thêm `job_applications` và `application_cvs`. Composite FK giữ đúng tin ↔ requisition.
+V26.1 thêm `job_applications` và `application_cvs`. Composite FK giữ đúng tin ↔ requisition.
 Hồ sơ giữ thông tin người nộp, nguồn tùy chọn, thư giới thiệu, snapshot tên tin, thời điểm
 nhận và stage NEW. Không tự gộp ứng viên hoặc unique email toàn hệ thống.
 
@@ -70,9 +70,10 @@ Outbox/IP/mã/link/tra cứu/rút/UI chưa có trong 325.
 
 Tests mới: CvValidatorTest, ApplicationSubmissionTest, ApplicationStageTest,
 ApplicationStorageIntegrationTest. Kiểm tra biên 10 MiB, file giả/hỏng/mã hóa, XML/ZIP,
-bytes/hash/FK, upgrade V25→V26 giữ dữ liệu, unique song song, rollback, pipeline, mọi
+bytes/hash/FK, upgrade V25→V26→V26.1→V27 giữ dữ liệu, unique song song, rollback, pipeline, mọi
 trạng thái không nhận, hai chiều race nộp–đóng và chờ khóa qua nửa đêm Việt Nam.
-Storage có 24 ca, gồm source/cover null, chặn xóa nguồn đã dùng và khôi phục schema sau upgrade.
+Storage có 26 ca, gồm source/cover null, chặn xóa nguồn đã dùng và khôi phục schema sau upgrade.
+`FlywayDuplicateVersionGuardTest` kiểm tra version duy nhất trên classpath và mapping V26/V26.1/V27 mà không cần DB.
 
 Docker opt-in: `-Dtest.database.url=jdbc:postgresql://127.0.0.1:<port>/task325_test`.
 Factory test chỉ nhận localhost/tên database này, tạo schema và Hikari pool riêng mỗi context;

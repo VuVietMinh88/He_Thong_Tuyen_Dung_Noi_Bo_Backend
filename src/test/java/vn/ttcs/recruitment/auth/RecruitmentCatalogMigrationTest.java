@@ -177,7 +177,7 @@ class RecruitmentCatalogMigrationTest {
             // The delete API relies on PostgreSQL refusing to delete a value that is still referenced (task 229).
             // ON DELETE CASCADE / SET NULL / SET DEFAULT would silently delete or blank the referencing rows
             // instead, and a DEFERRABLE key could fail only at commit. V21 job_postings references WORK_LOCATION and
-            // EMPLOYMENT_TYPE values; V26 adds the application's CANDIDATE_SOURCE. All use RESTRICT keys.
+            // EMPLOYMENT_TYPE values; V26.1 adds the application's CANDIDATE_SOURCE. All use RESTRICT keys.
             // This guard fails as soon as a migration adds an unsafe one.
             assertThat(unsafeCatalogReferences(jdbc)).isEmpty();
             // All three known keys exist, so the empty list above really covers them.

@@ -1,8 +1,12 @@
 # Dữ liệu tài khoản và phòng ban
 
-Task 325 thêm V26: `job_applications` (hồ sơ, unique email chuẩn hóa/requisition, hash mã)
+Task 325 thêm V26.1: `job_applications` (hồ sơ, unique email chuẩn hóa/requisition, hash mã)
 và `application_cvs` (CV BYTEA riêng tư, kiểm dung lượng/hash). Composite FK giữ đúng
 tin–requisition; pipeline đọc hồ sơ thật. Xem [application-storage](../api/application-storage.md).
+
+Chuỗi migration: V26 gỡ tin → V26.1 lưu hồ sơ/CV → V27 hết hạn tin. Việc đổi tên này áp dụng cho DB mới
+hoặc DB chưa chạy migration lưu hồ sơ/CV cũ. DB đã ghi V26 cho hồ sơ/CV, hoặc đã lên V27 nhưng thiếu V26.1,
+cần kiểm tra lịch sử và lập phương án chuyển đổi riêng sau khi sao lưu; không tự sửa history, `repair` hay bật `outOfOrder`.
 
 SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/` trong backend JAR, nên JAR chạy migration được trên máy khác. Không có bản SQL thứ hai trong `src/main/resources`.
 
