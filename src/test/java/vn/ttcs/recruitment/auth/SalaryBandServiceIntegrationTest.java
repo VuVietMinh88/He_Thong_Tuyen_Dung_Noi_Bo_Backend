@@ -66,6 +66,7 @@ import static vn.ttcs.recruitment.position.SalaryBandComparison.WITHIN;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class SalaryBandServiceIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String PASSWORD = "TestingOnly123!";
     private static final Instant START = Instant.parse("2026-10-06T00:00:00Z");
     // Larger than Integer.MAX_VALUE, so the band must stay a whole-dong long from the database to the caller.
@@ -341,6 +342,9 @@ class SalaryBandServiceIntegrationTest {
                         : HttpRequest.BodyPublishers.ofString(payload));
         if (token != null) {
             builder.header("Authorization", "Bearer " + token);
+        }
+        if ("POST".equals(method) && ("/api/v1/auth/login".equals(path) || "/login".equals(path))) {
+            builder.header("X-Device-Id", loginDeviceId);
         }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

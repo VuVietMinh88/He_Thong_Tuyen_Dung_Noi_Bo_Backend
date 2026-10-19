@@ -58,10 +58,9 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization"));
-        // Browsers hide this header from cross-origin scripts unless it is exposed; the frontend reads the
-        // file name of downloads such as the staff import template from it.
-        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setAllowedHeaders(List.of("Accept", "Content-Type", "Authorization", "X-Device-Id"));
+        // Expose download filenames and browser-login lock duration to the allowed frontend.
+        configuration.setExposedHeaders(List.of("Content-Disposition", "Retry-After"));
         configuration.setAllowCredentials(false);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration legacyHealth = new CorsConfiguration();
@@ -285,8 +284,11 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         // Task 308 (story S3-10): sending for review is the authors' write; reviewing and publishing
                         // are HR decisions (JOB_POSTINGS_WRITE_ALL = ADMIN, HR_MANAGER), checked again by
-                        // JobPostingApprovalService after its locks.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit")
+                        // JobPostingApprovalService after its locks. Task 355 (story S4-08): taking a published posting
+                        // down is the composers' write too, since the story's actor is the recruiter; JobPostingService
+                        // applies the recruiter scope after its locks.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/submit",
+                                "/api/v1/job-postings/*/unpublish")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/job-postings/*/approvals",
                                 "/api/v1/job-postings/*/publish")
@@ -295,8 +297,10 @@ public class SecurityConfiguration {
                         // postings without an account; the service answers 404 for every other posting.
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/preview")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 315: the filter values are named although "/*" covers them, so they stay public if
+                        // "/*" is ever narrowed to ids.
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/job-postings",
-                                "/api/v1/public/job-postings/*").permitAll()
+                                "/api/v1/public/job-postings/filters", "/api/v1/public/job-postings/*").permitAll()
                         // Task 310: the review and publication history is read like the posting.
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/history")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")

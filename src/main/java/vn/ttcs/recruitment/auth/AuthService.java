@@ -21,38 +21,46 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokens;
     private final Clock clock;
+    private final LoginDeviceRepository devices;
     private final String dummyPasswordHash;
 
     public AuthService(AccountRepository accounts, AuthSessionRepository sessions,
-                       PasswordEncoder passwordEncoder, TokenService tokens, Clock clock) {
+                       PasswordEncoder passwordEncoder, TokenService tokens, Clock clock,
+                       LoginDeviceRepository devices) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
         this.clock = clock;
+        this.devices = devices;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
-    // A rejected login must still commit its failed-attempt counter and lock timestamp.
-    @Transactional(noRollbackFor = AuthenticationFailureException.class)
-    public TokenResponse login(LoginRequest request) {
+    // Rejected logins must commit the browser counter, including the fifth (locked) attempt.
+    @Transactional(noRollbackFor = {AuthenticationFailureException.class, LoginDeviceLockedException.class})
+    public TokenResponse login(LoginRequest request, UUID deviceId) {
+        LoginDevice device = devices.lock(deviceId, clock.instant());
+        Instant now = clock.instant();
+        if (device.isLocked(now)) {
+            throw new LoginDeviceLockedException(device.retryAfterSeconds(now));
+        }
         Account account = accounts.findByEmailForUpdate(request.email()).orElse(null);
         boolean withinBcryptLimit = request.password().getBytes(StandardCharsets.UTF_8).length <= 72;
         boolean passwordMatches = passwordEncoder.matches(
                 withinBcryptLimit ? request.password() : "invalid-password-length",
                 account == null ? dummyPasswordHash : account.getPasswordHash());
-        Instant now = clock.instant();
+        now = clock.instant();
 
-        if (account == null || !account.isAccessAllowed() || account.isLoginLocked(now)) {
+        if (account == null || !account.isAccessAllowed() || !withinBcryptLimit || !passwordMatches) {
+            LoginDevice failed = device.afterFailure(now);
+            devices.save(failed, now);
+            if (failed.isLocked(now)) {
+                throw new LoginDeviceLockedException(failed.retryAfterSeconds(now));
+            }
             throw AuthenticationFailureException.loginFailed();
         }
-        account.resetExpiredLock(now);
-        if (!withinBcryptLimit || !passwordMatches) {
-            account.recordFailedLogin(now);
-            throw AuthenticationFailureException.loginFailed();
-        }
 
-        account.clearLoginFailures();
+        devices.save(new LoginDevice(deviceId, 0, null), now);
         String refreshToken = tokens.createRefreshToken();
         AuthSession session = sessions.save(new AuthSession(account.getId(),
                 tokens.hashRefreshToken(refreshToken), now, now.plus(TokenService.REFRESH_TOKEN_TTL)));

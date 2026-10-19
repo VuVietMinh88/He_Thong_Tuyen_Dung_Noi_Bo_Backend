@@ -220,7 +220,7 @@ Ví dụ trên có dòng 3 để trống nên bị bỏ qua; tài khoản `le.va
 |valid|`true` khi dòng không có lỗi, tức là bước nhập sẽ tạo tài khoản cho dòng này|
 |errors|Danh sách lỗi theo thứ tự cột A→F, mỗi cột tối đa một lỗi. Dòng hợp lệ có mảng rỗng `[]`, không bao giờ `null`|
 
-Ô trống trả `null` (riêng `roles` là `[]`). Ô kiểu số, ngày hoặc TRUE/FALSE được đọc theo chữ Excel hiển thị: mã phòng ban gõ dạng số `101` trả `"101"`, không thành `101.0`. Số điện thoại gõ dạng số (ô không ở định dạng Text) đã mất số 0 đầu ngay trong Excel, nên server nhận `912345678` và báo `PHONE_INVALID`.
+Ô trống trả `null` (riêng `roles` là `[]`). "Bỏ khoảng trắng đầu/cuối" ở bảng trên bỏ mọi ký tự không nhìn thấy: khoảng trắng, tab, xuống dòng, khoảng trắng không ngắt (U+00A0, U+2007, U+202F, thường dính theo khi dán từ Word hoặc trang web), U+0085, U+180E, U+3000 và ký tự rộng 0 như U+200B, U+FEFF, U+2060; ký tự ở giữa được giữ. Ô chỉ có các ký tự đó là ô trống, nên ô bắt buộc như vậy báo `REQUIRED`. Ô kiểu số, ngày hoặc TRUE/FALSE được đọc theo chữ Excel hiển thị: mã phòng ban gõ dạng số `101` trả `"101"`, không thành `101.0`. Số điện thoại gõ dạng số (ô không ở định dạng Text) đã mất số 0 đầu ngay trong Excel, nên server nhận `912345678` và báo `PHONE_INVALID`.
 
 Giá trị sai vẫn được trả nguyên như đã đọc (sau khi chuẩn hóa) để quản trị viên đối chiếu với lỗi.
 

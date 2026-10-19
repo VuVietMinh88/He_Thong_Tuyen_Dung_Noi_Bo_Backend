@@ -2,14 +2,17 @@ package vn.ttcs.recruitment.auth;
 
 import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.util.List;
@@ -28,8 +31,15 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(authService.login(request));
+    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request,
+                                               @RequestHeader(value = "X-Device-Id", required = false) String deviceId) {
+        if (deviceId == null || !deviceId.matches(
+                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    "LOGIN_DEVICE_REQUIRED", "Vui lòng cung cấp X-Device-Id là UUID hợp lệ của trình duyệt.");
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(authService.login(request, UUID.fromString(deviceId)));
     }
 
     @PostMapping("/refresh")

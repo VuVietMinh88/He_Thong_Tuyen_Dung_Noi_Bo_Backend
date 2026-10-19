@@ -21,7 +21,7 @@ Tin không nhận hồ sơ trả 404; input sai trả lỗi validation. Không t
 
 ## Cách thực hiện
 
-V26 đã có `UNIQUE (requisition_id, normalized_email)` tên
+V26.1 đã có `UNIQUE (requisition_id, normalized_email)` tên
 `job_applications_requisition_email_key`. Giữ nguyên schema và unique tracking hash.
 `ApplicationRepository.insert` dùng:
 

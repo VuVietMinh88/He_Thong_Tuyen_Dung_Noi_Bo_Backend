@@ -63,6 +63,8 @@ Flyway đọc `database/migrations/` đã được Maven đóng gói, tự tạo
 
 Frontend chạy trong repo Frontend, đặt `VITE_API_BASE_URL=http://localhost:8080/api/v1`. Backend đặt `CORS_ALLOWED_ORIGINS` đúng origin Frontend, ví dụ `http://localhost:5173`; URL reset/activation email cũng trỏ đến Frontend.
 
+Backend có một tác vụ hằng ngày (task 356) chuyển tin tuyển dụng đã qua hạn nộp sang hết hạn, chạy lúc 00:05 theo `app.business-zone` (`Asia/Ho_Chi_Minh`), không theo giờ của JVM (lệnh trên chạy JVM ở UTC). Biến tùy chọn `JOB_POSTING_EXPIRY_CRON` trong `.env` (dòng mẫu đã comment trong `.env.example`) đổi lịch: cron 6 trường của Spring (giây, phút, giờ, ngày, tháng, thứ), ví dụ `0 0 1 * * *` là 01:00 giờ Việt Nam; `-` tắt tác vụ. Không đặt thì dùng `0 5 0 * * *`; đừng để dòng có giá trị rỗng (`JOB_POSTING_EXPIRY_CRON=`), backend sẽ không khởi động. Nhiều bản backend dùng chung một database thì mỗi bản đều chạy tác vụ; khóa dòng bảo đảm mỗi tin chỉ chuyển một lần.
+
 Để thử email, chạy Mailpit riêng khi các cổng 1025/8025 còn trống:
 
 ```powershell

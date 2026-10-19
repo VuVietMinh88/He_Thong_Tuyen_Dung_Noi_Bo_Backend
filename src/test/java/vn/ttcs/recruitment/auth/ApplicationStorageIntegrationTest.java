@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-// Real V1-V26 PostgreSQL, no HTTP or SMTP: task 325's internal persistence contract.
+// Real V1-V27 PostgreSQL, no HTTP or SMTP: task 325's internal persistence contract.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=false", "debug=false", "logging.level.root=WARN",
         "app.auth.jwt-secret=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "spring.mail.host=127.0.0.1", "spring.mail.port=1"
@@ -244,10 +244,10 @@ class ApplicationStorageIntegrationTest {
     @ParameterizedTest
     @EnumSource(value = JobPostingStatus.class, names = "PUBLISHED", mode = EnumSource.Mode.EXCLUDE)
     void refusesEveryNonPublishedPosting(JobPostingStatus status) {
-        if (status == JobPostingStatus.CLOSED) {
-            jdbc.update("UPDATE job_postings SET status=? WHERE id=?",status.name(),posting);
+        if (status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
+            jdbc.update("UPDATE job_postings SET status=? WHERE id=?", status.name(), posting);
         } else {
-            jdbc.update("UPDATE job_postings SET status=?, published_by=null, published_at=null WHERE id=?",status.name(),posting);
+            jdbc.update("UPDATE job_postings SET status=?, published_by=null, published_at=null WHERE id=?", status.name(), posting);
         }
         assertThatThrownBy(() -> storage.store(posting, submission("a@example.test"), cv, hash())).isInstanceOf(ApiException.class);
         assertThat(count()).isZero();
@@ -372,6 +372,7 @@ class ApplicationStorageIntegrationTest {
             }
         };
         try {
+            // V25: dữ liệu cũ
             Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("25").load().migrate();
             var legacy = new JdbcTemplate(isolated);
             legacy.update("INSERT INTO user_accounts(id,email,password_hash,full_name,enabled,created_at) VALUES (?,?,?,'Legacy',true,?)",
@@ -383,10 +384,35 @@ class ApplicationStorageIntegrationTest {
                     requisition,position,department,account,Timestamp.from(NOW),Timestamp.from(NOW));
             legacy.update("INSERT INTO job_postings(id,requisition_id,status,revision,title,job_description,candidate_requirements,show_salary,created_by,created_at,updated_at) VALUES (?,?,'DRAFT',1,'Legacy title','JD','Requirements',false,?,?,?)",
                     posting,requisition,account,Timestamp.from(NOW),Timestamp.from(NOW));
-            Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26").load().migrate();
-            assertThat(legacy.queryForObject("SELECT title FROM job_postings WHERE id=?",String.class,posting)).isEqualTo("Legacy title");
-            assertThat(legacy.queryForObject("SELECT full_name FROM user_accounts WHERE id=?",String.class,account)).isEqualTo("Legacy");
-            assertThat(legacy.queryForObject("SELECT count(*) FROM job_applications",Integer.class)).isZero();
+
+            // V26: unpublish job postings, bảo toàn dữ liệu cũ, chưa có bảng job_applications/application_cvs
+            var unpublish = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26").load();
+            assertThat(unpublish.migrate().migrationsExecuted).isEqualTo(1);
+            unpublish.validate();
+            assertThat(legacy.queryForObject("SELECT title FROM job_postings WHERE id=?", String.class, posting)).isEqualTo("Legacy title");
+            assertThat(legacy.queryForObject("SELECT full_name FROM user_accounts WHERE id=?", String.class, account)).isEqualTo("Legacy");
+            assertThat(legacy.queryForObject(
+                    "SELECT count(*) FROM information_schema.tables WHERE table_schema=? AND table_name IN ('job_applications', 'application_cvs')",
+                    Integer.class, schema)).isZero();
+
+            // V26.1: tạo job_applications và application_cvs, bảo toàn dữ liệu cũ
+            var applications = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("26.1").load();
+            assertThat(applications.migrate().migrationsExecuted).isEqualTo(1);
+            applications.validate();
+            assertThat(applications.info().current().getScript()).isEqualTo("V26_1__create_job_applications_and_cvs.sql");
+            assertThat(legacy.queryForObject("SELECT title FROM job_postings WHERE id=?", String.class, posting)).isEqualTo("Legacy title");
+            assertThat(legacy.queryForObject("SELECT full_name FROM user_accounts WHERE id=?", String.class, account)).isEqualTo("Legacy");
+            assertThat(legacy.queryForObject("SELECT count(*) FROM job_applications", Integer.class)).isZero();
+            assertThat(legacy.queryForObject("SELECT count(*) FROM application_cvs", Integer.class)).isZero();
+
+            // V27: expiry job postings, bảo toàn dữ liệu cũ và bảng application/CV
+            var expiry = Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("27").load();
+            assertThat(expiry.migrate().migrationsExecuted).isEqualTo(1);
+            expiry.validate();
+            assertThat(legacy.queryForObject("SELECT title FROM job_postings WHERE id=?", String.class, posting)).isEqualTo("Legacy title");
+            assertThat(legacy.queryForObject("SELECT full_name FROM user_accounts WHERE id=?", String.class, account)).isEqualTo("Legacy");
+            assertThat(legacy.queryForObject("SELECT count(*) FROM job_applications", Integer.class)).isZero();
+            assertThat(legacy.queryForObject("SELECT count(*) FROM application_cvs", Integer.class)).isZero();
         } finally { jdbc.execute("DROP SCHEMA " + schema + " CASCADE"); }
         assertThat(jdbc.queryForObject("SELECT current_schema()", String.class)).isEqualTo(originalSchema);
     }
