@@ -260,6 +260,20 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
     }
 
     @Test
+    void onboardedApplicationCannotCreateOrRescheduleAnInterview() throws Exception {
+        String id = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Room"))).path("id").asText();
+        applications.stage(first.applicationId(), vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        error(create(first.applicationId(), hrToken, schedule(START.plusSeconds(7200), panel, "Other room")),
+                409, "INTERVIEW_APPLICATION_INACTIVE");
+        var update = schedule(START.plusSeconds(7200), panel, "Other room");
+        update.put("expectedVersion", 0);
+        error(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), recruiterToken),
+                409, "INTERVIEW_APPLICATION_INACTIVE");
+        assertThat(count("interview_sessions")).isEqualTo(1);
+        assertThat(count("interview_events")).isEqualTo(1);
+    }
+
+    @Test
     void scopedInterviewReadRestrictsCandidateAllGrantAndUsesScopedDenialAudit() throws Exception {
         String id = created(create(first.applicationId(), hrToken, schedule(START, panel, "Room"))).path("id").asText();
         narrowHr("READ", true);

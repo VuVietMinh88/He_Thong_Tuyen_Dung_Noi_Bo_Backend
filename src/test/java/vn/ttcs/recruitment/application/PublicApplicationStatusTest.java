@@ -22,7 +22,7 @@ class PublicApplicationStatusTest {
             case NEW -> PublicApplicationStatus.RECEIVED;
             case SCREENING -> PublicApplicationStatus.IN_REVIEW;
             case INTERVIEW, OFFER -> PublicApplicationStatus.INTERVIEWING;
-            case HIRED, REJECTED, WITHDRAWN -> PublicApplicationStatus.COMPLETED;
+            case HIRED, ONBOARDED, REJECTED, WITHDRAWN -> PublicApplicationStatus.COMPLETED;
         };
 
         assertThat(PublicApplicationStatus.of(stage)).isEqualTo(expected);
@@ -63,7 +63,7 @@ class PublicApplicationStatusTest {
                     .isGreaterThanOrEqualTo(step(pipeline.get(i - 1)));
         }
         for (ApplicationStage from : pipeline) {
-            for (ApplicationStage outcome : List.of(HIRED, REJECTED, WITHDRAWN)) {
+            for (ApplicationStage outcome : List.of(HIRED, ONBOARDED, REJECTED, WITHDRAWN)) {
                 assertThat(step(outcome)).as(from + " -> " + outcome).isGreaterThan(step(from));
             }
         }

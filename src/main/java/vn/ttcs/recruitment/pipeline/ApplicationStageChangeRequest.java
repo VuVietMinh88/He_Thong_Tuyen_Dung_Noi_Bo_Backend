@@ -44,7 +44,7 @@ public record ApplicationStageChangeRequest(
         String note) {
 
     // Every ApplicationStage name; ApplicationStageTransitionsTest fails when the enum and this list differ.
-    static final String STAGES = "NEW|SCREENING|INTERVIEW|OFFER|HIRED|REJECTED|WITHDRAWN";
+    static final String STAGES = "NEW|SCREENING|INTERVIEW|OFFER|HIRED|ONBOARDED|REJECTED|WITHDRAWN";
     private static final String INVALID_STAGE = "Giai đoạn không hợp lệ.";
 
     public ApplicationStageChangeRequest {

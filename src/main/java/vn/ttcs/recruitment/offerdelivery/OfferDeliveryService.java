@@ -209,10 +209,13 @@ public class OfferDeliveryService {
             case "DECLINED" -> "REJECTED";
             default -> "INVALID";
         };
+        // Completing onboarding does not undo an accepted offer or invalidate an identical candidate retry.
+        boolean stageMatches = expectedStage.equals(parent.stage())
+                || ("ACCEPTED".equals(offer.status()) && "ONBOARDED".equals(parent.stage()));
         if (token.revoked() || !token.deadline().isAfter(now) || !offer.deadline().isAfter(now)
             || !token.applicationId().equals(offer.applicationId()) || !sameRecipientAndPosition(offer, parent)
             || !tokens.hash(parent.email()).equals(token.recipientHash()) || !"APPROVED".equals(parent.requisitionStatus())
-            || !expectedStage.equals(parent.stage()) || !positionActive(offer.positionId(), false)) throw invalid();
+            || !stageMatches || !positionActive(offer.positionId(), false)) throw invalid();
     }
 
     private boolean sameRecipientAndPosition(Offer offer, OfferAccess.Context parent) {

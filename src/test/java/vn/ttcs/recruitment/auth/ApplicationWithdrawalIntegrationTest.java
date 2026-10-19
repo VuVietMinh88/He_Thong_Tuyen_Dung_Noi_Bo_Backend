@@ -196,19 +196,19 @@ class ApplicationWithdrawalIntegrationTest {
         assertThat(events()).isEqualTo(event);
     }
 
-    // HIRED and REJECTED are outcomes: 409 with the house body, nothing changed.
+    // Terminal hiring/rejection outcomes return 409 without changing existing history.
     @ParameterizedTest
-    @EnumSource(value = ApplicationStage.class, names = {"HIRED", "REJECTED"})
+    @EnumSource(value = ApplicationStage.class, names = {"HIRED", "ONBOARDED", "REJECTED"})
     void anApplicationWithAnOutcomeCannotBeWithdrawn(ApplicationStage stage) throws Exception {
         var stored = applications.stored(posting, EMAIL);
         applications.stage(stored.applicationId(), stage);
-
+        var previousEvents = events();
         var response = applications.withdraw(stored.trackingCode(), EMAIL, REASON);
         assertError(response, 409, "APPLICATION_NOT_WITHDRAWABLE");
         assertThat(json.readTree(response.body()).get("message").asString())
                 .isEqualTo("Hồ sơ đã có kết quả nên không thể rút nữa.");
         assertThat(stageOf(stored.applicationId())).isEqualTo(stage.name());
-        assertThat(events()).isEmpty();
+        assertThat(events()).isEqualTo(previousEvents);
     }
 
     // A wrong email, an unknown code and a revoked code get exactly the lookup's 404: same status, body and headers.

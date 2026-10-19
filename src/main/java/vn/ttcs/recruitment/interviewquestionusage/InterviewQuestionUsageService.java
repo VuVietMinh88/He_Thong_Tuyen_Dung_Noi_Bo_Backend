@@ -11,6 +11,7 @@ import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
+import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
@@ -125,7 +126,7 @@ public class InterviewQuestionUsageService {
         return interview;
     }
     private static void active(InterviewQuestionUsageRepository.Interview interview) {
-        if (!"APPROVED".equals(interview.requisitionStatus()) || Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(interview.stage())) {
+        if (!"APPROVED".equals(interview.requisitionStatus()) || !ApplicationStage.valueOf(interview.stage()).active()) {
             throw conflict("INTERVIEW_APPLICATION_INACTIVE", "Hồ sơ hoặc yêu cầu tuyển dụng không còn hoạt động.");
         }
     }

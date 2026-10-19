@@ -43,7 +43,7 @@ Thay UUID bằng tài khoản thật và chọn thời gian tương lai. `starts
 Thời lượng từ 1 đến 480 phút; từ 1 đến 20 người, không trùng. Người phỏng vấn phải có tài khoản đang hoạt động và quyền ghi `EVALUATIONS`.
 `ONSITE` cần `room` và không có `meetingUrl`; `ONLINE` cần URL HTTPS hợp lệ và không có `room`. Server chỉ lưu URL, không truy cập URL đó.
 `roundName` tối đa 120 ký tự; phòng 200; URL 2000. Tạo lịch không tự đổi giai đoạn hồ sơ.
-Yêu cầu tuyển dụng phải đang `APPROVED`; hồ sơ `REJECTED`, `WITHDRAWN`, `HIRED` không được đặt/đổi lịch.
+Yêu cầu tuyển dụng phải đang `APPROVED`; hồ sơ `REJECTED`, `WITHDRAWN`, `HIRED`, `ONBOARDED` không được đặt/đổi lịch.
 
 `preparationInstructions` là hướng dẫn chuẩn bị tối đa 2000 ký tự. Khi bỏ trống, backend dùng “Vui lòng chuẩn bị CV và các thông tin liên quan đến kinh nghiệm của bạn.”; nội dung được lưu theo lịch để email dùng đúng hướng dẫn.
 

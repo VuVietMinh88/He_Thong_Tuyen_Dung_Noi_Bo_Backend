@@ -340,7 +340,7 @@ class ApplicationReferralStatusIntegrationTest {
             case NEW -> new String[] {"RECEIVED", "Đã nhận"};
             case SCREENING -> new String[] {"IN_REVIEW", "Đang xem xét"};
             case INTERVIEW, OFFER -> new String[] {"INTERVIEWING", "Mời phỏng vấn"};
-            case HIRED, REJECTED, WITHDRAWN -> new String[] {"COMPLETED", "Kết thúc"};
+            case HIRED, ONBOARDED, REJECTED, WITHDRAWN -> new String[] {"COMPLETED", "Kết thúc"};
         };
     }
 

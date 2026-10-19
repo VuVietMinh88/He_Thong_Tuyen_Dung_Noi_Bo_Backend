@@ -8,7 +8,7 @@ import vn.ttcs.recruitment.application.ApplicationStage;
  * may show its targets with this class, so the two can never disagree.
  * <p>
  * Forward, one step at a time, in the order of the story: NEW → SCREENING → INTERVIEW → OFFER → HIRED. Never back
- * (NEW is never a target), never out of HIRED, REJECTED or WITHDRAWN (final in this version: nothing reopens), and
+ * (NEW is never a target), never out of HIRED, ONBOARDED, REJECTED or WITHDRAWN, and
  * never to WITHDRAWN: only the candidate withdraws (task 345). The requisition's status plays no part: candidates left
  * in the pipeline of a filled or cancelled requisition (task 291) must still be moved on.
  * <p>
@@ -54,7 +54,8 @@ public final class ApplicationStageTransitions {
             case SCREENING -> ApplicationStage.INTERVIEW;
             case INTERVIEW -> ApplicationStage.OFFER;
             case OFFER -> ApplicationStage.HIRED;
-            case HIRED, REJECTED, WITHDRAWN -> null;
+            // HIRED -> ONBOARDED belongs only to checklist completion, never to this generic stage API.
+            case HIRED, ONBOARDED, REJECTED, WITHDRAWN -> null;
         };
     }
 }

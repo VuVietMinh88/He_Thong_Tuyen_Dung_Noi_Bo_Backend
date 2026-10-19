@@ -7,6 +7,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.interview.InterviewView;
 import vn.ttcs.recruitment.security.AccessScope;
 import vn.ttcs.recruitment.security.PermissionModule;
@@ -119,7 +120,7 @@ public class InterviewInvitationOutboxRepository {
             if (cancelled && !"CANCELLED".equals(current.status())) return "OBSOLETE";
             if (!removed && !cancelled && (!"SCHEDULED".equals(current.status())
                     || !current.startsAt().isAfter(clock.instant()) || !"APPROVED".equals(current.requisitionStatus())
-                    || Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(current.stage()))) return "OBSOLETE";
+                    || !ApplicationStage.valueOf(current.stage()).active())) return "OBSOLETE";
             if (delivery.recipientUserId() == null) {
                 if (!Objects.equals(current.email(), payload.email())) return "RECIPIENT_UNAVAILABLE";
                 if (!cancelled && (current.revoked() || current.expiresAt() == null

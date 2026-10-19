@@ -10,6 +10,6 @@ class ApplicationStageTest {
         assertThat(Arrays.stream(ApplicationStage.values()).filter(ApplicationStage::active).toList())
                 .containsExactly(ApplicationStage.NEW, ApplicationStage.SCREENING, ApplicationStage.INTERVIEW, ApplicationStage.OFFER);
         assertThat(Arrays.stream(ApplicationStage.values()).filter(stage -> !stage.active()).toList())
-                .containsExactly(ApplicationStage.HIRED, ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN);
+                .containsExactly(ApplicationStage.HIRED, ApplicationStage.ONBOARDED, ApplicationStage.REJECTED, ApplicationStage.WITHDRAWN);
     }
 }

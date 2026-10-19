@@ -14,6 +14,7 @@ import static vn.ttcs.recruitment.application.ApplicationStage.HIRED;
 import static vn.ttcs.recruitment.application.ApplicationStage.INTERVIEW;
 import static vn.ttcs.recruitment.application.ApplicationStage.NEW;
 import static vn.ttcs.recruitment.application.ApplicationStage.OFFER;
+import static vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED;
 import static vn.ttcs.recruitment.application.ApplicationStage.REJECTED;
 import static vn.ttcs.recruitment.application.ApplicationStage.SCREENING;
 import static vn.ttcs.recruitment.application.ApplicationStage.WITHDRAWN;
@@ -23,7 +24,7 @@ import static vn.ttcs.recruitment.pipeline.ApplicationStageTransitions.Decision.
 import static vn.ttcs.recruitment.pipeline.ApplicationStageTransitions.Decision.INTERVIEW_SKIP_UNCONFIRMED;
 
 /**
- * Tasks 380/381 (story S5-03): the whole 7 × 7 matrix of staff stage moves for the four callers that matter (an
+ * Tasks 380/381 and 522: the whole stage matrix of staff moves for the four callers that matter (an
  * HR_MANAGER or anyone else, confirming the interview skip or not), written out by hand so a changed rule fails here
  * rather than slipping through. Every pair not listed is NOT_ALLOWED.
  */
@@ -61,7 +62,7 @@ class ApplicationStageTransitionsTest {
     // Final in this version: nothing reopens a hired, rejected or withdrawn application, not even a confirming HR.
     @Test
     void finalStagesLeadNowhere() {
-        for (ApplicationStage end : new ApplicationStage[] {HIRED, REJECTED, WITHDRAWN}) {
+        for (ApplicationStage end : new ApplicationStage[] {HIRED, ONBOARDED, REJECTED, WITHDRAWN}) {
             assertThat(ApplicationStageTransitions.next(end)).isNull();
             for (ApplicationStage to : ApplicationStage.values()) {
                 assertThat(ApplicationStageTransitions.decide(end, to, true, true)).isEqualTo(Decision.NOT_ALLOWED);

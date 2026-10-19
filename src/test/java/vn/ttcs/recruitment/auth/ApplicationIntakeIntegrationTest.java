@@ -74,6 +74,7 @@ class ApplicationIntakeIntegrationTest {
 
     @BeforeEach void fixture() throws Exception {
         clock.set(NOW); quota.calls.set(0); quota.failure = null; writer.reset();
+        jdbc.execute("TRUNCATE onboarding_templates CASCADE");
         for (String table : List.of("application_cvs", "job_applications", "job_posting_events", "job_posting_authors",
                 "job_postings", "recruitment_requisitions", "recruitment_catalog_items", "departments", "positions", "user_accounts")) {
             jdbc.update("DELETE FROM " + table);
@@ -289,7 +290,7 @@ class ApplicationIntakeIntegrationTest {
     @ParameterizedTest @EnumSource(ApplicationStage.class)
     void applicationsCannotBeResubmittedInAnyStage(ApplicationStage stage) throws Exception {
         assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
-        jdbc.update("UPDATE job_applications SET stage=?",stage.name());
+        OnboardingStageTestFixture.stage(jdbc, jdbc.queryForObject("SELECT id FROM job_applications", UUID.class), stage);
         assertError(submit(valid(),false),409,"APPLICATION_ALREADY_SUBMITTED");
         assertThat(count()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT stage FROM job_applications",String.class)).isEqualTo(stage.name());

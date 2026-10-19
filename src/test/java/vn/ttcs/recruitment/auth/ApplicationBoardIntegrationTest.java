@@ -92,9 +92,9 @@ class ApplicationBoardIntegrationTest {
     }
 
     @Test
-    void emptyBoardHasExactlySixOrderedColumnsAndNoCandidateAudit() throws Exception {
+    void emptyBoardHasExactlySevenOrderedColumnsAndNoCandidateAudit() throws Exception {
         JsonNode body = board(hr, "");
-        assertThat(stages(body)).containsExactly("NEW", "SCREENING", "INTERVIEW", "OFFER", "HIRED", "REJECTED");
+        assertThat(stages(body)).containsExactly("NEW", "SCREENING", "INTERVIEW", "OFFER", "HIRED", "ONBOARDED", "REJECTED");
         body.path("columns").forEach(column -> {
             assertThat(column.path("total").asLong()).isZero();
             assertThat(column.path("cards").size()).isZero();
@@ -141,6 +141,18 @@ class ApplicationBoardIntegrationTest {
         assertThat(jdbc.queryForList("SELECT DISTINCT access_kind || ':' || outcome FROM candidate_access_events", String.class))
                 .containsExactly("PROFILE:GRANTED");
         assertThat(body.toString()).doesNotContain("tracking", "coverLetter", "salary", "same@example.test");
+    }
+
+    @Test
+    void completedOnboardingRemainsVisibleInItsTerminalBoardColumn() throws Exception {
+        UUID id = store(firstPosting, "HIRED", "onboarded@example.test");
+        applications.stage(id, vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        JsonNode body = board(hr, "");
+        assertThat(column(body, "HIRED").path("total").asLong()).isZero();
+        assertThat(column(body, "ONBOARDED").path("total").asLong()).isEqualTo(1);
+        assertThat(column(body, "ONBOARDED").path("cards").get(0).path("applicationId").asText()).isEqualTo(id.toString());
+        assertThat(total(body)).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT application_id FROM candidate_access_events", UUID.class)).containsExactly(id);
     }
 
     @Test

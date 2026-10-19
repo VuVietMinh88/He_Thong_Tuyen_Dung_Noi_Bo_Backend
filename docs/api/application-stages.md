@@ -18,7 +18,7 @@ Task 380 thêm API và quy tắc chuyển tiến từng bước, không thêm m�
 
 | Trường | Quy tắc |
 |---|---|
-| `targetStage` | Bắt buộc. Tên giai đoạn đúng như enum (`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`, `HIRED`, `REJECTED`, `WITHDRAWN`), viết hoa |
+| `targetStage` | Bắt buộc. Tên giai đoạn đúng như enum (`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`, `HIRED`, `ONBOARDED`, `REJECTED`, `WITHDRAWN`), viết hoa. ONBOARDED chỉ được chuyển qua checklist tiếp nhận, API này từ chối |
 | `expectedCurrentStage` | Bắt buộc. Giai đoạn trang của người gọi đang hiển thị (cột mà thẻ được kéo ra). Khác giai đoạn thật lúc khóa thì bị từ chối 409, không ghi gì |
 | `rejectionReasonId` | Task 381. UUID của một giá trị danh mục `REJECTION_REASON` đang dùng. **Bắt buộc** khi `targetStage` là `REJECTED`, **không được gửi** với giai đoạn khác |
 | `confirmSkipInterview` | Task 381. Trưởng phòng Nhân sự xác nhận chuyển thẳng `SCREENING → OFFER`. Phải là giá trị JSON `true` (chuỗi `"true"` hay số `1` bị từ chối 400 `INVALID_JSON`); vắng, `null`, `false` là chưa xác nhận. Bị bỏ qua khi bước chuyển không bỏ qua giai đoạn nào |
@@ -45,7 +45,7 @@ Từ task 381 response có thêm `interviewSkipped` (luôn có; `true` chỉ v�
 Chỉ tiến **một bước** theo thứ tự của story: Hồ sơ mới → Sàng lọc → Phỏng vấn → Đề xuất offer → Nhận việc (`NEW → SCREENING → INTERVIEW → OFFER → HIRED`).
 
 - Không lùi giai đoạn, không về `NEW`, không đứng yên (`targetStage` bằng giai đoạn hiện tại): 409.
-- `HIRED`, `REJECTED`, `WITHDRAWN` là kết thúc trong phiên bản này: không mở lại.
+- `HIRED`, `ONBOARDED`, `REJECTED`, `WITHDRAWN` không có bước chuyển qua API chung này. HIRED → ONBOARDED chỉ xảy ra khi hoàn tất [checklist tiếp nhận](onboarding.md).
 - Nhân viên không chuyển sang `WITHDRAWN`: chỉ ứng viên tự rút (task 345).
 - Trạng thái của yêu cầu tuyển dụng không ảnh hưởng: ứng viên còn lại của yêu cầu đã tuyển đủ hoặc đã hủy (task 291) vẫn được chuyển tiếp. Chuyển sang `HIRED` **không** tự đóng hay tự đánh dấu yêu cầu đã tuyển đủ.
 

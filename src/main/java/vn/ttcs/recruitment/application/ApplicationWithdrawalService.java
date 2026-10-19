@@ -30,7 +30,7 @@ import java.util.Objects;
  * event is written and the emails of task 346 are queued (ApplicationWithdrawalNotices: the eligible PRIMARY
  * recruiter and the candidate), all in the same transaction; 200 with withdrawnAt = now.</li>
  * <li>WITHDRAWN: a repeat; nothing is written; 200 with the time of the first withdrawal (null without an event).</li>
- * <li>HIRED, REJECTED: 409 APPLICATION_NOT_WITHDRAWABLE; nothing is written.</li>
+ * <li>HIRED, ONBOARDED, REJECTED: 409 APPLICATION_NOT_WITHDRAWABLE; nothing is written.</li>
  * </ul>
  * Anything else (a lock or statement timeout, a failed commit) is masked as 503 APPLICATION_TRACKING_UNAVAILABLE, and
  * then nothing of the withdrawal is kept. Two withdrawals of one application run one after the other on the requisition
@@ -98,7 +98,7 @@ public class ApplicationWithdrawalService {
             }
             case WITHDRAWN -> ApplicationWithdrawalView.of(locked.postingTitle(), locked.receivedAt(),
                     events.withdrawnAt(locked.id()).orElse(null));
-            case HIRED, REJECTED -> throw new ApiException(HttpStatus.CONFLICT, "APPLICATION_NOT_WITHDRAWABLE",
+            case HIRED, ONBOARDED, REJECTED -> throw new ApiException(HttpStatus.CONFLICT, "APPLICATION_NOT_WITHDRAWABLE",
                     "Hồ sơ đã có kết quả nên không thể rút nữa.");
         };
     }
