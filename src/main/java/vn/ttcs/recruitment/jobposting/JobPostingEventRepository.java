@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -26,7 +27,9 @@ class JobPostingEventRepository {
     }
 
     // revision: the posting's revision right after this step. The enums are bound by name: PgJDBC cannot bind a Java
-    // enum. comment: null when there is none (V22 requires it for REVISION_REQUESTED and refuses it for PUBLISHED).
+    // enum. comment: null when there is none (V22 requires it for REVISION_REQUESTED and refuses it for PUBLISHED; V25
+    // and V26 require it for CLOSED and UNPUBLISHED; V27 refuses it for EXPIRED). actorId: null only for EXPIRED, the
+    // step of the daily task (task 356), and never null for any other step (V27 job_posting_event_actor_required).
     void append(UUID postingId, int revision, JobPostingEventType type, JobPostingStatus before,
                 JobPostingStatus after, UUID actorId, Instant at, String comment) {
         jdbc.update("""
@@ -39,20 +42,22 @@ class JobPostingEventRepository {
                 .addValue("type", type.name())
                 .addValue("before", before.name())
                 .addValue("after", after.name())
-                .addValue("actor", actorId)
+                // Bound with its type, so the null actor of an EXPIRED step never depends on the parameter metadata.
+                .addValue("actor", actorId, Types.OTHER, "uuid")
                 // OffsetDateTime in UTC is sent as TIMESTAMPTZ, independent of the session or JVM time zone.
                 .addValue("at", at.atOffset(ZoneOffset.UTC))
                 .addValue("comment", comment));
     }
 
     // Task 310: the history of one posting, newest step first (the revision orders the steps of a posting). The
-    // actor's name is read now, like every name a posting shows. The enums are read back by name.
+    // actor's name is read now, like every name a posting shows. The enums are read back by name. Task 356: LEFT JOIN,
+    // because the EXPIRED step of the daily task has no actor; its actorId and actorName are null.
     List<JobPostingHistoryEntry> findHistory(UUID postingId) {
         return jdbc.query("""
                 SELECT e.id, e.revision, e.event_type, e.status_before, e.status_after, e.actor_id,
                     a.full_name AS actor_name, e.occurred_at, e.comment
                 FROM job_posting_events e
-                JOIN user_accounts a ON a.id = e.actor_id
+                LEFT JOIN user_accounts a ON a.id = e.actor_id
                 WHERE e.job_posting_id = :posting
                 ORDER BY e.revision DESC
                 """, new MapSqlParameterSource("posting", postingId), (row, number) -> new JobPostingHistoryEntry(

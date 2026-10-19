@@ -49,6 +49,7 @@ Frontend kết nối `http://localhost:8080/api/v1` khi chạy local. Bản ch�
 - [evaluation-criteria](docs/api/evaluation-criteria.md)
 - [headcount-plans](docs/api/headcount-plans.md)
 - [interview-questions](docs/api/interview-questions.md)
+- [job-posting-portal](docs/api/job-posting-portal.md)
 - [job-posting-publication](docs/api/job-posting-publication.md)
 - [job-postings](docs/api/job-postings.md)
 - [password-reset](docs/api/password-reset.md)

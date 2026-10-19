@@ -17,7 +17,7 @@ public record RequisitionUnassignRequest(
         String note) {
 
     public RequisitionUnassignRequest {
-        note = note == null || note.isBlank() ? null : note;
+        note = RequisitionText.invisibleToNull(note);
     }
 
     @JsonAnySetter

@@ -1,7 +1,8 @@
 # 327 — Chặn hồ sơ trùng email trong cùng vị trí
 
 Áp dụng cho [API nộp hồ sơ](public-applications.md) và lời gọi nội bộ tới storage.
-API vẫn tắt mặc định cho tới khi có quota và receipt/outbox production của 328/329.
+API vẫn tắt mặc định; [quota IP production](application-ip-quota.md) đã có,
+receipt/outbox production của 329 còn thiếu.
 
 ## Quy tắc nghiệp vụ
 
@@ -20,7 +21,7 @@ Tin không nhận hồ sơ trả 404; input sai trả lỗi validation. Không t
 
 ## Cách thực hiện
 
-V26 đã có `UNIQUE (requisition_id, normalized_email)` tên
+V26.1 đã có `UNIQUE (requisition_id, normalized_email)` tên
 `job_applications_requisition_email_key`. Giữ nguyên schema và unique tracking hash.
 `ApplicationRepository.insert` dùng:
 
@@ -69,7 +70,8 @@ chức danh, hash collision, chờ transaction commit/rollback, CV rollback và 
 `ApplicationIntakeIntegrationTest`: HTTP409/fieldErrors/no-store/privacy, Unicode trim,
 case normalization độc lập locale Thổ Nhĩ Kỳ, giữ dots/+tag, mỗi stage, cùng chức danh
 khác requisition, đổi tên tin, giữ snapshot/CV, race201+409, hash collision503 và lỗi CV503
-không giữ chỗ email. Providers vẫn chỉ là adapter test, không triển khai 328/329.
+không giữ chỗ email. Các test intake này dùng adapter test riêng;
+[test quota](application-ip-quota.md) kiểm provider production của 328. Receipt production của 329 còn thiếu.
 
 Docker opt-in và timezone như [storage](application-storage.md). Thử nghiệm dùng schema
 riêng; không kiểm chứng độ bền sau crash khi PostgreSQL test chạy fsync off.

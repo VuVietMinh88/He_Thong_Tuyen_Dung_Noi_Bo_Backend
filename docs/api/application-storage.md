@@ -1,11 +1,12 @@
 # 325 — Lưu hồ sơ ứng tuyển và tệp CV
 
-Task này cung cấp lớp lưu trữ nội bộ, **chưa có endpoint nhận hồ sơ hoặc tải CV**.
-API công khai, quota IP, mã/email xác nhận còn thuộc 326–329.
+Phạm vi 325 cung cấp lớp lưu trữ nội bộ. Nhánh hiện tại đã có
+[API nộp hồ sơ](public-applications.md) và [quota IP](application-ip-quota.md);
+receipt/outbox và email xác nhận thuộc 329, API vẫn tắt mặc định. Chưa có endpoint tải CV.
 
 ## Schema
 
-V26 thêm `job_applications` và `application_cvs`. Composite FK giữ đúng tin ↔ requisition.
+V26.1 thêm `job_applications` và `application_cvs`. Composite FK giữ đúng tin ↔ requisition.
 Hồ sơ giữ thông tin người nộp, nguồn tùy chọn, thư giới thiệu, snapshot tên tin, thời điểm
 nhận và stage NEW. Không tự gộp ứng viên hoặc unique email toàn hệ thống.
 
@@ -23,7 +24,8 @@ không query byte CV khi count pipeline. Quyền đọc CV về sau thuộc S4-0
 
 `ApplicationStorageService.store(postingId,submission,validatedCv,trackingHash)` là Spring
 transaction READ_COMMITTED; gọi qua bean/proxy. Reception service tương lai cần transaction
-READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, không trả SQL/PII.
+READ_COMMITTED chung với outbox. [Chống trùng 327](application-duplicates.md) đã nối vào
+repository: trùng email/requisition ném ApiException409, không trả SQL/PII.
 
 - Kiểm tra CV ngoài transaction, không parser khi giữ khóa.
 - Validate input dù không qua controller; khóa requisition FOR SHARE → tin FOR SHARE →
@@ -61,17 +63,19 @@ concurrency/body/proxy. Bytes được giữ nguyên. Nguồn:
 `ApplicationPipelineSource` thay stub: NEW/SCREENING/INTERVIEW/OFFER active;
 HIRED/REJECTED/WITHDRAWN final. Không thêm khóa/read CV, xếp stage theo enum.
 Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW, chưa chốt
-ánh xạ trạng thái công khai stage khác. Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
-CV; 326 cần nâng và giữ limit riêng avatar/media/import. Outbox/IP/mã/link/tra cứu/rút/UI
-chưa có trong 325.
+ánh xạ trạng thái công khai stage khác. Multipart Servlet vẫn 5 MiB/6 MiB cho upload cũ;
+[API nhận hồ sơ](public-applications.md) đọc multipart streaming riêng, CV 10 MiB/request 11 MiB.
+Outbox/mã/link/tra cứu/rút/UI chưa có trong nhánh này.
 
 ## Kiểm thử
 
 Tests mới: CvValidatorTest, ApplicationSubmissionTest, ApplicationStageTest,
 ApplicationStorageIntegrationTest. Kiểm tra biên 10 MiB, file giả/hỏng/mã hóa, XML/ZIP,
-bytes/hash/FK, upgrade V25→V26 giữ dữ liệu, unique song song, rollback, pipeline, mọi
+bytes/hash/FK, upgrade V25→V26→V26.1→V27 giữ dữ liệu, unique song song, rollback, pipeline, mọi
 trạng thái không nhận, hai chiều race nộp–đóng và chờ khóa qua nửa đêm Việt Nam.
-Storage có 24 ca, gồm source/cover null, chặn xóa nguồn đã dùng và khôi phục schema sau upgrade.
+Các ca storage gồm source/cover null, chặn xóa nguồn đã dùng, khôi phục schema sau upgrade
+và kiểm tra chống trùng theo [327](application-duplicates.md), gồm chờ transaction commit/rollback.
+`FlywayDuplicateVersionGuardTest` kiểm tra version duy nhất trên classpath và mapping V26/V26.1/V27 mà không cần DB.
 
 Docker opt-in: `-Dtest.database.url=jdbc:postgresql://127.0.0.1:<port>/task325_test`.
 Factory test chỉ nhận localhost/tên database này, tạo schema và Hikari pool riêng mỗi context;
@@ -79,4 +83,4 @@ pool tối đa 10 connection, đóng cùng context. Không dùng recruitment/cre
 Không có property thì vẫn PostgreSQL nhúng.
 Docker trên máy này dùng `-Duser.timezone=UTC`, BusinessCalendar vẫn giờ Việt Nam.
 Container test dùng fsync/synchronous_commit off để tăng tốc, không kiểm chứng durability
-sau crash của production. Nhật ký: [task325-journal](../reviews/2026-10-14/task325-journal.md).
+sau crash của production.

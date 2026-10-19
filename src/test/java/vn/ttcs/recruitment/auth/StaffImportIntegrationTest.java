@@ -67,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class StaffImportIntegrationTest {
+    private final String loginDeviceId = java.util.UUID.randomUUID().toString();
     private static final String IMPORT = "/api/v1/accounts/import";
     private static final String PREVIEW = "/api/v1/accounts/import/preview";
     private static final String PASSWORD = "TestingOnly123!";
@@ -247,6 +248,51 @@ class StaffImportIntegrationTest {
         assertThat(jdbc.queryForList("SELECT user_id FROM account_activation_tokens", UUID.class))
                 .containsExactlyInAnyOrder(first, last);
         assertThat(recipients()).containsExactlyInAnyOrder("first@example.com", "last@example.com");
+    }
+
+    // A full name of nothing but a Unicode space (U+2003) is as empty as no name: POST /accounts refuses it with 400,
+    // so the import skips that row and creates no account, instead of saving an account with an invisible name.
+    @Test
+    void aNameOfOnlyUnicodeSpacesIsSkippedLikeAnEmptyOne() throws Exception {
+        byte[] file = staffFile(
+                row("an@example.com", "An", "RECRUITER"),
+                row("khong-ten@example.com", "\u2003", "RECRUITER"));
+
+        JsonNode body = expectOk(upload(IMPORT, adminToken, file));
+
+        assertThat(statuses(body)).containsExactly("2 CREATED", "3 SKIPPED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("code")).containsExactly("REQUIRED");
+        assertThat(excelRow(body, 3).path("errors").findValuesAsString("cell")).containsExactly("B3");
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com");
+    }
+
+    // strip() kept a non-breaking space (U+00A0, U+2007, U+202F), U+0085, U+180E and zero-width characters (U+200B,
+    // U+FEFF, U+2060), so a full name made only of them passed the "required" check and the import created an account
+    // whose name nobody can see. Such a name is now empty, and these characters around a visible value are removed.
+    // The characters are built from code points, so the source shows which one each case sends.
+    @Test
+    void aNameWithoutAVisibleCharacterIsSkippedAndInvisibleCharactersAroundValuesAreRemoved() throws Exception {
+        String nbsp = Character.toString(0x00A0);
+        String zeroWidth = Character.toString(0x200B);
+        byte[] file = staffFile(
+                row(nbsp + "an@example.com" + zeroWidth, nbsp + "An" + zeroWidth, "RECRUITER", nbsp + "HR" + nbsp,
+                        nbsp + "0912345678" + nbsp, zeroWidth + "Chuyên viên" + nbsp),
+                row("nbsp@example.com", nbsp, "RECRUITER"),
+                row("zero-width@example.com", new String(new int[]{0x200B, 0xFEFF, 0x2060}, 0, 3), "RECRUITER"),
+                row("mixed@example.com", new String(new int[]{0x0085, 0x180E, 0x202F, 0x2007}, 0, 4), "RECRUITER"));
+
+        JsonNode body = expectOk(upload(IMPORT, adminToken, file));
+
+        assertThat(statuses(body)).containsExactly("2 CREATED", "3 SKIPPED", "4 SKIPPED", "5 SKIPPED");
+        for (int rowNumber : List.of(3, 4, 5)) {
+            assertThat(excelRow(body, rowNumber).path("errors").findValuesAsString("code")).containsExactly("REQUIRED");
+            assertThat(excelRow(body, rowNumber).path("errors").findValuesAsString("cell"))
+                    .containsExactly("B" + rowNumber);
+        }
+        assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com");
+        assertThat(accountRow("an@example.com")).containsEntry("full_name", "An").containsEntry("phone", "0912345678")
+                .containsEntry("display_title", "Chuyên viên");
+        assertThat(accountRow("an@example.com")).containsEntry("department_id", hrDepartment);
     }
 
     @Test
@@ -581,7 +627,7 @@ class StaffImportIntegrationTest {
     }
 
     private JsonNode login(String email) throws Exception {
-        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).timeout(Duration.ofSeconds(20))
+        var request = HttpRequest.newBuilder(uri("/api/v1/auth/login")).header("X-Device-Id", loginDeviceId).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(Map.of("email", email, "password", PASSWORD))))
                 .build();

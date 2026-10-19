@@ -116,6 +116,8 @@ bằng 503. Writer phải để exception thoát transaction để hoàn tác c�
 Ba `ApplicationIntake*IntegrationTest` kiểm HTTP thật với PostgreSQL: production OFF,
 flag ON thiếu adapter vẫn chặn; adapter test kiểm 201+snapshot+byte/hash, DOCX, biên 10 MiB,
 chunked, deadline Việt Nam, source/status, quota, rollback, closure race, concurrency và CORS.
+Các ca quota trong nhóm intake dùng adapter test; kiểm provider PostgreSQL và proxy thật
+thuộc [ApplicationIpQuotaIntegrationTest và ApplicationTrustedProxyQuotaIntegrationTest](application-ip-quota.md).
 Docker opt-in dùng factory/schema riêng như [storage](application-storage.md).
 Không dùng database production hoặc SMTP thật.
 

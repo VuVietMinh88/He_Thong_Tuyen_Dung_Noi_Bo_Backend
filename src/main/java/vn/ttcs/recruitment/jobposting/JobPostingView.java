@@ -29,9 +29,11 @@ public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus statu
     // approves a posting they wrote, edited or last submitted (JobPostingReviewRule). The application deadline is not
     // part of the flags: a passed deadline is explained by its own 409 (JOB_POSTING_DEADLINE_PASSED).
     // Task 290: every flag also needs the requisition still approved: a paused, filled or cancelled requisition
-    // freezes its postings (409 JOB_POSTING_REQUISITION_NOT_APPROVED).
+    // freezes its postings (409 JOB_POSTING_REQUISITION_NOT_APPROVED). Task 355: except canUnpublish, which the status
+    // alone decides (JobPostingService.UNPUBLISHABLE_STATUSES): a posting is taken down at any time, its requisition
+    // paused included, and every caller who reads it may (the composers; there is no reviewer rule).
     public record Actions(boolean canEdit, boolean canSubmit, boolean canApprove, boolean canRequestRevision,
-                          boolean canPublish) { }
+                          boolean canPublish, boolean canUnpublish) { }
 
     // Task 308: action is APPROVED or REVISION_REQUESTED; comment is null when the reviewer wrote none.
     public record LastReview(JobPostingEventType action, String comment, UUID actorId, String actorName,
@@ -49,7 +51,8 @@ public record JobPostingView(UUID id, UUID requisitionId, JobPostingStatus statu
                 reviewer && JobPostingDecision.APPROVE.from().contains(row.status()) && source
                         && JobPostingReviewRule.mayApprove(viewer.id(), authors, row.latestSubmitterId()),
                 reviewer && JobPostingDecision.REQUEST_REVISION.from().contains(row.status()) && source,
-                reviewer && JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(row.status()) && source);
+                reviewer && JobPostingApprovalService.PUBLISHABLE_STATUSES.contains(row.status()) && source,
+                JobPostingService.UNPUBLISHABLE_STATUSES.contains(row.status()));
         LastReview lastReview = row.reviewAction() == null ? null : new LastReview(row.reviewAction(),
                 row.reviewComment(), row.reviewActorId(), row.reviewActorName(), row.reviewAt());
         return new JobPostingView(row.id(), row.requisitionId(), row.status(), row.revision(), row.title(),

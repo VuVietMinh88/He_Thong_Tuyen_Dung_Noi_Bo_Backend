@@ -17,6 +17,16 @@ import java.util.UUID;
  *   rows, and refuse a FILLED or CANCELLED requisition, as posting writers do; otherwise an application added after the
  *   count was read could slip past the check.
  * Exactly one production bean: ApplicationPipelineSource (task 325) reads stored applications.
+ * - any write that makes an application active must first lock the requisition row FOR NO KEY UPDATE in the order
+ *   account, session, requisition, then its own rows, and refuse a FILLED or CANCELLED requisition, as posting
+ *   writers do; otherwise an application added after the count was read could slip past the check. FOR KEY SHARE
+ *   does not conflict with the status change, and FOR SHARE must not be used: while a row holds only share locks,
+ *   PostgreSQL grants another share lock at once, ahead of a status change or posting write already waiting, so
+ *   overlapping writes could keep it waiting indefinitely. A write that covers several requisitions locks them in
+ *   id order. An application to a job posting calls JobPostingApplicationGate.requireOpen instead (task 321), which
+ *   takes this lock and refuses a requisition that is no longer approved; it must not lock the requisition itself
+ *   before that call.
+ * Exactly one bean: the candidate module replaces NoCandidateModulePipelineSource (delete it).
  */
 public interface RequisitionPipelineSource {
     ActivePipeline activePipeline(UUID requisitionId);

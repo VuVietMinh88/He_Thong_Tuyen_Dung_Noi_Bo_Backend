@@ -20,8 +20,9 @@ import java.util.UUID;
 // (task 246), whole non-negative salaries and a size limit on each text. Rules that need other data (position
 // and department still active, salary justification, needed-by date, department scope) are checked in
 // RequisitionService. Every other field may stay empty while the draft is being written.
-// Text sections keep the manager's formatting (line breaks, indentation). Only a blank section becomes null,
-// because V13 stores a section that has not been written yet as NULL, never as an empty text.
+// Text sections keep the manager's formatting (line breaks, indentation). Only a section without a visible character
+// becomes null (RequisitionText), because V13 stores a section that has not been written yet as NULL, never as an
+// empty text.
 public record RequisitionRequest(
         @NotNull(message = "Chức danh không được để trống.") UUID positionId,
         @NotNull(message = "Phòng ban không được để trống.") UUID departmentId,
@@ -58,7 +59,8 @@ public record RequisitionRequest(
                 message = "Yêu cầu ứng viên chứa ký tự không hợp lệ.")
         String candidateRequirements,
         // Task 275: only read when this save goes over the headcount plan; only HEADCOUNT_PLANS_WRITE_ALL (the HR
-        // manager) may then give it, and it is stored with the exception. It is not a field of the requisition.
+        // manager) may then give it, and it is stored with the exception. It is not a field of the requisition. A reason
+        // without a visible character is no reason (RequisitionText), as V15 requires one that is not only spaces.
         @Size(max = 1_000, message = "Lý do vượt định biên tối đa 1.000 ký tự.")
         @Pattern(regexp = RequisitionRequest.NO_NUL_CHARACTER,
                 message = "Lý do vượt định biên chứa ký tự không hợp lệ.")
@@ -74,14 +76,10 @@ public record RequisitionRequest(
     static final int MAX_HEADCOUNT = 999;
 
     public RequisitionRequest {
-        salaryJustification = blankToNull(salaryJustification);
-        jobDescription = blankToNull(jobDescription);
-        candidateRequirements = blankToNull(candidateRequirements);
-        headcountOverrideReason = blankToNull(headcountOverrideReason);
-    }
-
-    private static String blankToNull(String text) {
-        return text == null || text.isBlank() ? null : text;
+        salaryJustification = RequisitionText.invisibleToNull(salaryJustification);
+        jobDescription = RequisitionText.invisibleToNull(jobDescription);
+        candidateRequirements = RequisitionText.invisibleToNull(candidateRequirements);
+        headcountOverrideReason = RequisitionText.invisibleToNull(headcountOverrideReason);
     }
 
     // The reason as the enum the entity stores. Only call it after @Valid has accepted the request: reason is
