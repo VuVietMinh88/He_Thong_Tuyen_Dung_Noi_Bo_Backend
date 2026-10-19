@@ -132,7 +132,7 @@ Khi có module ứng viên, ví dụ:
 
 ### Nguồn hiện tại: hồ sơ ứng tuyển của task 325
 
-V26 thêm `job_applications`. `ApplicationPipelineSource` thay stub cũ và đếm hồ sơ thật theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Task 325 chỉ tạo NEW; chưa có API chuyển giai đoạn hay tiếp nhận công khai. Khi có hồ sơ NEW đã lưu, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`.
+Backend chưa có module ứng viên (V1–V27 không có bảng ứng viên hay hồ sơ ứng tuyển), nên nguồn mặc định `NoCandidateModulePipelineSource` trả `{count: 0, stages: []}` cho mọi yêu cầu. Số 0 này nghĩa là **backend chưa có dữ liệu ứng viên**, không phải đã kiểm và không còn ai; vì vậy hiện đóng yêu cầu không bao giờ bị chặn. Backend không trả số ứng viên giả. Response không có cờ riêng cho "chưa có dữ liệu" (hình dạng đã thống nhất); tài liệu này và ghi chú cho frontend nói rõ điều đó. Tiêu chí của story chỉ đạt đủ khi có module ứng viên.
 
 ### Xác nhận khi đóng
 
@@ -169,7 +169,7 @@ Từ 325, `ApplicationPipelineSource` là nguồn thật duy nhất và `Applica
 - "Đang trong quy trình" là hồ sơ ứng tuyển vào yêu cầu chưa ở trạng thái cuối; module tự định nghĩa các bước.
 - Chạy trong transaction của người gọi: khi đổi trạng thái là dưới khóa dòng yêu cầu (`FOR NO KEY UPDATE`, READ COMMITTED), khi đọc là snapshot `REPEATABLE_READ` chỉ đọc. Nguồn chỉ đọc và không khóa gì, nên sau khóa dòng yêu cầu không có gì phải chờ.
 - Trả `ActivePipeline.NONE` cho yêu cầu không biết và không ném lỗi cho yêu cầu đó.
-- Mọi thao tác ghi đưa một hồ sơ vào quy trình phải khóa dòng yêu cầu `FOR SHARE` hoặc `FOR NO KEY UPDATE` trước (`FOR KEY SHARE` không xung đột với đổi trạng thái), theo thứ tự tài khoản, phiên, yêu cầu rồi tới dòng của mình, và từ chối yêu cầu đã tuyển đủ hoặc đã hủy, như các thao tác ghi tin tuyển dụng. Nếu không, hồ sơ thêm vào sau khi số đã được đọc có thể lọt qua bước kiểm.
+- Mọi thao tác ghi đưa một hồ sơ vào quy trình phải khóa dòng yêu cầu `FOR NO KEY UPDATE` trước, theo thứ tự tài khoản, phiên, yêu cầu rồi tới dòng của mình, và từ chối yêu cầu đã tuyển đủ hoặc đã hủy, như các thao tác ghi tin tuyển dụng. Nếu không, hồ sơ thêm vào sau khi số đã được đọc có thể lọt qua bước kiểm. `FOR KEY SHARE` không xung đột với đổi trạng thái nên không đủ, và **không** dùng `FOR SHARE`: khi dòng chỉ đang bị khóa chia sẻ, PostgreSQL cấp ngay khóa chia sẻ cho người đến sau, vượt lên trước lần đổi trạng thái hay thao tác ghi tin đang chờ, nên các thao tác ghi chồng lên nhau có thể làm nó chờ mãi. Thao tác ghi nhiều yêu cầu khóa chúng theo thứ tự id. Hồ sơ nộp vào một tin tuyển dụng thì gọi `JobPostingApplicationGate.requireOpen` (task 321) thay cho bước này, và không tự khóa dòng yêu cầu trước lời gọi đó: bước kiểm khóa dòng yêu cầu `FOR NO KEY UPDATE`, rồi dòng tin, và từ chối khi yêu cầu không còn `APPROVED` (xem [API cổng việc làm công khai](job-posting-portal.md#kiểm-tra-khả-năng-ứng-tuyển-task-321)).
 
 Bước kiểm hỏi nguồn **sau** khóa dòng yêu cầu ở READ COMMITTED, nên với một nguồn thật tuân theo hợp đồng trên, hồ sơ được commit trong lúc HR chờ khóa cũng được đếm. `RequisitionActivePipelineIntegrationTest` dùng nguồn giả để ghim thứ tự kiểm tra; `ApplicationStorageIntegrationTest` kiểm count từ PostgreSQL thật và cả hai chiều chờ khóa nộp–đóng.
 
@@ -184,13 +184,13 @@ Mỗi trạng thái được xếp vào mọi nhóm sau. `RequisitionStatus` li�
 |`RETURNED`|Có|Có|Có|Có|Có|Không|Không|Có|Hủy|
 |`APPROVED`|Không|Có|Có|Có|Có|**Có**|Không|Có|Tạm dừng, đã tuyển đủ, hủy|
 |`REJECTED`|Không|Không|Không|Không (khóa ngoại, 409 `DEPARTMENT_IN_USE`)|Không|Không|Không|Có|–|
-|`PAUSED`|Không|**Có**|**Có**|**Có**|**Không**|Không (tin bị ẩn, ghi trả 409)|Không|Có|Mở lại, đã tuyển đủ, hủy|
+|`PAUSED`|Không|**Có**|**Có**|**Có**|**Không**|Không (tin bị ẩn; ghi trả 409, trừ gỡ tin, task 355)|Không|Có|Mở lại, đã tuyển đủ, hủy|
 |`FILLED`|Không|Không|**Có**|Không (khóa ngoại)|Không|Không|**Có**|Có|–|
 |`CANCELLED`|Không|Không|**Không**|Không (khóa ngoại)|Không|Không|**Có**|Có|–|
 
 Chủ của từng nhóm: `RequisitionService.EDITABLE_STATUSES`/`SUBMITTABLE_STATUSES`, `RequisitionRecruiterService.ASSIGNABLE_STATUSES`, `HeadcountPlanRepository.COUNTED_REQUISITION_STATUSES`, `DepartmentRepository.OPEN_REQUISITION_STATUSES`, `RequisitionListItemView.OVERDUE_STATUSES`, `JobPostingService.SOURCE_STATUSES`, `JobPostingRequisitionSync.CLOSING_STATUSES` (task 292).
 
-- Yêu cầu tạm dừng vẫn cần người: giữ chỗ trong định biên, vẫn chặn xóa phòng ban, vẫn bàn giao recruiter được. Nó không bao giờ trễ hạn trong danh sách, vì đã được dừng có chủ ý. Tin tuyển dụng của nó không hiện trên cổng (cổng chỉ hiện tin của yêu cầu `APPROVED`), và mọi thao tác ghi tin bị từ chối: tạo tin nhận 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`; sửa, gửi duyệt, duyệt và xuất bản kiểm trạng thái của chính tin trước yêu cầu nguồn, nên nhận mã đó khi trạng thái của tin cho phép bước này, còn không thì nhận 409 về trạng thái của tin (ví dụ sửa tin đã xuất bản: `JOB_POSTING_NOT_EDITABLE`; quyết định trên tin không chờ duyệt: `JOB_POSTING_NOT_UNDER_REVIEW`). Thứ tự kiểm đầy đủ ở [tin tuyển dụng](job-postings.md) và [duyệt, xuất bản tin](job-posting-publication.md).
+- Yêu cầu tạm dừng vẫn cần người: giữ chỗ trong định biên, vẫn chặn xóa phòng ban, vẫn bàn giao recruiter được. Nó không bao giờ trễ hạn trong danh sách, vì đã được dừng có chủ ý. Tin tuyển dụng của nó không hiện trên cổng (cổng chỉ hiện tin của yêu cầu `APPROVED`), và mọi thao tác ghi tin trừ gỡ tin (task 355) bị từ chối: tạo tin nhận 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`; sửa, gửi duyệt, duyệt và xuất bản kiểm trạng thái của chính tin trước yêu cầu nguồn, nên nhận mã đó khi trạng thái của tin cho phép bước này, còn không thì nhận 409 về trạng thái của tin (ví dụ sửa tin đã xuất bản: `JOB_POSTING_NOT_EDITABLE`; quyết định trên tin không chờ duyệt: `JOB_POSTING_NOT_UNDER_REVIEW`). Tin `PUBLISHED`, từ task 356 cả `EXPIRED`, vẫn gỡ được (200, `actions.canUnpublish` là `true`; [gỡ tin](job-posting-publication.md#gỡ-tin-task-355)). Thứ tự kiểm đầy đủ ở [tin tuyển dụng](job-postings.md) và [duyệt, xuất bản tin](job-posting-publication.md).
 - Yêu cầu đã tuyển đủ vẫn tính vào định biên (người đã được tuyển); yêu cầu đã hủy trả lại chỗ.
 
 Bốn quy tắc giữ các nhóm nhất quán, mỗi quy tắc có test riêng:
@@ -210,7 +210,7 @@ Task 290 không thêm code nào cho các ảnh hưởng dưới đây; chúng đ
 - Phân công recruiter: yêu cầu tạm dừng vẫn phân công và bàn giao được; yêu cầu đã tuyển đủ hoặc đã hủy trả 409 `REQUISITION_NOT_ASSIGNABLE` ở `/assign` và `/unassign`.
 - Sửa và gửi duyệt: yêu cầu tạm dừng, đã tuyển đủ, đã hủy trả 409 `REQUISITION_NOT_DRAFT` (`PUT`) và `REQUISITION_NOT_SUBMITTABLE` (gửi duyệt).
 - Hủy khi đang chờ duyệt: yêu cầu rời hộp chờ duyệt; người duyệt bấm quyết định trên trang cũ nhận 409 `REQUISITION_NOT_PENDING_APPROVAL`, kể cả APPROVER của cấp đang chờ không phụ trách phòng ban nào (mục "Hủy khi đang chờ duyệt").
-- Tin tuyển dụng khi yêu cầu tạm dừng: sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa và xuất bản trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; mọi cờ `actions` của tin là `false` (từ task 290, cả `canApprove`, `canRequestRevision`, `canPublish` cũng cần yêu cầu còn `APPROVED`); tin đã xuất bản biến khỏi cổng tuyển dụng (404) và hiện lại khi mở lại yêu cầu, nếu hạn nộp chưa qua.
+- Tin tuyển dụng khi yêu cầu tạm dừng: sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa và xuất bản trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; mọi cờ `actions` của tin là `false` (từ task 290, cả `canApprove`, `canRequestRevision`, `canPublish` cũng cần yêu cầu còn `APPROVED`), trừ `canUnpublish` (chỉ xét trạng thái của tin): tin `PUBLISHED`, từ task 356 cả `EXPIRED`, vẫn gỡ được, vì gỡ tin không xét yêu cầu nguồn nên vẫn trả 200 khi yêu cầu tạm dừng, và tin đã gỡ không lên lại cổng khi mở lại yêu cầu (task 355, [gỡ tin](job-posting-publication.md#gỡ-tin-task-355)); tin đã xuất bản biến khỏi cổng tuyển dụng (404) và hiện lại khi mở lại yêu cầu: trên danh sách nếu hạn nộp chưa qua; tin đã qua hạn không lên lại danh sách nhưng chi tiết mở lại kèm thông báo hết hạn (`applicationOpen: false`; task 320, câu hỏi 22 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md); xem [API cổng việc làm công khai](job-posting-portal.md#chi-tiết-tin-s4-02-task-320)).
 - Danh sách: yêu cầu tạm dừng, đã tuyển đủ, đã hủy quá ngày cần người vẫn có `overdue` là `false`.
 - Sao chép yêu cầu đã tuyển đủ hoặc đã hủy trả 201 với một bản nháp mới.
 
@@ -293,9 +293,9 @@ Khi Trưởng phòng Nhân sự đóng yêu cầu vì đã tuyển đủ (`FILLE
 
 | Thay đổi của yêu cầu | Tin tuyển dụng của nó |
 |---|---|
-|Tạm dừng (`PAUSED`)|Không đổi: giữ trạng thái, `revision` và lịch sử; chỉ bị ẩn khỏi cổng (404) và không ghi được (409 về trạng thái của tin, ví dụ `JOB_POSTING_NOT_EDITABLE` khi sửa tin đã xuất bản, hoặc `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; xem [Nhóm trạng thái](#nhóm-trạng-thái))|
-|Mở lại (`APPROVED`)|Không đổi; tin `PUBLISHED` còn hạn nộp hiện lại trên cổng|
-|Đã tuyển đủ (`FILLED`), hủy (`CANCELLED`)|Mọi tin `DRAFT`, `PENDING_APPROVAL`, `REVISION_REQUESTED`, `APPROVED`, `PUBLISHED` chuyển `CLOSED` vĩnh viễn (`JobPostingRequisitionSync.CLOSABLE_STATUSES`)|
+|Tạm dừng (`PAUSED`)|Không đổi: giữ trạng thái, `revision` và lịch sử; chỉ bị ẩn khỏi cổng (404) và không sửa, gửi duyệt, duyệt hay xuất bản được (409 về trạng thái của tin, ví dụ `JOB_POSTING_NOT_EDITABLE` khi sửa tin đã xuất bản, hoặc `JOB_POSTING_REQUISITION_NOT_APPROVED` khi trạng thái của tin cho phép bước đó; xem [Nhóm trạng thái](#nhóm-trạng-thái)). Riêng tin `PUBLISHED` có hạn nộp qua trong lúc tạm dừng vẫn được tác vụ hằng ngày chuyển sang `EXPIRED` (task 356), và gỡ tin (`POST /job-postings/{id}/unpublish`, task 355) vẫn được với tin `PUBLISHED` hoặc `EXPIRED` (200, `actions.canUnpublish` là `true`; [gỡ tin](job-posting-publication.md#gỡ-tin-task-355), mục 7.21 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md))|
+|Mở lại (`APPROVED`)|Không đổi; tin `PUBLISHED` còn hạn nộp hiện lại trên danh sách và chi tiết của cổng; tin `PUBLISHED` đã qua hạn (hoặc đã `EXPIRED`, task 356) không lên lại danh sách nhưng chi tiết mở lại kèm thông báo hết hạn (`applicationOpen: false`; task 320, câu hỏi 22; [chi tiết tin](job-posting-portal.md#chi-tiết-tin-s4-02-task-320))|
+|Đã tuyển đủ (`FILLED`), hủy (`CANCELLED`)|Mọi tin `DRAFT`, `PENDING_APPROVAL`, `REVISION_REQUESTED`, `APPROVED`, `PUBLISHED`, từ task 355 cả tin đã gỡ (`UNPUBLISHED`) và từ task 356 cả tin hết hạn (`EXPIRED`), chuyển `CLOSED` vĩnh viễn (`JobPostingRequisitionSync.CLOSABLE_STATUSES`)|
 
 Tạm dừng không đóng tin vì `CLOSED` là trạng thái cuối và mỗi yêu cầu chỉ có một tin (`job_postings_requisition_id_key`): đóng khi tạm dừng thì mở lại cũng không đăng tin được nữa. Tin chưa xuất bản (nháp, chờ duyệt, cần chỉnh sửa, đã duyệt) cũng bị đóng, vì chúng không bao giờ đi tiếp được và nếu để lại sẽ nằm mãi trong danh sách chờ duyệt của HR.
 
@@ -303,7 +303,7 @@ Tin sau khi đóng:
 
 - `status` là `CLOSED`, `revision` tăng 1. `updatedAt` (lần sửa nội dung gần nhất) và dấu vết xuất bản (`publishedById`, `publishedByName`, `publishedAt`) giữ nguyên; tin chưa từng xuất bản vẫn không có dấu vết.
 - Không bao giờ công khai: `GET /public/job-postings/{id}` trả 404 `JOB_POSTING_NOT_FOUND` giống hệt tin không tồn tại, và tin biến khỏi `GET /public/job-postings` (cả `totalElements`).
-- Mọi cờ `actions` là `false`. Sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa và xuất bản trả 409 `JOB_POSTING_CLOSED` "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa.". Đây là bước kiểm trạng thái **đầu tiên** sau phạm vi (403), nên người duyệt dù không phải người soạn cũng nhận 409 này, không phải 403 hay "không còn ở bước duyệt". Tạo tin mới cho yêu cầu đã đóng trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` (yêu cầu được kiểm trước khi xem nó đã có tin chưa).
+- Mọi cờ `actions` là `false`. Sửa, gửi duyệt, duyệt, yêu cầu chỉnh sửa, xuất bản và gỡ tin (task 355) trả 409 `JOB_POSTING_CLOSED` "Tin tuyển dụng đã đóng cùng yêu cầu tuyển dụng nên không thể sửa, gửi duyệt, duyệt, xuất bản hay gỡ nữa.". Đây là bước kiểm trạng thái **đầu tiên** sau phạm vi (403), nên người duyệt dù không phải người soạn cũng nhận 409 này, không phải 403 hay "không còn ở bước duyệt". Tạo tin mới cho yêu cầu đã đóng trả 409 `JOB_POSTING_REQUISITION_NOT_APPROVED` (yêu cầu được kiểm trước khi xem nó đã có tin chưa).
 - Người soạn và HR vẫn đọc được tin, bản xem trước và lịch sử; `GET /job-postings?status=CLOSED` liệt kê các tin đã đóng.
 - Lịch sử tin (`GET /job-postings/{id}/history`) có thêm đúng một bước `CLOSED`: người làm là người đóng yêu cầu, thời điểm đúng bằng `occurredAt` của dòng `FILLED`/`CANCELLED` trong lịch sử yêu cầu, `comment` là lý do của yêu cầu.
 
@@ -328,6 +328,10 @@ Kết quả khi một thao tác ghi tin và việc đóng yêu cầu đến cùn
 |Duyệt, gửi duyệt hoặc lưu tin|Đóng yêu cầu|200; 200; tin `CLOSED` từ trạng thái sau thao tác đầu|
 |Đóng yêu cầu|Duyệt, gửi duyệt hoặc lưu tin|200; 409 `JOB_POSTING_CLOSED`; nội dung tin không đổi|
 |Tạo tin|Hủy yêu cầu|201; 200; bản nháp vừa tạo bị đóng|
+|Gỡ tin (task 355)|Đóng yêu cầu (đã tuyển đủ)|200; 200; tin `CLOSED` từ `UNPUBLISHED`|
+|Đóng yêu cầu|Gỡ tin (task 355)|200; 409 `JOB_POSTING_CLOSED` (lời nhắn có "gỡ"); tin `CLOSED` từ `PUBLISHED`|
+|Tác vụ hết hạn hằng ngày (task 356)|Đóng yêu cầu (đã tuyển đủ)|tin chuyển `EXPIRED`; 200; tin `CLOSED` từ `EXPIRED`|
+|Đóng yêu cầu|Tác vụ hết hạn hằng ngày (task 356)|200; tác vụ bỏ qua tin (đã `CLOSED`); tin `CLOSED` từ `PUBLISHED`|
 |Hủy yêu cầu|Tạo tin|200; 409 `JOB_POSTING_REQUISITION_NOT_APPROVED`; không có tin|
 
 Trong mọi trường hợp tin có đúng một bước `CLOSED` và không còn trên cổng. V25 (mục "Database và phạm vi") thêm trạng thái và bước `CLOSED`, và đóng tin của các yêu cầu đã tuyển đủ hoặc bị hủy trước khi V25 chạy.
@@ -398,7 +402,7 @@ Các quy tắc trên là giả định của backend, chờ BA/PO xác nhận. G
 - lý do là văn bản tự do, bắt buộc khi tạm dừng, đóng vì đã tuyển đủ và hủy (tối đa 2.000 ký tự), không bắt buộc khi mở lại; không có danh mục mã lý do. Nếu cần danh mục lý do thì thêm một cột mới mà không đổi dòng cũ;
 - định biên: tạm dừng và đã tuyển đủ vẫn giữ chỗ; hủy trả lại chỗ;
 - vẫn đổi được recruiter khi tạm dừng; không đổi khi đã tuyển đủ hoặc đã hủy;
-- tạm dừng chỉ ẩn tin tuyển dụng khỏi cổng (tin vẫn "đã xuất bản", hiện lại khi mở lại nếu còn hạn nộp) và không cho sửa, duyệt hay xuất bản tin;
+- tạm dừng chỉ ẩn tin tuyển dụng khỏi cổng (tin vẫn "đã xuất bản", trừ khi hạn nộp qua trong lúc tạm dừng: tác vụ hằng ngày vẫn chuyển tin sang `EXPIRED`, task 356; khi mở lại, tin còn hạn nộp hiện lại trên danh sách, tin đã qua hạn chỉ mở lại chi tiết kèm thông báo hết hạn, `applicationOpen: false`, task 320, câu hỏi 22 của [ma trận vai trò và quyền](../architecture/role-permission-matrix.md)) và không cho sửa, duyệt hay xuất bản tin;
 - đã tuyển đủ hoặc hủy: mọi tin chưa đóng của yêu cầu (kể cả nháp, chờ duyệt) chuyển "Đã đóng" vĩnh viễn, giữ người và thời điểm xuất bản; lý do của yêu cầu được chép vào lịch sử tin (task 292);
 - người đóng yêu cầu không cần quyền tin tuyển dụng (task 292);
 - hủy khi đang chờ duyệt kết thúc lượt duyệt; người duyệt của cấp đang chờ vẫn xem được yêu cầu và tiến độ, bấm quyết định trên trang cũ thì nhận 409 để tải lại; người của cấp chưa tới không xem được; cấp đang chờ hiện "Chưa đến lượt", chưa có trạng thái riêng cho cấp bị dừng;

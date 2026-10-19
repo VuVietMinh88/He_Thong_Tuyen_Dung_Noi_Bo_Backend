@@ -19,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
+import vn.ttcs.recruitment.account.ProfileValidation;
 import vn.ttcs.recruitment.account.Role;
 
 import javax.sql.DataSource;
@@ -65,6 +66,7 @@ class AccountManagementIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID adminId;
     private String adminToken;
     private String fixturePasswordHash;
@@ -160,7 +162,7 @@ class AccountManagementIntegrationTest {
     }
 
     @Test
-    void classifiesTemporaryLockAndPendingActivationWithoutConfusingDisabledAccounts() throws Exception {
+    void ignoresLegacyTemporaryLocksWhenClassifyingAccountStatus() throws Exception {
         UUID locked = account("locked@example.test", "Locked", Set.of(Role.INTERVIEWER));
         UUID expiredLock = account("expiredlock@example.test", "Expired lock", Set.of(Role.INTERVIEWER));
         UUID boundaryLock = account("boundarylock@example.test", "Boundary lock", Set.of(Role.INTERVIEWER));
@@ -179,13 +181,13 @@ class AccountManagementIntegrationTest {
         invitation(consumedInvitation, START.plusSeconds(3600), START.minusSeconds(30));
 
         assertThat(ids(ok(get("/api/v1/accounts?status=TEMPORARILY_LOCKED", adminToken))))
-                .containsExactly(locked.toString());
+                .isEmpty();
         assertThat(ids(ok(get("/api/v1/accounts?status=PENDING_ACTIVATION", adminToken))))
                 .containsExactlyInAnyOrder(pending.toString(), expiredInvitation.toString());
         assertThat(ids(ok(get("/api/v1/accounts?status=DISABLED", adminToken))))
                 .containsExactlyInAnyOrder(disabled.toString(), consumedInvitation.toString());
         assertThat(ids(ok(get("/api/v1/accounts?status=ACTIVE", adminToken))))
-                .containsExactlyInAnyOrder(adminId.toString(), expiredLock.toString(), boundaryLock.toString());
+                .containsExactlyInAnyOrder(adminId.toString(), locked.toString(), expiredLock.toString(), boundaryLock.toString());
     }
 
     @ParameterizedTest
@@ -437,6 +439,75 @@ class AccountManagementIntegrationTest {
     }
 
     @Test
+    void removesInvisibleCharactersAroundNameAndDisplayTitleAndTreatsInvisibleOnesAsEmpty() throws Exception {
+        UUID target = account("invisible@example.test", "Before", Set.of(Role.INTERVIEWER));
+        // trim() kept these, so they were stored around a name or title, or alone as an invisible one: non-breaking
+        // spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the ideographic and em
+        // spaces, and zero-width characters (U+200B, U+FEFF, U+2060). The phone number is cleaned the same way. The
+        // characters are built from code points, so the source shows which one each case sends.
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            JsonNode result = ok(update(target, Map.of("fullName", character + "Nguyễn Văn An" + character,
+                    "displayTitle", character + "Chuyên viên" + character, "phone", character + "0912345678" + character),
+                    adminToken));
+            assertThat(result.path("fullName").asText()).as("U+%04X", invisible).isEqualTo("Nguyễn Văn An");
+            assertThat(result.path("displayTitle").asText()).as("U+%04X", invisible).isEqualTo("Chuyên viên");
+            assertThat(result.path("phone").asText()).as("U+%04X", invisible).isEqualTo("0912345678");
+            assertThat(jdbc.queryForMap("SELECT full_name, display_title FROM user_accounts WHERE id = ?", target))
+                    .containsEntry("full_name", "Nguyễn Văn An").containsEntry("display_title", "Chuyên viên");
+        }
+        // Characters inside a text belong to it and are kept; the length limits count the text without its ends.
+        String nbsp = Character.toString(0x00A0);
+        JsonNode inner = ok(update(target, Map.of("fullName", "Nguyễn" + nbsp + "Văn An",
+                "displayTitle", nbsp + "t".repeat(120) + nbsp), adminToken));
+        assertThat(inner.path("fullName").asText()).isEqualTo("Nguyễn" + nbsp + "Văn An");
+        assertThat(inner.path("displayTitle").asText()).isEqualTo("t".repeat(120));
+        assertThat(ok(update(target, Map.of("fullName", nbsp + "n".repeat(255) + nbsp), adminToken))
+                .path("fullName").asText()).isEqualTo("n".repeat(255));
+
+        // Without a visible character a name counts as empty and is refused; a display title is cleared.
+        ok(update(target, Map.of("fullName", "Nguyễn Văn An", "displayTitle", "Chuyên viên"), adminToken));
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            Map<String, Object> before = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target);
+            var refused = update(target, Map.of("fullName", invisible, "displayTitle", "Chuyên viên"), adminToken);
+            assertThat(refused.statusCode()).isEqualTo(400);
+            assertThat(body(refused).path("code").asText()).isEqualTo("VALIDATION_ERROR");
+            assertThat(body(refused).path("fieldErrors").path("fullName").asText())
+                    .as("%s", invisible.codePoints().mapToObj(Integer::toHexString).toList())
+                    .isEqualTo("Họ tên không được để trống.");
+            assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(before);
+
+            JsonNode cleared = ok(update(target, Map.of("fullName", "Nguyễn Văn An", "displayTitle", invisible),
+                    adminToken));
+            assertThat(cleared.path("displayTitle").isNull()).isTrue();
+            assertThat(jdbc.queryForObject("SELECT display_title FROM user_accounts WHERE id = ?", String.class, target))
+                    .isNull();
+            ok(update(target, Map.of("fullName", "Nguyễn Văn An", "displayTitle", "Chuyên viên"), adminToken));
+        }
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundProfileTexts() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            assertThat(ProfileValidation.requiredText(character + "Nguyễn Văn An" + character)).as("U+%04X", space)
+                    .isEqualTo("Nguyễn Văn An");
+            assertThat(ProfileValidation.optionalText(character + "Chuyên viên" + character)).as("U+%04X", space)
+                    .isEqualTo("Chuyên viên");
+            assertThat(ProfileValidation.requiredText(character)).as("U+%04X", space).isNull();
+            assertThat(ProfileValidation.optionalText(character)).as("U+%04X", space).isNull();
+        }
+    }
+
+    @Test
     void invalidOrInactiveDepartmentIsRejectedButExistingInactiveAssignmentCanBeRetained() throws Exception {
         UUID target = account("departmentedit@example.test", "Before", Set.of(Role.INTERVIEWER));
         UUID inactive = department("INACTIVE", "Inactive department", false);
@@ -525,6 +596,9 @@ class AccountManagementIntegrationTest {
         var builder = HttpRequest.newBuilder(uri(path)).timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/json")
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

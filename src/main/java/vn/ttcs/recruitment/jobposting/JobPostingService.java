@@ -29,7 +29,9 @@ import java.util.UUID;
  * Task 303 (story S3-09): job postings made from approved requisitions, saved as drafts by their authors. Task 308
  * (story S3-10): the authors send them for review (submit); HR's decisions and the publication are in
  * JobPostingApprovalService. Task 309: the preview, and the public portal of published postings; both answer with
- * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW).
+ * one builder (PublicJobPostingView.of) of one row query (JobPostingReadRepository.SELECT_ROW). Task 320 (story
+ * S4-02): the public detail adds whether candidates may still apply (PublicJobPostingDetail). Task 355 (story S4-08):
+ * the recruiter or HR takes a published posting down (unpublish), next to submit because it is a composer's write.
  * <p>
  * Lock order of every write: the actor's account, the actor's session (JobPostingAccess.lockWriter), the requisition
  * row (JobPostingSourceRepository.lockSource), the posting row, then the chosen catalog values FOR SHARE (work
@@ -58,11 +60,30 @@ public class JobPostingService {
 
     // Task 309: the statuses in which candidates see a posting on the public portal, while its application deadline
     // has not passed and its requisition is still in SOURCE_STATUSES. JobPostingStatus asks every new status to be
-    // classified here; JobPostingStatusTest does not compile until it is.
+    // classified here; JobPostingStatusTest does not compile until it is. Task 320: only these are listed and take
+    // applications, and only while both conditions hold (JobPostingApplicability.OPEN).
     static final Set<JobPostingStatus> PUBLIC_STATUSES = EnumSet.of(JobPostingStatus.PUBLISHED);
 
-    // Task 309: the two sets above as the names the public SQL filter binds (PgJDBC cannot bind a Java enum).
-    // Derived from the sets, so the filter and the sets cannot drift apart.
+    // Task 320 (story S4-02): the statuses whose public detail candidates may still open by its link while its
+    // requisition is in SOURCE_STATUSES: open to applications while the posting is in PUBLIC_STATUSES and its deadline
+    // has not passed, otherwise shown with a notice instead of the apply form (JobPostingApplicability). Holds every
+    // status of PUBLIC_STATUSES. JobPostingStatus asks every new status to be classified here; JobPostingStatusTest
+    // does not compile until it is. Task 356: a posting the daily task expired keeps showing that notice, so the
+    // detail is the same before and after the task ran.
+    static final Set<JobPostingStatus> PORTAL_STATUSES =
+            EnumSet.of(JobPostingStatus.PUBLISHED, JobPostingStatus.EXPIRED);
+
+    // Task 355 (story S4-08): the statuses from which the recruiter or HR may take a posting down (unpublish), at any
+    // time: whatever its deadline and whatever the status of its requisition (a paused one too). JobPostingStatus asks
+    // every new status to be classified here; JobPostingStatusTest does not compile until it is. Task 356: an expired
+    // posting too, so its detail and notice can be removed from the portal.
+    static final Set<JobPostingStatus> UNPUBLISHABLE_STATUSES =
+            EnumSet.of(JobPostingStatus.PUBLISHED, JobPostingStatus.EXPIRED);
+
+    private static final String UNPUBLISH_REASON_REQUIRED = "Vui lòng nhập lý do gỡ tin tuyển dụng.";
+
+    // Task 309: PUBLIC_STATUSES and SOURCE_STATUSES as the names the public SQL filter binds (PgJDBC cannot bind a
+    // Java enum). Derived from the sets, so the filter and the sets cannot drift apart.
     static final List<String> PUBLIC_STATUS_NAMES = PUBLIC_STATUSES.stream().map(Enum::name).toList();
     static final List<String> SOURCE_STATUS_NAMES = SOURCE_STATUSES.stream().map(Enum::name).toList();
 
@@ -211,6 +232,58 @@ public class JobPostingService {
         return view(id, caller);
     }
 
+    /**
+     * Task 355 (story S4-08): "Xây dựng API gỡ tin tuyển dụng ngay lập tức". The recruiter of the requisition or HR
+     * takes a published posting (task 356: or an expired one) down at any time, with a reason. It moves to
+     * UNPUBLISHED with a new revision, keeps who published it and when (and updatedAt), and an UNPUBLISHED event
+     * records who took it down, when and why. The portal shows only postings in PUBLIC_STATUSES (and the detail of
+     * those in PORTAL_STATUSES), read at each request and never cached (no-store), so the list, the detail, the filter
+     * values and the application gate (task 321) stop showing it as soon as this commits.
+     * Checks in order: the reason (400 JOB_POSTING_UNPUBLISH_REASON_REQUIRED, before any lock or lookup, like a
+     * decision's comment), write and read access (401/403, before any lookup), the posting exists (404), it is in the
+     * caller's scope (403), it is not closed (409, task 292), it is not taken down yet (409
+     * JOB_POSTING_ALREADY_UNPUBLISHED), it is in UNPUBLISHABLE_STATUSES (409 JOB_POSTING_NOT_PUBLISHED), the caller saw
+     * its latest revision (409). Lock order and re-checks like submit. Deliberately neither the requisition's status
+     * nor the deadline is checked: a paused requisition's posting, or one past its deadline, can be taken down too.
+     * Task 356: the daily expiry takes the same locks and makes a new revision, so a take-down sent on the view from
+     * before the expiry is refused with 409 JOB_POSTING_CHANGED, and one sent on the new revision succeeds.
+     */
+    @Transactional
+    public JobPostingView unpublish(Jwt jwt, UUID id, JobPostingUnpublishRequest request) {
+        if (request.reason() == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "JOB_POSTING_UNPUBLISH_REASON_REQUIRED",
+                    UNPUBLISH_REASON_REQUIRED, Map.of("reason", UNPUBLISH_REASON_REQUIRED));
+        }
+        Writer writer = access.lockWriter(jwt);
+        access.requireComposer(jwt, writer);
+        UUID requisitionId = postings.findRequisitionIdById(id).orElseThrow(JobPostingService::notFound);
+        // Locked although its status is not checked here: every posting writer, the closure (task 292) and the
+        // application gate (task 321) take the requisition first, so nothing deadlocks, and the scope is checked under
+        // this lock, which every change of the requisition's team takes first.
+        sources.lockSource(requisitionId).orElseThrow(JobPostingService::notFound);
+        access.requireComposer(jwt, writer);
+        var locked = postings.findByIdForUpdate(id);
+        Caller caller = access.requireComposer(jwt, writer);
+        JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
+        access.requireInScope(caller, requisitionId);
+        requireNotClosed(posting);
+        if (posting.getStatus() == JobPostingStatus.UNPUBLISHED) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_ALREADY_UNPUBLISHED",
+                    "Tin tuyển dụng đã được gỡ khỏi trang tuyển dụng.");
+        }
+        if (!UNPUBLISHABLE_STATUSES.contains(posting.getStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_NOT_PUBLISHED",
+                    "Chỉ gỡ được tin tuyển dụng đã xuất bản.");
+        }
+        requireRevision(posting, request.expectedRevision());
+        JobPostingStatus before = posting.getStatus();
+        posting.unpublish(before);
+        postings.flush();
+        events.append(id, posting.getRevision(), JobPostingEventType.UNPUBLISHED, before,
+                JobPostingStatus.UNPUBLISHED, caller.id(), access.now(), request.reason());
+        return view(id, caller);
+    }
+
     // The posting as its authors see it. A SCOPED reader must be assigned to its requisition. The unknown id is 404
     // before the scope, for every caller.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -255,23 +328,51 @@ public class JobPostingService {
     }
 
     /**
-     * Task 309: a posting on the public portal, for anyone, without logging in. Only a posting in PUBLIC_STATUSES
-     * whose application deadline is today or later (business date) and whose requisition is still in SOURCE_STATUSES;
-     * every other posting answers 404 exactly like an id that does not exist, so the portal tells nothing about
-     * drafts, postings under review or expired ones.
+     * Task 309: a posting on the public portal, for anyone, without logging in. Task 320 (story S4-02): what a
+     * candidate who opens the posting by its link may see, decided by JobPostingApplicability from the posting's
+     * status, its requisition's status, its deadline and today (the business date, read once at the start):
+     * <ul>
+     *   <li>OPEN (in PUBLIC_STATUSES, deadline today or later, requisition in SOURCE_STATUSES): the posting with
+     *   applicationOpen true;</li>
+     *   <li>EXPIRED (in PORTAL_STATUSES, requisition in SOURCE_STATUSES, deadline passed; task 356: or moved to the
+     *   status EXPIRED by the daily task, which follows the date): the same content with applicationOpen false, so the
+     *   page shows a notice instead of the apply form; the list no longer has it;</li>
+     *   <li>NOT_PUBLIC (any other status, or a requisition no longer in SOURCE_STATUSES, for example paused): 404
+     *   exactly like an id that does not exist, so the portal tells nothing about drafts or postings under review.</li>
+     * </ul>
+     * applicationClosesAt is 00:00 of the day after the deadline in the business zone. The content is built by
+     * PublicJobPostingView.of from the row of the preview, so it equals the preview's content.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PublicJobPostingView getPublic(UUID id) {
-        return reads.findPublic(id, calendar.today()).map(PublicJobPostingView::of)
-                .orElseThrow(JobPostingService::notFound);
+    public PublicJobPostingDetail getPublic(UUID id) {
+        LocalDate today = calendar.today();
+        JobPostingRow row = reads.findRow(id).orElseThrow(JobPostingService::notFound);
+        var applicability = JobPostingApplicability.of(row.status(), row.requisitionStatus(),
+                row.applicationDeadline(), today);
+        if (applicability == JobPostingApplicability.NOT_PUBLIC) {
+            throw notFound(); // the same body as an id that does not exist
+        }
+        return PublicJobPostingDetail.of(PublicJobPostingView.of(row), applicability == JobPostingApplicability.OPEN,
+                calendar.startOf(row.applicationDeadline().plusDays(1)));
     }
 
     // Task 309: one page of the postings getPublic shows, newest publication first. REPEATABLE_READ: the count and
-    // the page come from the same snapshot.
+    // the page come from the same snapshot. Task 320: only those still open to applications (OPEN).
+    // Task 315 (story S4-01): only the postings that match every filter and the keyword of the query (an empty query
+    // is the whole list). Checks in order: page and size, then the keyword (400 VALIDATION_ERROR each); an unknown id
+    // is not checked and gives an empty page.
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PublicJobPostingPage publicPage(int page, int size) {
+    public PublicJobPostingPage publicPage(PublicJobPostingQuery query, int page, int size) {
         requireValidPage(page, size, "Trang hoặc số lượng tin tuyển dụng không hợp lệ.");
-        return reads.publicPage(calendar.today(), page, size);
+        query.requireValid();
+        return reads.publicPage(calendar.today(), query, page, size);
+    }
+
+    // Task 315: the departments, work locations and employment types the public list can be filtered by, taken from
+    // the postings publicPage lists today, for anyone. REPEATABLE_READ: the three lists come from the same snapshot.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PublicJobPostingFilters publicFilters() {
+        return reads.publicFilters(calendar.today());
     }
 
     // The body's content, with the title, the job description and the candidate requirements it leaves out taken from
@@ -375,11 +476,13 @@ public class JobPostingService {
     }
 
     // Task 292: a posting closed with its requisition never changes again; said before the step's own status check, so
-    // a write that lost the race to the closure gets this message, not "chưa được duyệt" or "không sửa được".
+    // a write that lost the race to the closure gets this message, not "chưa được duyệt" or "không sửa được". Task
+    // 355: one text for every step, and it names taking down too, so a recruiter whose unpublish lost the race to the
+    // closure is told about the action they tried.
     static void requireNotClosed(JobPosting posting) {
         if (posting.getStatus() == JobPostingStatus.CLOSED) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_CLOSED", "Tin tuyển dụng đã đóng cùng yêu cầu "
-                    + "tuyển dụng nên không thể sửa, gửi duyệt, duyệt hay xuất bản nữa.");
+                    + "tuyển dụng nên không thể sửa, gửi duyệt, duyệt, xuất bản hay gỡ nữa.");
         }
     }
 

@@ -126,7 +126,9 @@ public class JobPostingApprovalService {
      * latest revision (409), its requisition is still approved (409), the application deadline has not passed (409).
      * The PUBLISHED event records the caller from the token and the server time, never anything from the body.
      * Candidates see the posting from task 309 on. Task 310: the posting keeps the same publisher and time
-     * (publishedById, publishedAt in every internal view).
+     * (publishedById, publishedAt in every internal view). Task 355: "published" means published once, so a posting
+     * taken down (UNPUBLISHED) is answered JOB_POSTING_ALREADY_PUBLISHED too and is never published again. Task 356:
+     * so is an expired one (EXPIRED).
      */
     @Transactional
     public JobPostingView publish(Jwt jwt, UUID id, JobPostingPublishRequest request) {
@@ -140,7 +142,9 @@ public class JobPostingApprovalService {
         JobPosting posting = locked.orElseThrow(JobPostingService::notFound);
         access.requireInScope(caller, requisitionId);
         JobPostingService.requireNotClosed(posting);
-        if (posting.getStatus() == JobPostingStatus.PUBLISHED) {
+        // Task 355: a posting is published once (job_posting_events_one_publication_idx), whatever happened to it
+        // since. Only a posting that was published has the trail (V23), and requireNotClosed answered a closed one.
+        if (posting.getPublishedAt() != null) {
             throw new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_ALREADY_PUBLISHED",
                     "Tin tuyển dụng đã được xuất bản.");
         }

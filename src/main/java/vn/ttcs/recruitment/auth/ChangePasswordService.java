@@ -56,6 +56,7 @@ public class ChangePasswordService {
 
         account.resetPassword(passwordEncoder.encode(request.newPassword()));
         resetTokens.invalidateForUser(userId, now);
-        sessions.revokeOtherSessions(userId, sessionId, now);
+        // The caller must also authenticate again with the new password.
+        sessions.revokeForUser(userId, now);
     }
 }

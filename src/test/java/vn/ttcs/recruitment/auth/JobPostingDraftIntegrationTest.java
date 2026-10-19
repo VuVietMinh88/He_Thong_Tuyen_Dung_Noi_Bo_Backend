@@ -156,12 +156,13 @@ class JobPostingDraftIntegrationTest {
         // PostgreSQL keeps microseconds, so the answer shows the time a later read returns.
         assertThat(view.path("createdAt").asText()).isEqualTo("2026-10-11T03:00:00.987654Z");
         assertThat(view.path("updatedAt").asText()).isEqualTo("2026-10-11T03:00:00.987654Z");
-        // Task 308 added the review actions; HR may send the new draft for review, nothing else yet.
+        // Task 308 added the review actions; HR may send the new draft for review, nothing else yet. Task 355 added
+        // taking a published posting down.
         assertThat(fieldNames(view.path("actions"))).containsExactly("canEdit", "canSubmit", "canApprove",
-                "canRequestRevision", "canPublish");
+                "canRequestRevision", "canPublish", "canUnpublish");
         assertThat(view.path("actions").path("canEdit").asBoolean()).isTrue();
         assertThat(view.path("actions").path("canSubmit").asBoolean()).isTrue();
-        for (String review : List.of("canApprove", "canRequestRevision", "canPublish")) {
+        for (String review : List.of("canApprove", "canRequestRevision", "canPublish", "canUnpublish")) {
             assertThat(view.path("actions").path(review).asBoolean()).as(review).isFalse();
         }
         assertThat(view.path("lastReview").isNull()).isTrue();
