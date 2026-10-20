@@ -397,3 +397,11 @@ có tồn tại).
 Ghi chú cho frontend: chuông gọi `unread-count` khi tải trang và định kỳ; mở danh sách gọi GET; bấm một thông báo → PATCH
 read rồi điều hướng theo `link`; nút "Đánh dấu tất cả đã đọc" → POST read-all. Xử lý 403/404 của màn hình đích (quyền
 có thể đã đổi sau khi nhận thông báo).
+
+## Lưu tùy chọn kênh thông báo (task 549)
+
+Không thêm endpoint (API ở task 550). Migration `V66_8__create_notification_preferences.sql` thêm
+`notification_preferences` (`user_id`, `notification_type`, `channel` = `IN_APP`/`EMAIL`, `enabled`, `updated_at`;
+khóa chính ba cột đầu; `ON DELETE CASCADE` từ tài khoản). Chỉ lưu lựa chọn người dùng đã đặt; **không có dòng nghĩa
+là bật**. `APPROVAL_PENDING` là bắt buộc ở cả hai kênh: CHECK `notification_preferences_mandatory` không cho lưu
+`false`, và `NotificationPreferences.enabled` luôn trả bật cho loại bắt buộc dù database có gì.
