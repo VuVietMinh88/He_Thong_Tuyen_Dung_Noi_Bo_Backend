@@ -55,7 +55,8 @@ public class ApplicationConfirmationMailSender {
     }
 
     // The sender's address (MAIL_FROM) is the contact for a deletion request; the referrer is not named (BA/PO 27(6)).
-    static String referralParagraph(String from) {
+    // Public for the template preview (task 532), which shows a referred candidate's receipt with this same paragraph.
+    public static String referralParagraph(String from) {
         return "Hồ sơ này do một nhân viên của công ty gửi thay bạn qua kênh giới thiệu nội bộ, kèm xác nhận rằng bạn "
                 +"đã đồng ý. Nếu bạn không muốn tiếp tục, bạn có thể rút hồ sơ bằng liên kết rút hồ sơ bên dưới. Để yêu "
                 +"cầu xóa dữ liệu của bạn, vui lòng trả lời email này hoặc liên hệ "+from+".\n\n";
