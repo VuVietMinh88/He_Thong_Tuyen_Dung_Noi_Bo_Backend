@@ -1,6 +1,7 @@
 package vn.ttcs.recruitment.application;
 
 import jakarta.validation.Validator;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,11 +29,12 @@ public class ApplicationStorageService {
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     public ApplicationStorageService(JdbcTemplate jdbc, JobPostingApplicationGate postingGate,
             ApplicationRepository applications, ApplicationCvRepository cvs,
             CandidateLinks candidates, RecruitmentCatalogItemRepository catalogs, Validator validator,
-            BusinessCalendar calendar, Clock clock) {
+            BusinessCalendar calendar, Clock clock, ApplicationEventPublisher events) {
         this.jdbc = jdbc;
         this.postingGate = postingGate;
         this.applications = applications;
@@ -42,6 +44,7 @@ public class ApplicationStorageService {
         this.validator = validator;
         this.calendar = calendar;
         this.clock = clock;
+        this.events = events;
     }
 
     // READ_COMMITTED sees changes committed while waiting. Locks conflict with pause/closure and unpublication.
@@ -82,6 +85,10 @@ public class ApplicationStorageService {
         applications.insert(application, submission, title, trackingHash.clone());
         // Task 360: after the duplicate arbiter (a 409 links nothing), in this transaction: one profile per email.
         candidates.link(application.id(), submission.normalizedEmail(), receivedAt);
+        // Task 413: synchronous listeners (the fit result) write in this transaction and roll back with it. They run
+        // before the caller check and the last deadline check, so a wait inside one (the foreign key share lock of a
+        // fit result on its position) is covered by both.
+        events.publishEvent(new ApplicationStoredEvent(application.id(), application.requisitionId()));
         callerCheck.run();
         // The link is the last statement that can wait (on a concurrent first application of the same email; the
         // arbiter above on one that rolls back): an application whose last wait ends after the deadline's business

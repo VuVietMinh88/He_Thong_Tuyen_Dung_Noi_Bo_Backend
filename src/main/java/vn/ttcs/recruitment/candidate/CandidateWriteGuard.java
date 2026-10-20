@@ -1,7 +1,9 @@
 package vn.ttcs.recruitment.candidate;
 
 import org.springframework.dao.TransientDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.TransactionTimedOutException;
@@ -10,9 +12,14 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
+import vn.ttcs.recruitment.security.AccessScope;
+import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.sql.SQLException;
@@ -28,6 +35,9 @@ import java.util.UUID;
  * change waits for the write. freshGrants must be called again after every later lock wait: the token's expiry and the
  * session's are times and role_permissions is not locked, so the grants are read from the database each time, never
  * taken from the JWT.
+ * <p>
+ * Task 413: writes about one application lock its requisition, then the application, FOR NO KEY UPDATE
+ * (lockRequisitionOf, lockApplication) and call requireWritable after every lock wait.
  */
 @Component
 public class CandidateWriteGuard {
@@ -36,14 +46,19 @@ public class CandidateWriteGuard {
     private final AccountRepository accounts;
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
+    private final CandidateAccess candidates;
+    private final RecruiterAssignmentAccess assignments;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
     public CandidateWriteGuard(AccountRepository accounts, AuthSessionRepository sessions,
-                               PermissionService permissions, JdbcTemplate jdbc, Clock clock) {
+                               PermissionService permissions, CandidateAccess candidates,
+                               RecruiterAssignmentAccess assignments, JdbcTemplate jdbc, Clock clock) {
         this.accounts = accounts;
         this.sessions = sessions;
         this.permissions = permissions;
+        this.candidates = candidates;
+        this.assignments = assignments;
         this.jdbc = jdbc;
         this.clock = clock;
     }
@@ -83,6 +98,56 @@ public class CandidateWriteGuard {
             throw AuthenticationFailureException.sessionInvalid();
         }
         return permissions.forUser(writer.id());
+    }
+
+    public record Scopes(AccessScope read, AccessScope write) {
+        public CandidateReader reader(UUID actorId) { return new CandidateReader(actorId, read); }
+    }
+
+    // The CANDIDATES read and write scopes as stored now (403 without either), after the token and session checks.
+    public Scopes freshScopes(Jwt jwt, Writer writer) {
+        Set<String> grants = freshGrants(jwt, writer);
+        return new Scopes(AccessScope.read(grants, PermissionModule.CANDIDATES).orDeny(),
+                AccessScope.write(grants, PermissionModule.CANDIDATES).orDeny());
+    }
+
+    // The application's requisition (it never changes), locked FOR NO KEY UPDATE first, as every write about an
+    // application does; 404 APPLICATION_NOT_FOUND for an unknown application.
+    @Transactional(propagation = Propagation.MANDATORY)
+    public UUID lockRequisitionOf(UUID applicationId) {
+        UUID requisition = jdbc.query("SELECT requisition_id FROM job_applications WHERE id = ?",
+                (row, number) -> row.getObject(1, UUID.class), applicationId).stream().findFirst()
+                .orElseThrow(CandidateWriteGuard::applicationNotFound);
+        if (jdbc.queryForList("SELECT id FROM recruitment_requisitions WHERE id = ? FOR NO KEY UPDATE", UUID.class,
+                requisition).isEmpty()) {
+            throw applicationNotFound();
+        }
+        return requisition;
+    }
+
+    // The application row FOR NO KEY UPDATE, after its requisition; its stage as stored now.
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ApplicationStage lockApplication(UUID applicationId) {
+        return jdbc.query("SELECT stage FROM job_applications WHERE id = ? FOR NO KEY UPDATE",
+                (row, number) -> ApplicationStage.valueOf(row.getString(1)), applicationId).stream().findFirst()
+                .orElseThrow(CandidateWriteGuard::applicationNotFound);
+    }
+
+    // Call after every lock wait: the scopes read again, then the record scope with them. The application must be
+    // READABLE, and a SCOPED writer must be one of the requisition's recruiters now (ScreeningService's rule).
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ApplicationAccess requireWritable(Jwt jwt, Writer writer, UUID requisitionId, UUID applicationId) {
+        Scopes scopes = freshScopes(jwt, writer);
+        ApplicationAccess found = candidates.findApplication(scopes.reader(writer.id()), applicationId)
+                .orElseThrow(CandidateWriteGuard::applicationNotFound);
+        if (!found.readable() || scopes.write() != AccessScope.ALL && !assignments.isAssigned(requisitionId, writer.id())) {
+            throw new AccessDeniedException("The application is outside the caller's candidate write scope");
+        }
+        return found;
+    }
+
+    public static ApiException applicationNotFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "APPLICATION_NOT_FOUND", "Không tìm thấy hồ sơ ứng tuyển.");
     }
 
     // A lock or statement timeout, a deadlock or a serialization failure, read from the cause chain because Spring's

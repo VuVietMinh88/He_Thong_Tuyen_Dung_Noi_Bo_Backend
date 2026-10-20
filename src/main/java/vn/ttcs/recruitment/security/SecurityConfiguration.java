@@ -534,6 +534,12 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_ORGANIZATION_READ_ALL")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*/required-criteria")
                                 .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
+                        // Task 413: an application's fit is read like its profile; recording qualifications is a
+                        // CANDIDATES write checked again (with the record scope) after every lock wait.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/fit")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/applications/*/qualifications")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.

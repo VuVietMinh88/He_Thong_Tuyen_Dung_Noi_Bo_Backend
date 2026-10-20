@@ -485,3 +485,107 @@ Ghi chú cho frontend:
 - Màn hình "Tiêu chí bắt buộc" trong chi tiết vị trí: input số năm, dropdown trình độ (hiển thị `requiredEducationName`),
   ô nhập kỹ năng dạng tag. Chỉ HR/Admin thấy nút Lưu.
 - Luôn gửi `expectedVersion` lấy từ lần GET gần nhất; khi 409 thì tải lại và cho sửa lại.
+
+## 413 — Tính điểm phù hợp và cờ đạt từng tiêu chí
+
+Migration: `V65_4__create_application_fit_results.sql` (bảng `application_qualifications` + `application_skills`: thông
+tin năng lực nhân viên ghi nhận từ CV; bảng `application_fit_results`: kết quả đã lưu của mỗi hồ sơ; hồ sơ có sẵn trước
+migration được gắn `NO_CRITERIA`).
+
+**Nguyên tắc:** hệ thống **không đọc CV tự động và không bịa dữ liệu**. Số năm kinh nghiệm, trình độ, kỹ năng của ứng
+viên do nhân viên ghi nhận sau khi đọc CV. Tiêu chí mà hồ sơ chưa có dữ liệu → `UNKNOWN` (0 điểm, không tính là đạt).
+Điểm **chỉ để gợi ý sắp xếp**: không API nào dùng điểm để đổi giai đoạn hay loại ứng viên.
+
+**Khi nào kết quả được tính:** mỗi kết quả lưu kèm version tiêu chí và version thông tin năng lực đã dùng để tính.
+
+- Hồ sơ mới từ mọi đường (cổng nộp, giới thiệu, nhập tay): `ApplicationStorageService` phát sự kiện
+  `ApplicationStoredEvent`, listener ghi kết quả ngay trong giao dịch lưu hồ sơ (trước lần kiểm hạn nộp cuối, nên một
+  lần chờ trong listener kéo qua nửa đêm hạn chót vẫn bị từ chối như hồ sơ trễ). Không khóa vị trí.
+- Lưu thông tin năng lực của hồ sơ (API dưới đây): tính lại trong cùng giao dịch.
+- Lưu tiêu chí của vị trí (412) **không** tính lại gì (để vị trí có hàng nghìn hồ sơ vẫn lưu được ngay và không chặn hồ
+  sơ đang nộp). Kết quả cũ trở thành "cũ" (version tiêu chí khác hiện tại): API xem điểm và API xếp hạng (414) tự tính
+  trực tiếp từ dữ liệu hiện tại cho các dòng cũ, nên giá trị hiển thị luôn đúng; `FitRefreshWorker` ghi lại các dòng cũ
+  theo lô 200 (mỗi dòng một giao dịch ngắn, không khóa vị trí) theo lịch `app.fit-scoring.refresh-cron` (mặc định 5 phút
+  một lần, giờ Việt Nam; `-` để tắt).
+
+**Cách tính:** mỗi tiêu chí được cấu hình có trọng số bằng nhau trên 100 (phần dư cho tiêu chí đầu: 3 tiêu chí = 34/33/33).
+
+| Tiêu chí | Đạt khi | Điểm |
+|---|---|---|
+| `EXPERIENCE` | năm kinh nghiệm ≥ yêu cầu | đủ phần nếu đạt, 0 nếu không |
+| `EDUCATION` | trình độ ≥ yêu cầu (THPT < Cao đẳng < Đại học < Thạc sĩ < Tiến sĩ) | đủ phần nếu đạt |
+| `SKILLS` | có đủ mọi kỹ năng bắt buộc (so khớp không phân biệt hoa thường/dấu) | phần × số kỹ năng khớp / số kỹ năng yêu cầu |
+
+Trạng thái chung: `MET` (mọi tiêu chí đạt, `requiredMet=true`), `NOT_MET` (có tiêu chí không đạt), `UNKNOWN` (không tiêu chí
+nào trượt nhưng có tiêu chí chưa có dữ liệu), `NO_CRITERIA` (vị trí chưa có tiêu chí, `score=null`).
+
+### Xem điểm của một hồ sơ
+
+`GET /api/v1/applications/{id}/fit` — quyền đọc ứng viên, phạm vi như hồ sơ hợp nhất (403 ngoài phạm vi, có ghi nhật ký
+từ chối; 404 hồ sơ không tồn tại).
+
+```json
+{
+  "applicationId": "4b8f…",
+  "positionId": "19e0…",
+  "qualifications": {
+    "experienceYears": 4.5,
+    "educationLevel": "MASTER",
+    "educationLevelName": "Thạc sĩ",
+    "skills": ["Java", "SQL"],
+    "version": 1,
+    "recordedAt": "2026-10-15T03:00:00Z",
+    "recordedBy": { "id": "5b7c…", "fullName": "Recruiter A" }
+  },
+  "criteria": { "...": "như 412" },
+  "fit": {
+    "status": "NOT_MET",
+    "statusName": "Không đạt tiêu chí bắt buộc",
+    "requiredMet": false,
+    "score": 17,
+    "criteria": [
+      { "criterion": "EXPERIENCE", "status": "NOT_MET", "required": "3", "actual": "2", "points": 0, "maxPoints": 34,
+        "matchedSkills": [], "missingSkills": [] },
+      { "criterion": "EDUCATION", "status": "NOT_MET", "required": "BACHELOR", "actual": "COLLEGE", "points": 0,
+        "maxPoints": 33, "matchedSkills": [], "missingSkills": [] },
+      { "criterion": "SKILLS", "status": "NOT_MET", "required": "Java, SQL", "actual": "Java", "points": 17,
+        "maxPoints": 33, "matchedSkills": ["Java"], "missingSkills": ["SQL"] }
+    ],
+    "evaluatedAt": "2026-10-15T03:00:00Z",
+    "current": true
+  }
+}
+```
+
+`qualifications` là `null` khi chưa ghi nhận; `qualifications.skills` là `null` khi kỹ năng chưa được ghi nhận.
+`current=false` nghĩa là kết quả đã lưu đang cũ (vừa đổi tiêu chí, chờ worker) hoặc chưa có; khi đó API trả
+kết quả tính trực tiếp.
+
+### Ghi nhận thông tin năng lực
+
+`PUT /api/v1/applications/{id}/qualifications` — quyền ghi ứng viên (`CANDIDATES_WRITE_ALL`, hoặc `..._SCOPED` khi là
+recruiter đang phụ trách requisition), kiểm lại sau mỗi lần chờ khóa.
+
+```json
+{ "experienceYears": 4.5, "educationLevel": "MASTER", "skills": ["Java", "SQL"], "expectedVersion": 0 }
+```
+
+- `experienceYears`: 0..60, tối đa 1 chữ số thập phân, hoặc `null` (chưa ghi nhận).
+- `educationLevel`: một giá trị trình độ hoặc `null`.
+- `skills`: tối đa 50 kỹ năng, mỗi kỹ năng ≤ 60 ký tự văn bản thuần; `[]` nghĩa là đã xem CV và không có kỹ năng nào
+  (mọi kỹ năng bắt buộc là thiếu → `NOT_MET`); `null` nghĩa là **chưa ghi nhận** (tiêu chí kỹ năng là `UNKNOWN`).
+- `expectedVersion`: version vừa đọc (0 lần đầu).
+
+Response 200: như GET (kết quả đã tính lại). Lỗi: 400 `VALIDATION_ERROR`, 400 `INVALID_JSON` (trường lạ như `score`,
+`stage`), 401, 403, 404 `APPLICATION_NOT_FOUND`, 409 `QUALIFICATIONS_CHANGED`, 503 `QUALIFICATIONS_BUSY`.
+
+Câu hỏi BA/PO (tiêu chí chấp nhận của 413 mới đạt về hình thức): không luồng nộp hồ sơ nào (cổng, giới thiệu, nhập tay)
+thu số năm kinh nghiệm, trình độ hay kỹ năng, nên hồ sơ mới luôn có điểm `UNKNOWN` cho tới khi nhân viên ghi nhận. Có cần
+thêm các trường này vào form nộp/giới thiệu/nhập tay không (ứng viên tự khai, vẫn không đọc CV tự động)?
+
+Ghi chú cho frontend:
+
+- Tab "Đánh giá phù hợp" trong chi tiết hồ sơ: form ghi nhận năng lực + bảng từng tiêu chí (Đạt/Không đạt/Chưa có dữ liệu,
+  điểm/điểm tối đa, kỹ năng thiếu).
+- Luôn ghi rõ "Điểm chỉ để tham khảo, không tự loại ứng viên". Không đặt nút đổi giai đoạn dựa trên điểm.
+- Câu hỏi BA/PO: trọng số đang chia đều giữa các tiêu chí; nếu cần trọng số riêng (ví dụ kỹ năng 50%), cần bổ sung cấu hình.
