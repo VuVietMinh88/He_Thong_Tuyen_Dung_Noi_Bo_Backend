@@ -519,6 +519,9 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/candidate-search/saved-filters/*")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Story S6-01 (tasks 423-424): the export holds exactly the rows the search would list.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidate-search/export")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.

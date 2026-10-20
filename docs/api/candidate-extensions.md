@@ -194,3 +194,37 @@ Ghi chú cho frontend:
   nên báo "Bộ lọc tham chiếu vị trí bạn không còn quyền xem".
 - Khi 409 `SAVED_FILTER_CHANGED`, tải lại bộ lọc rồi cho người dùng sửa lại.
 - Không hiển thị bộ lọc của người khác; không có chức năng chia sẻ bộ lọc.
+
+## 423 — API xuất Excel ứng viên theo bộ lọc
+
+`GET /api/v1/candidate-search/export`
+
+Quyền: như tìm kiếm (`CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED`). Tham số: **đúng các tham số lọc** của
+`GET /api/v1/candidate-search` (392/393), không có `page`/`size`.
+
+Cách hoạt động: dịch vụ dùng lại nguyên điều kiện, các bước kiểm tra (401/403 trước mọi truy vấn, 400 điều kiện sai,
+404/403 requisition/vị trí, 400 nguồn/nhãn không hợp lệ) và **chính câu truy vấn trang** của danh sách (offset 0), nên
+tệp chứa đúng các hồ sơ danh sách sẽ hiển thị, cùng thứ tự (mới nộp trước), cùng phạm vi `CandidateAccess.READABLE`. Mỗi
+hồ sơ xuất ra được ghi một dòng `candidate_access_events` loại `PROFILE` như khi xem.
+
+Giới hạn: tối đa `app.candidate-export.max-rows` hồ sơ (mặc định 5000, cấu hình 1..10000). Kết quả lớn hơn bị **từ chối**
+(400 `CANDIDATE_EXPORT_TOO_LARGE`), không cắt bớt âm thầm, và không ghi nhật ký truy cập nào.
+
+Response 200:
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…`
+- `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`
+- Body: tệp `.xlsx` (Apache POI), sheet `Ứng viên`, dòng 1 là tiêu đề, mỗi dòng sau là một hồ sơ. Mọi giá trị là ô
+  chuỗi, không có công thức. Định dạng cột và tên tệp chi tiết ở mục 424.
+
+Lỗi (body JSON chuẩn): 400 `VALIDATION_ERROR`, 400 `CANDIDATE_EXPORT_TOO_LARGE`, 401, 403 `FORBIDDEN`,
+404 `REQUISITION_NOT_FOUND`/`POSITION_NOT_FOUND`.
+
+Ghi chú cho frontend:
+
+- Nút "Xuất Excel" gửi đúng query string đang dùng cho danh sách (bỏ `page`, `size`).
+- Gọi bằng `fetch` với Bearer token, `Accept: */*` (hoặc không đặt `Accept`), đọc `response.blob()` và tên tệp từ
+  `Content-Disposition`; **không** mở URL trực tiếp trong tab mới (không có token). Nếu `response.ok` là false, đọc
+  body JSON để lấy `code`/`message`.
+- Khi nhận `CANDIDATE_EXPORT_TOO_LARGE`, nhắc người dùng thu hẹp bộ lọc (ví dụ chọn vị trí hoặc khoảng ngày).
