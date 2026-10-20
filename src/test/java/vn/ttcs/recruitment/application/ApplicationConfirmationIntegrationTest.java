@@ -92,6 +92,9 @@ class ApplicationConfirmationIntegrationTest {
 
     @BeforeEach void fixture() throws Exception {
         SMTP.reset();
+        // Task 537: the email attempt log rejects DELETE (append-only, and RESTRICT from its message); TRUNCATE fires no
+        // row trigger and clears the messages of the applications deleted below.
+        jdbc.execute("TRUNCATE email_messages CASCADE");
         for(String table:List.of("application_ip_quotas","application_cvs","job_applications","job_posting_events",
                 "job_posting_authors","job_postings","recruitment_requisitions","recruitment_catalog_items","departments","positions","user_accounts"))jdbc.update("DELETE FROM "+table);
         Instant now=clock.instant();UUID user=UUID.randomUUID(),department=UUID.randomUUID(),position=UUID.randomUUID();
