@@ -629,6 +629,14 @@ public class SecurityConfiguration {
                                 .hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.POST, "/api/v1/notifications/read-all")
                                 .hasAuthority("PERM_SELF_PROFILE_WRITE")
+                        // Story S8-04 (tasks 549-551): the caller's own notification preferences; the service refuses
+                        // turning off a mandatory type.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/notifications/preferences")
+                                .hasAuthority("PERM_SELF_PROFILE_READ")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/notifications/preferences")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_SELF_PROFILE_READ"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_SELF_PROFILE_WRITE")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/messaging/rejections")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_WRITE_ALL",

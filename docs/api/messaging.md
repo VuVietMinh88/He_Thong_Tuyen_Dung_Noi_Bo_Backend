@@ -405,3 +405,30 @@ Không thêm endpoint (API ở task 550). Migration `V66_8__create_notification_
 khóa chính ba cột đầu; `ON DELETE CASCADE` từ tài khoản). Chỉ lưu lựa chọn người dùng đã đặt; **không có dòng nghĩa
 là bật**. `APPROVAL_PENDING` là bắt buộc ở cả hai kênh: CHECK `notification_preferences_mandatory` không cho lưu
 `false`, và `NotificationPreferences.enabled` luôn trả bật cho loại bắt buộc dù database có gì.
+
+## API tùy chọn thông báo (task 550)
+
+| Method | Endpoint | Quyền |
+|---|---|---|
+| GET | `/api/v1/notifications/preferences` | `SELF_PROFILE_READ` |
+| PUT | `/api/v1/notifications/preferences` | `SELF_PROFILE_READ` + `SELF_PROFILE_WRITE` |
+
+Chỉ đọc/sửa tùy chọn của chính mình (người dùng lấy từ token). GET trả đủ năm loại:
+
+```json
+[{"type":"APPROVAL_PENDING","typeName":"Yêu cầu chờ bạn duyệt","mandatory":true,"inApp":true,"email":true},
+ {"type":"RECRUITER_ASSIGNED","typeName":"Được phân công vị trí mới","mandatory":false,"inApp":true,"email":false}]
+```
+
+PUT gửi các loại muốn đổi (1–20 phần tử, mỗi loại một lần, cả hai kênh bắt buộc là `true`/`false`):
+
+```json
+{"preferences":[{"type":"RECRUITER_ASSIGNED","inApp":true,"email":false}]}
+```
+
+- 400 `NOTIFICATION_PREFERENCE_MANDATORY`: tắt `APPROVAL_PENDING` ở bất kỳ kênh nào; không lưu gì của yêu cầu.
+- 400 `VALIDATION_ERROR` (loại lạ, trùng loại, thiếu kênh), 400 `INVALID_JSON` (trường lạ, giá trị không phải boolean).
+- Trả lại toàn bộ danh sách sau khi lưu. Ghi theo thứ tự khóa tài khoản → phiên.
+
+Ghi chú cho frontend: bảng loại × kênh với công tắc; loại `mandatory` hiển thị công tắc khóa ở trạng thái bật (máy chủ
+vẫn từ chối nếu gửi tắt).

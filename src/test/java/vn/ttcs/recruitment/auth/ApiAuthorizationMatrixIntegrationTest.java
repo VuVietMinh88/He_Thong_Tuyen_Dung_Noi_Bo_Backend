@@ -423,7 +423,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/notifications", permission(SELF_PROFILE_READ), null, 200),
             endpoint("GET", "/api/v1/notifications/unread-count", permission(SELF_PROFILE_READ), null, 200),
             endpoint("PATCH", "/api/v1/notifications/{id}/read", permission(SELF_PROFILE_WRITE), null, 404),
-            endpoint("POST", "/api/v1/notifications/read-all", permission(SELF_PROFILE_WRITE), null, 200));
+            endpoint("POST", "/api/v1/notifications/read-all", permission(SELF_PROFILE_WRITE), null, 200),
+            // Story S8-04 (tasks 549-551): own preferences; the empty body stops a permitted save at 400.
+            endpoint("GET", "/api/v1/notifications/preferences", permission(SELF_PROFILE_READ), null, 200),
+            endpoint("PUT", "/api/v1/notifications/preferences", allOf(SELF_PROFILE_READ, SELF_PROFILE_WRITE), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
