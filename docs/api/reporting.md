@@ -100,3 +100,51 @@ Ghi chú cho frontend:
 - Thẻ `available = false`: hiển thị "Không có quyền xem", không hiển thị 0.
 - Dùng `remainingHeadcount` để hiển thị "còn thiếu N người"; dòng `fullyStaffed = true` nên hiển thị "đã đủ người,
   chưa đóng yêu cầu" (màu nhạt); `page`/`size` chỉ áp dụng cho danh sách trễ hạn.
+
+## TKNHTTDNB1-556 — Biểu đồ hồ sơ theo tuần và vị trí đã đóng theo tháng
+
+`GET /api/v1/reports/dashboard/charts?from=2026-09-02&to=2026-10-15`
+
+- `from`, `to` (yyyy-MM-dd): nhập cả hai hoặc bỏ trống cả hai; tối đa 366 ngày; từ 2000-01-01 đến 2100-12-31.
+- Bỏ trống: biểu đồ tuần lấy 12 tuần gần nhất (tính cả tuần hiện tại), biểu đồ tháng lấy 12 tháng gần nhất (tính cả
+  tháng hiện tại).
+- Có `from`/`to`: cả hai chuỗi phủ trọn các tuần (thứ Hai–Chủ nhật) và trọn các tháng chứa khoảng đó. Ví dụ trên cho
+  tuần từ 2026-08-31 đến 2026-10-18 (7 điểm) và tháng 2026-09 đến 2026-10 (2 điểm). `from`/`to` của từng chuỗi trong
+  response là khoảng thực tế đã dùng.
+
+Response 200:
+
+```json
+{
+  "scope": "ALL",
+  "weeklyApplications": {
+    "from": "2026-08-31", "to": "2026-10-18",
+    "points": [
+      {"weekStart": "2026-08-31", "weekEnd": "2026-09-06", "applications": 2},
+      {"weekStart": "2026-09-07", "weekEnd": "2026-09-13", "applications": 0}
+    ]
+  },
+  "monthlyClosedRequisitions": {
+    "from": "2026-09-01", "to": "2026-10-31",
+    "points": [
+      {"month": "2026-09", "monthStart": "2026-09-01", "monthEnd": "2026-09-30", "filled": 1, "cancelled": 0, "closed": 1}
+    ]
+  }
+}
+```
+
+Định nghĩa:
+
+- `applications`: số hồ sơ có `received_at` trong tuần (giờ Việt Nam), trong phạm vi người xem, kể cả hồ sơ sau đó bị
+  loại hoặc rút.
+- `filled` / `cancelled`: số yêu cầu tuyển dụng có sự kiện `FILLED` / `CANCELLED` (lịch sử chỉ ghi thêm, mỗi yêu cầu
+  tối đa một sự kiện đóng) xảy ra trong tháng. `closed = filled + cancelled`. Tạm dừng (`PAUSED`) không phải là đóng.
+- Mỗi tuần/tháng luôn có một điểm, kể cả khi bằng 0, để biểu đồ không bị thiếu cột.
+- Thời điểm bắt đầu tuần/tháng được tính theo múi giờ nghiệp vụ trong Java rồi so sánh trong SQL bằng `width_bucket`,
+  nên không phụ thuộc múi giờ của PostgreSQL.
+
+Lỗi: 400 `VALIDATION_ERROR` khi chỉ có một đầu, `to < from`, quá 366 ngày, ngày sai định dạng hoặc ngoài khoảng cho
+phép; 401/403 như phần chung.
+
+Ghi chú cho frontend: vẽ cột theo `points` theo đúng thứ tự trả về; nhãn tuần nên hiển thị `weekStart`–`weekEnd`; nhãn
+tháng dùng `month`. Khi người dùng đổi khoảng ngày, gửi lại cả `from` và `to`.
