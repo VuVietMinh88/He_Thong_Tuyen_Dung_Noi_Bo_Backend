@@ -448,6 +448,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/reports/funnel", REPORT_READER, null, 200),
             endpoint("GET", "/api/v1/reports/costs", REPORT_READER, null, 200),
             endpoint("GET", "/api/v1/reports/time-cost", REPORT_READER, null, 200),
+            endpoint("GET", "/api/v1/reports/time-cost/export", REPORT_READER, null, 200),
             // The empty body stops a permitted write at 400 before any lock or lookup.
             endpoint("POST", "/api/v1/reports/costs", COST_WRITER, INVALID_BODY, 400),
             endpoint("POST", "/api/v1/reports/costs/{id}/void", COST_WRITER, INVALID_BODY, 400));
