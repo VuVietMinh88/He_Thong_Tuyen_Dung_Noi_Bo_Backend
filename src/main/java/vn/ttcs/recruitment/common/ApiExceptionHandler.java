@@ -1,5 +1,6 @@
 package vn.ttcs.recruitment.common;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,15 @@ public class ApiExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ApiError> apiFailure(ApiException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
+    }
+
+    // Task 339: the same body plus Retry-After (the public tracking quota answers 429 with it). More specific than
+    // ApiException, so Spring picks this handler for it.
+    @ExceptionHandler(RetryAfterApiException.class)
+    public ResponseEntity<ApiError> retryAfter(RetryAfterApiException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.getRetryAfterSeconds()))
                 .body(new ApiError(exception.getCode(), exception.getMessage(), exception.getFieldErrors()));
     }
 

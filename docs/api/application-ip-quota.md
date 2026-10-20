@@ -15,6 +15,8 @@ nhưng vẫn cần khóa và cấu hình triển khai phù hợp. Thêm quota kh
   Không reset theo giờ tròn hoặc khóa cố định 60 phút từ lần bị chặn.
 - Những người dùng chung IP (NAT/Wi-Fi) dùng chung hạn mức. IPv6 tính theo địa chỉ,
   không gộp theo subnet. Quota IP không ngăn được việc đổi IP hoặc mọi dạng DDoS.
+- Tra cứu và rút hồ sơ (task 339, 345) dùng hạn mức riêng (V31, 30 lượt/giờ, IPv6 tính theo dải /64),
+  không tiêu lượt nộp hồ sơ; xem [theo dõi hồ sơ](application-tracking.md#hạn-mức-theo-ip-v31).
 
 Ví dụ gửi lúc 09:00, 09:10, 09:20, 09:30, 09:40: lúc 09:45 bị chặn; đến 10:00
 lượt 09:00 hết hiệu lực nên được gửi thêm một lượt, các lượt còn lại vẫn được tính.
