@@ -417,7 +417,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                     Set.of()), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/messaging/rejections", new Rule(List.of(NOTIFICATIONS_WRITE_ALL, NOTIFICATIONS_WRITE_SCOPED),
                     true, false, false, List.of(List.of(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED),
-                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), INVALID_BODY, 400));
+                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), INVALID_BODY, 400),
+            // Story S8-03 (tasks 543-545): the caller's own inbox; nobody has notifications here, so reads answer an
+            // empty page and marking the unknown id is 404.
+            endpoint("GET", "/api/v1/notifications", permission(SELF_PROFILE_READ), null, 200),
+            endpoint("GET", "/api/v1/notifications/unread-count", permission(SELF_PROFILE_READ), null, 200),
+            endpoint("PATCH", "/api/v1/notifications/{id}/read", permission(SELF_PROFILE_WRITE), null, 404),
+            endpoint("POST", "/api/v1/notifications/read-all", permission(SELF_PROFILE_WRITE), null, 200));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
