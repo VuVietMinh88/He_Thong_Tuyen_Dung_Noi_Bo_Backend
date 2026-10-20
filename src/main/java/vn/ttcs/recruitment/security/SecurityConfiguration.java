@@ -509,6 +509,16 @@ public class SecurityConfiguration {
                         // the CANDIDATES read code again and returns only CandidateAccess.READABLE applications.
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidate-search")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Task 394: personal saved filters, owned by the JWT subject; another account's id is 404.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidate-search/saved-filters",
+                                "/api/v1/candidate-search/saved-filters/*")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-search/saved-filters")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/candidate-search/saved-filters/*")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/candidate-search/saved-filters/*")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.

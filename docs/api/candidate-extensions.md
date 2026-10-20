@@ -112,3 +112,85 @@ Ghi chú cho frontend:
 
 - Có thể đặt một ô "Từ khóa trong thư giới thiệu" riêng cạnh ô tìm tên/email/điện thoại; hai ô cùng lọc.
 - Đánh dấu dòng có `COVER_LETTER` bằng biểu tượng "khớp thư giới thiệu"; không tự trích nội dung thư từ API khác vào bảng.
+
+## 394 — Bộ lọc cá nhân đã lưu
+
+Migration: `V65__create_candidate_saved_filters.sql` (bảng `candidate_saved_filters`: chủ sở hữu, tên, tên chuẩn hóa,
+điều kiện JSONB tối đa 8 KB, version, thời điểm tạo/sửa; tên duy nhất theo chủ sở hữu, không phân biệt hoa thường).
+
+Quyền: `CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED` (bộ lọc chỉ có ích với người được tìm ứng viên). Chủ sở hữu
+luôn là `sub` của JWT; client **không** gửi được `ownerId` (trường lạ bị từ chối). Id bộ lọc của người khác trả **404**
+giống hệt id không tồn tại, kể cả với HR/Admin, nên không dò được id.
+
+| Method | Path | Mô tả | Thành công |
+|---|---|---|---|
+| GET | `/api/v1/candidate-search/saved-filters` | Danh sách bộ lọc của tôi, theo tên | 200, mảng |
+| GET | `/api/v1/candidate-search/saved-filters/{id}` | Một bộ lọc của tôi | 200 |
+| POST | `/api/v1/candidate-search/saved-filters` | Tạo bộ lọc | 201 |
+| PUT | `/api/v1/candidate-search/saved-filters/{id}` | Đổi tên/điều kiện, cần `expectedVersion` | 200 |
+| DELETE | `/api/v1/candidate-search/saved-filters/{id}` | Xóa | 204 |
+
+Request POST/PUT:
+
+```json
+{
+  "name": "Java tháng 10",
+  "criteria": {
+    "requisitionId": "77aa…",
+    "positionId": null,
+    "stages": ["NEW", "SCREENING"],
+    "sourceIds": ["5e2c…"],
+    "tagIds": [],
+    "tagMatch": "ANY",
+    "submittedFrom": "2026-10-01",
+    "submittedTo": null,
+    "minRating": 3,
+    "maxRating": null,
+    "keyword": "binh",
+    "coverLetterKeyword": "java"
+  },
+  "expectedVersion": 0
+}
+```
+
+`criteria` dùng đúng tên và quy tắc của tham số tìm kiếm (392/393, danh sách là mảng). Trường bỏ qua = không lọc.
+`expectedVersion` bắt buộc với PUT (version đã đọc), bị bỏ qua với POST.
+Giá trị lặp trong một danh sách (ví dụ cùng `sourceId` gửi nhiều lần) chỉ được giữ một lần, nên bộ lọc lưu đúng
+những gì đã kiểm tra. Tên bộ lọc được bỏ ký tự ẩn ở hai đầu (kể cả khoảng trắng không ngắt dòng, khoảng trắng rộng 0) và
+gộp khoảng trắng liền nhau: `"Java"` và `"JAVA "` (có khoảng trắng không ngắt dòng) là cùng một tên; tên chỉ gồm ký tự
+ẩn bị từ chối (400). Nếu ràng buộc của database vẫn từ chối dữ liệu, API trả 400 `VALIDATION_ERROR`, không trả 500.
+
+Response (một bộ lọc):
+
+```json
+{
+  "id": "c0f1…",
+  "name": "Java tháng 10",
+  "criteria": { "...": "như trên, đã chuẩn hóa" },
+  "createdAt": "2026-10-15T03:00:00Z",
+  "updatedAt": "2026-10-15T03:00:00Z",
+  "version": 0
+}
+```
+
+Lỗi:
+
+| HTTP | code | Khi nào |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Tên trống/quá 80 ký tự/không phải văn bản thuần; thiếu `criteria`; điều kiện sai (`fieldErrors` dạng `criteria.minRating`); PUT thiếu `expectedVersion`. |
+| 400 | `INVALID_JSON` | JSON hỏng, trường lạ (kể cả `ownerId`), giá trị enum lạ trong `stages`/`tagMatch`. |
+| 401 | `SESSION_INVALID` | Phiên hết hạn/bị thu hồi (kiểm lại sau khi khóa tài khoản và phiên). |
+| 403 | `FORBIDDEN` | Không có quyền đọc ứng viên. |
+| 404 | `SAVED_FILTER_NOT_FOUND` | Không có bộ lọc đó **của bạn**. |
+| 409 | `SAVED_FILTER_NAME_TAKEN` | Bạn đã có bộ lọc trùng tên (không phân biệt hoa thường). |
+| 409 | `SAVED_FILTER_CHANGED` | `expectedVersion` cũ: bộ lọc vừa được sửa ở tab/thiết bị khác. |
+| 409 | `SAVED_FILTER_LIMIT` | Đã có 50 bộ lọc. |
+| 503 | `SAVED_FILTER_BUSY` | Hết thời gian chờ khóa; thử lại. |
+
+Ghi chú cho frontend:
+
+- Áp dụng bộ lọc = đổ `criteria` vào form rồi gọi `GET /api/v1/candidate-search` như bình thường. Requisition/vị trí/nhãn
+  trong bộ lọc được kiểm tra phạm vi **lúc áp dụng**: nếu bạn không còn phụ trách requisition đó, lệnh tìm trả 403/404 và
+  nên báo "Bộ lọc tham chiếu vị trí bạn không còn quyền xem".
+- Khi 409 `SAVED_FILTER_CHANGED`, tải lại bộ lọc rồi cho người dùng sửa lại.
+- Không hiển thị bộ lọc của người khác; không có chức năng chia sẻ bộ lọc.
