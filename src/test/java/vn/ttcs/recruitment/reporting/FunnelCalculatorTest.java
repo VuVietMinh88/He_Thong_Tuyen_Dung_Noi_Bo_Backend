@@ -61,6 +61,40 @@ class FunnelCalculatorTest {
     }
 
     @Test
+    void theLargestDropIsTheMostDroppedThenTheHighestRateThenTheEarliestStage() {
+        // NEW drops 2 of 10 (20 %), SCREENING drops 2 of 5 (40 %): the same count, the higher rate wins.
+        var tie = FunnelCalculator.compute(List.of(new Group(1, "REJECTED", false, 2), new Group(1, "NEW", false, 3),
+                new Group(2, "REJECTED", false, 1), new Group(2, "WITHDRAWN", false, 1), new Group(3, "INTERVIEW", false, 3)));
+        assertThat(FunnelCalculator.largestDrop(tie)).hasValueSatisfying(stage -> {
+            assertThat(stage.stage().name()).isEqualTo("SCREENING");
+            assertThat(stage.dropped()).isEqualTo(2);
+        });
+        // A larger count wins over a higher rate.
+        var count = FunnelCalculator.compute(List.of(new Group(1, "REJECTED", false, 3), new Group(1, "NEW", false, 7),
+                new Group(2, "REJECTED", false, 2), new Group(3, "OFFER", false, 0)));
+        assertThat(FunnelCalculator.largestDrop(count)).hasValueSatisfying(stage ->
+                assertThat(stage.stage().name()).isEqualTo("NEW"));
+        // Two stages with the same drop count always differ in reached (an earlier stage that drops has more), so
+        // the rate decides; the earliest-stage rule only keeps the choice deterministic.
+        assertThat(FunnelCalculator.largestDrop(FunnelCalculator.compute(List.of(new Group(2, "SCREENING", false, 4)))))
+                .isEmpty();
+    }
+
+    @Test
+    void aCandidateWhoDeclinedTheOfferIsADropOfItsOwnKind() {
+        var result = FunnelCalculator.compute(List.of(new Group(4, "REJECTED", false, true, 2),
+                new Group(4, "REJECTED", false, false, 1), new Group(4, "OFFER", false, 1), new Group(5, "HIRED", false, 1)));
+        var offer = result.stages().get(3);
+        assertThat(offer.reached()).isEqualTo(5);
+        assertThat(offer.declined()).isEqualTo(2);
+        assertThat(offer.rejected()).isEqualTo(1);
+        assertThat(offer.dropped()).isEqualTo(3);
+        assertThat(offer.inProgress()).isEqualTo(1);
+        assertThat(offer.reached()).isEqualTo(offer.advanced() + offer.dropped() + offer.inProgress());
+        assertThat(FunnelCalculator.largestDrop(result).orElseThrow().stage().name()).isEqualTo("OFFER");
+    }
+
+    @Test
     void anUnknownRankIsAProgrammingError() {
         assertThatThrownBy(() -> FunnelCalculator.compute(List.of(new Group(0, "NEW", false, 1))))
                 .isInstanceOf(IllegalArgumentException.class);

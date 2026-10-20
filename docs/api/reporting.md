@@ -414,9 +414,11 @@ Response 200:
   "cohortSize": 120, "hired": 6, "overallConversionRate": 0.0500, "interviewSkipped": 1,
   "stages": [
     {"stage": "NEW", "label": "Hồ sơ mới", "nextStage": "SCREENING", "reached": 120, "advanced": 80,
-     "conversionRate": 0.6667, "rejected": 30, "withdrawn": 2, "inProgress": 8, "dropped": 32, "dropRate": 0.2667},
+     "conversionRate": 0.6667, "rejected": 30, "declined": 0, "withdrawn": 2, "inProgress": 8, "dropped": 32,
+     "dropRate": 0.2667},
     {"stage": "ONBOARDED", "label": "Hoàn tất hội nhập", "nextStage": null, "reached": 3, "advanced": 0,
-     "conversionRate": null, "rejected": 0, "withdrawn": 0, "inProgress": 3, "dropped": 0, "dropRate": 0.0000}
+     "conversionRate": null, "rejected": 0, "declined": 0, "withdrawn": 0, "inProgress": 3, "dropped": 0,
+     "dropRate": 0.0000}
   ]
 }
 ```
@@ -426,9 +428,9 @@ Response 200:
 | `reached` | số hồ sơ đã đạt ít nhất giai đoạn này. Luôn giảm dần (không tăng) theo thứ tự giai đoạn |
 | `advanced` | số hồ sơ đi tiếp được = `reached` của giai đoạn sau |
 | `conversionRate` | `advanced / reached` (4 chữ số thập phân, 0.6667 = 66,67%); `null` khi `reached = 0`; giai đoạn cuối luôn `null` |
-| `rejected`, `withdrawn` | hồ sơ có giai đoạn xa nhất là giai đoạn này và hiện đang `REJECTED` / `WITHDRAWN` (rơi rụng tại đây) |
+| `rejected`, `declined`, `withdrawn` | hồ sơ có giai đoạn xa nhất là giai đoạn này và hiện đang `REJECTED` / `WITHDRAWN` (rơi rụng tại đây). Hồ sơ `REJECTED` mà sự kiện chuyển sang `REJECTED` **gần nhất** là câu trả lời của ứng viên cho offer được tính là `declined` (ứng viên từ chối offer), còn lại là `rejected` (công ty loại) |
 | `inProgress` | hồ sơ có giai đoạn xa nhất là giai đoạn này và vẫn còn ở đó (chưa rơi, chưa đi tiếp) |
-| `dropped`, `dropRate` | `rejected + withdrawn`; `dropped / reached` (`null` khi `reached = 0`) |
+| `dropped`, `dropRate` | `rejected + declined + withdrawn`; `dropped / reached` (`null` khi `reached = 0`) |
 | `hired`, `overallConversionRate` | `reached` của HIRED (gồm cả ONBOARDED); `hired / cohortSize` |
 
 Luôn đúng: `reached = advanced + dropped + inProgress` cho mọi giai đoạn. Cohort rỗng: mọi số đếm là 0, mọi tỷ lệ là
@@ -462,3 +464,40 @@ request kế tiếp; APPROVER (`REPORTS_READ_ALL` nhưng đọc ứng viên SCOP
 
 Ghi chú cho frontend: bộ lọc "Vị trí" của màn hình phễu nên gửi `requisitionId` khi người dùng chọn một yêu cầu cụ thể,
 hoặc `positionId` khi chọn một chức danh (gộp mọi yêu cầu của chức danh đó).
+
+## TKNHTTDNB1-569 — Giai đoạn rơi ứng viên nhiều nhất
+
+Không thêm API: `GET /api/v1/reports/funnel` có thêm `totalDropped` và `largestDrop`.
+
+```json
+"totalDropped": 5,
+"largestDrop": {
+  "stage": "SCREENING", "label": "Sàng lọc", "nextStage": "INTERVIEW",
+  "reached": 5, "advanced": 1, "conversionRate": 0.2000,
+  "dropped": 4, "rejected": 3, "declined": 0, "withdrawn": 1, "dropRate": 0.8000, "shareOfAllDrops": 0.8000,
+  "topRejectionReasons": [{"kind": "STAFF_REJECTION", "reason": "Thiếu kinh nghiệm", "count": 2},
+                          {"kind": "STAFF_REJECTION", "reason": "Lương kỳ vọng cao", "count": 1}],
+  "rule": "MOST_DROPPED_THEN_HIGHEST_DROP_RATE_THEN_EARLIEST_STAGE"
+}
+```
+
+Cách xác định:
+
+- Mức rơi của một giai đoạn = `dropped` của dòng giai đoạn đó trong `stages` (hồ sơ có giai đoạn xa nhất là giai đoạn
+  này và đã bị loại, từ chối offer hoặc rút). Hồ sơ còn đang xử lý (`inProgress`) **không** bị tính là rơi.
+- Chọn giai đoạn có `dropped` lớn nhất; bằng nhau thì lấy `dropRate` cao hơn (so sánh chính xác, không làm tròn); vẫn
+  bằng nhau thì lấy giai đoạn sớm hơn.
+- `shareOfAllDrops = dropped / totalDropped`; `totalDropped` là tổng `dropped` của mọi giai đoạn.
+- `topRejectionReasons`: tối đa 5 lý do phổ biến nhất của các hồ sơ đang `REJECTED` tại giai đoạn đó. Mỗi hồ sơ chỉ
+  được đếm **một lần**, theo sự kiện chuyển sang `REJECTED` gần nhất (một hồ sơ có thể bị loại, được mở lại bằng offer
+  thương lượng rồi lại từ chối). `kind = STAFF_REJECTION`: tên lý do loại lưu trên sự kiện (tên tại thời điểm loại); hồ
+  sơ không có sự kiện loại (dữ liệu nhập cũ) là "Không rõ lý do". `kind = CANDIDATE_DECLINE`: ứng viên từ chối offer,
+  lý do lấy từ `offers.decline_reason` ("Ứng viên từ chối offer: Lương", "…: Địa điểm", "…: Nhận việc nơi khác",
+  "…: Lý do cá nhân", hoặc "Ứng viên từ chối offer (không nêu lý do)"). Sắp theo số lượng giảm dần rồi theo tên. Tổng
+  `count` không bao giờ vượt `rejected + declined` của giai đoạn.
+- Không có hồ sơ nào rơi: `largestDrop = null`.
+- Mọi số trong `largestDrop` trùng với dòng tương ứng trong `stages`, nên giao diện có thể tô đậm cột đó trên biểu đồ.
+
+Ghi chú cho frontend: tô nổi cột `largestDrop.stage` trên biểu đồ phễu và hiển thị câu giải thích, ví dụ "Sàng lọc làm
+rơi 4/5 hồ sơ (80%), chiếm 80% tổng số hồ sơ rơi; lý do chính: Thiếu kinh nghiệm (2)". Khi `largestDrop = null` hiển thị
+"Chưa có hồ sơ nào bị loại hoặc rút trong kỳ".
