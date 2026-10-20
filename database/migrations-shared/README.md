@@ -17,7 +17,8 @@ notification preferences and stage SLA (`docs/api/messaging.md`).
 Reporting (stories S8-05..S8-09, `docs/api/reporting.md`): V67 adds the indexes of the dashboard's bounded windows
 (applications by receipt time, open requisitions by needed-by date, closure events by time, sent offers by deadline).
 V67_1 adds `recruitment_costs`, the hand-entered advertising and referral-bonus costs per requisition: entries are
-never edited (trigger), only voided once with who, when and why.
+never edited (trigger), only voided once with who, when and why. V67_2 indexes the hire evidence (the moment an
+application entered HIRED) and the requisitions' final approvals for time to hire.
 
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one
