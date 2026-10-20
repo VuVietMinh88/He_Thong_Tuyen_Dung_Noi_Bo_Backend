@@ -436,3 +436,29 @@ Luôn đúng: `reached = advanced + dropped + inProgress` cho mọi giai đoạn
 
 Ghi chú cho frontend: vẽ phễu bằng `stages[].reached`; nhãn chuyển đổi giữa hai cột là `conversionRate` của cột trước.
 Tỷ lệ `null` hiển thị "—". Nhắc người dùng rằng đơn vị là hồ sơ ứng tuyển.
+
+## TKNHTTDNB1-568 — API phễu theo bộ lọc và phạm vi quyền
+
+`GET /api/v1/reports/funnel?from=&to=&requisitionId=&departmentId=&positionId=`
+
+| Tham số | Ý nghĩa |
+| --- | --- |
+| `from`, `to` | khoảng ngày nhận hồ sơ (task 567) |
+| `requisitionId` | một yêu cầu tuyển dụng (một "vị trí đang tuyển") |
+| `departmentId` | một phòng ban (không gồm phòng ban con) |
+| `positionId` | một chức danh, ở mọi phòng ban trong phạm vi |
+
+Các bộ lọc kết hợp bằng AND và chỉ thu hẹp phạm vi người xem. Response có thêm
+`"filters": {"requisitionId": …, "departmentId": …, "positionId": …}` (giá trị `null` khi không lọc).
+
+Thứ tự kiểm tra: 401 → 403 (thiếu quyền đọc báo cáo, trước mọi tra cứu) → 404 `REQUISITION_NOT_FOUND` /
+`DEPARTMENT_NOT_FOUND` / `POSITION_NOT_FOUND` → 403 khi người xem SCOPED lọc theo yêu cầu ngoài phạm vi, phòng ban mình
+không quản lý và không có yêu cầu được phân công, hoặc chức danh không có yêu cầu nào trong phạm vi → 400 cho UUID/ngày
+sai.
+
+Phạm vi được đọc lại ở mỗi request (test tích hợp): đổi trưởng phòng hoặc gỡ phân công làm cohort của người đó về 0 ở
+request kế tiếp; APPROVER (`REPORTS_READ_ALL` nhưng đọc ứng viên SCOPED) không thấy gì ngoài phạm vi; hạ quyền
+`CANDIDATES` của HR xuống SCOPED thì báo cáo chuyển sang SCOPED; thu hồi `REPORTS_READ_ALL` thì 403.
+
+Ghi chú cho frontend: bộ lọc "Vị trí" của màn hình phễu nên gửi `requisitionId` khi người dùng chọn một yêu cầu cụ thể,
+hoặc `positionId` khi chọn một chức danh (gộp mọi yêu cầu của chức danh đó).

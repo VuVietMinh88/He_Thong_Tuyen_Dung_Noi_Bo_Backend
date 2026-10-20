@@ -14,9 +14,10 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
- * Task 567 (story S8-07): the funnel of the applications received in a period, inside the viewer's scope. The cohort
+ * Tasks 567-568 (story S8-07): the funnel of the applications received in a period, inside the viewer's scope. The cohort
  * is chosen by received_at (business dates, half-open timestamps); each application then counts with the furthest
  * stage its history shows now (ApplicationReach), so the funnel of a past period keeps filling in as its candidates
  * move on. One aggregate statement; no application is loaded one by one.
@@ -38,9 +39,19 @@ public class FunnelReportService {
         this.clock = clock;
     }
 
-    public FunnelReportView funnel(Jwt jwt, LocalDate from, LocalDate to) {
+    /**
+     * Task 568: the funnel narrowed to one requisition, department or position (each optional, combined with AND),
+     * after the filters were checked: 404 for an unknown target, 403 for one outside the viewer's scope
+     * (ReportingAccess.requireFilters).
+     */
+    public FunnelReportView funnel(Jwt jwt, LocalDate from, LocalDate to, UUID requisitionId, UUID departmentId,
+                                   UUID positionId) {
         ReportPeriod period = ReportPeriod.resolve(from, to, calendar.today(), DEFAULT_DAYS);
-        return access.read(jwt, viewer -> funnel(viewer, ReportFilters.NONE, period));
+        ReportFilters filters = new ReportFilters(requisitionId, departmentId, positionId);
+        return access.read(jwt, viewer -> {
+            access.requireFilters(viewer, filters);
+            return funnel(viewer, filters, period);
+        });
     }
 
     FunnelReportView funnel(ReportViewer viewer, ReportFilters filters, ReportPeriod period) {
@@ -70,7 +81,7 @@ public class FunnelReportService {
                     numbers.rejected(), numbers.withdrawn(), numbers.inProgress(), numbers.dropped(),
                     ReportRates.rate(numbers.dropped(), numbers.reached())));
         }
-        return new FunnelReportView(now, period.from(), period.to(), viewer.scopeName(), result.cohortSize(),
+        return new FunnelReportView(now, period.from(), period.to(), viewer.scopeName(), filters, result.cohortSize(),
                 result.hired(), ReportRates.rate(result.hired(), result.cohortSize()), result.interviewSkipped(),
                 List.copyOf(stages));
     }

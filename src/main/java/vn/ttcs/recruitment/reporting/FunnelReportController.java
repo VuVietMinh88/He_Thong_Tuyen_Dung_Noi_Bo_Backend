@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 /** Story S8-07: the recruitment funnel (tasks 567-569). */
 @RestController
@@ -23,7 +24,10 @@ public class FunnelReportController {
     @GetMapping("/api/v1/reports/funnel")
     public ResponseEntity<FunnelReportView> funnel(@AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate to) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.funnel(jwt, from, to));
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate to,
+            @RequestParam(required = false) UUID requisitionId, @RequestParam(required = false) UUID departmentId,
+            @RequestParam(required = false) UUID positionId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(service.funnel(jwt, from, to, requisitionId, departmentId, positionId));
     }
 }
