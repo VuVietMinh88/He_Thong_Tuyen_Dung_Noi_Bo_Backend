@@ -595,6 +595,23 @@ public class SecurityConfiguration {
                                         AuthorityAuthorizationManager.hasAuthority("PERM_NOTIFICATIONS_READ_ALL"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
                                                 "PERM_CANDIDATES_READ_SCOPED")))
+                        // Story S8-02 (tasks 537-539): the candidate email log. EmailLogService reads the codes again
+                        // and keeps the list to readable applications; a retry also needs the application's candidate
+                        // write scope and, for offer and interview emails, OFFERS or INTERVIEWS write.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/messaging/emails", "/api/v1/messaging/emails/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_READ_ALL",
+                                                "PERM_NOTIFICATIONS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
+                                                "PERM_CANDIDATES_READ_SCOPED")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/messaging/emails/*/retry")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_WRITE_ALL",
+                                                "PERM_NOTIFICATIONS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL",
+                                                "PERM_CANDIDATES_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
+                                                "PERM_CANDIDATES_READ_SCOPED")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

@@ -43,11 +43,18 @@ public class InterviewInvitationOutboxRepository {
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueue(UUID id, InterviewView view, UUID invitation, UUID recipient, String kind, String dedupe,
                         InterviewInvitationCrypto.Encrypted encrypted) {
+        return enqueue(id, view.id(), view.applicationId(), view.version(), invitation, recipient, kind, dedupe, encrypted);
+    }
+
+    /** Task 539: the same row for a rebuilt email, when the caller holds the interview's ids rather than its view. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean enqueue(UUID id, UUID interviewId, UUID applicationId, long version, UUID invitation, UUID recipient,
+                           String kind, String dedupe, InterviewInvitationCrypto.Encrypted encrypted) {
         return jdbc.update("""
                 INSERT INTO interview_invitation_outbox(id,interview_id,application_id,schedule_version,invitation_id,
                     recipient_user_id,kind,dedupe_key,key_id,nonce,ciphertext)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (dedupe_key) DO NOTHING
-                """, id, view.id(), view.applicationId(), view.version(), invitation, recipient, kind, dedupe,
+                """, id, interviewId, applicationId, version, invitation, recipient, kind, dedupe,
                 encrypted.keyId(), encrypted.nonce(), encrypted.ciphertext()) == 1;
     }
 

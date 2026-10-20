@@ -202,3 +202,55 @@ vững của hai loại thư chỉ gồm mẫu (`REJECTION`, `INTERVIEW_THANKS`)
   worker không tự chạy nền trong test (không giữ khóa khi test dọn database); test cần worker gọi `processNext()`.
 
 Ghi chú cho frontend: không có màn hình mới; trạng thái hiện trong nhật ký email (task 539).
+
+## API nhật ký email và gửi lại thư thất bại (task 539)
+
+| Method | Endpoint | Quyền |
+|---|---|---|
+| GET | `/api/v1/messaging/emails` | `NOTIFICATIONS_READ_*` + `CANDIDATES_READ_*`; chỉ thư của hồ sơ mình được xem |
+| GET | `/api/v1/messaging/emails/{id}` | như trên; ngoài phạm vi → 403 (ghi nhật ký truy cập `DENIED`) |
+| POST | `/api/v1/messaging/emails/{id}/retry` | `NOTIFICATIONS_WRITE_*` + `CANDIDATES_WRITE_*` (ALL hoặc recruiter được phân công) + đọc hồ sơ; thư offer cần thêm `OFFERS_WRITE_*`, thư phỏng vấn cần `INTERVIEWS_WRITE_*` |
+
+Theo seed: ADMIN, HR_MANAGER, RECRUITER xem và gửi lại; HIRING_MANAGER, INTERVIEWER chỉ xem (thư của hồ sơ trong phạm vi
+của mình); APPROVER không có quyền NOTIFICATIONS nên 403. Migration `V66_4__add_email_retry_metadata.sql` thêm vào
+`email_messages`: `retry_count`, `last_retried_by` (`ON DELETE SET NULL`), `last_retried_at`.
+
+GET danh sách — tham số (đều tùy chọn): `applicationId`, `type` (năm loại mẫu), `status` (`QUEUED`, `SENDING`,
+`RETRY_WAIT`, `SENT`, `FAILED`, `SUPPRESSED`, `CANCELLED`), `from`, `to` (ISO-8601, theo `createdAt`, `from` < `to`),
+`page` (≥ 0), `size` (1–100, mặc định 20). Sai → 400 `VALIDATION_ERROR` với `fieldErrors`. Sắp xếp mới nhất trước.
+
+```json
+{"items":[{"id":"...","type":"REJECTION","typeName":"Thư từ chối","variant":null,"applicationId":"...",
+  "candidateName":"Nguyễn Văn A","positionTitle":"Java","interviewId":null,"offerId":null,"trigger":"AUTOMATIC",
+  "status":"FAILED","recipientEmail":"lan@example.test","lastFailure":"RECIPIENT_REFUSED","attemptCount":1,
+  "retryCount":0,"createdAt":"...","updatedAt":"...","sentAt":null,"createdByName":null,"lastRetriedAt":null,
+  "lastRetriedByName":null,"retryable":true}],
+ "page":0,"size":20,"totalItems":1,"totalPages":1}
+```
+
+GET chi tiết trả `{"message": {...như trên...}, "attempts": [{"number":1,"result":"FAILED","errorCode":"RECIPIENT_REFUSED",
+"templateType":"REJECTION","templateVersion":0,"recipientEmail":"...","attemptedAt":"..."}]}`; 404 `EMAIL_MESSAGE_NOT_FOUND`.
+
+POST retry (không có body) → 202 với thư ở trạng thái `QUEUED`. Chỉ thư `FAILED` được gửi lại; các lần gửi trước vẫn
+nằm nguyên trong nhật ký (lần mới đánh số tiếp). Thứ tự khóa: tài khoản → phiên → yêu cầu tuyển dụng → hồ sơ → thư →
+các dòng của outbox (lịch phỏng vấn, offer, token, dòng outbox); quyền và phạm vi được kiểm lại sau mỗi lần chờ khóa,
+kể cả sau khi outbox dựng lại thư và trước khi ghi, nên hai yêu cầu gửi lại đồng thời chỉ có một thành công và người
+vừa mất quyền trong lúc chờ không gửi lại được.
+
+| Loại thư | Cách dựng lại |
+|---|---|
+| Thư xác nhận | V28 giữ payload mã hóa của dòng `FAILED`, nên dòng cũ trở về `PENDING` với 6 lần thử mới. Từ chối khi payload hỏng (mã tra cứu chỉ lưu dạng băm, không dựng lại được), khi mã tra cứu đã bị thu hồi hoặc ứng viên đã rút, khi email hồ sơ đã đổi. |
+| Thư mời/cập nhật/hủy lịch phỏng vấn | V58 xóa payload khi `FAILED`: dựng thư mới từ lịch hiện tại trong một dòng outbox mới, chỉ khi lịch vẫn đúng phiên bản của thư lỗi, chưa diễn ra, hồ sơ còn hoạt động và ứng viên chưa phản hồi lời mời hiện tại. Lời mời hiện tại bị thu hồi và cấp lời mời mới: chỉ liên kết trong thư mới dùng được. Thư hủy lịch chỉ dựng lại khi lịch vẫn bị hủy, không có liên kết. |
+| Thư offer | V62 xóa payload khi `FAILED`: dựng lại từ điều khoản đã duyệt, chỉ khi offer vẫn `SENT` đúng phiên bản, chưa phản hồi, chưa quá hạn, cùng ứng viên/địa chỉ/vị trí. Token phản hồi phải còn hiệu lực và **được xoay vòng** (mã băm mới): liên kết của thư lỗi hết dùng được, token đã thu hồi không bao giờ được kích hoạt lại. |
+| Thư từ chối / cảm ơn | Không có payload: dòng hàng đợi trở về `PENDING` nếu hồ sơ vẫn ở `REJECTED` (thư từ chối) hoặc lịch còn và hồ sơ vẫn ở giai đoạn đang xử lý (thư cảm ơn), và email không đổi. Thư từ chối lỗi không được gửi lại khi hồ sơ đã có một thư từ chối khác đang chờ/đang gửi/đã gửi (ví dụ thư tự động của lần Loại sau khi hồ sơ được mở lại): 409 `EMAIL_RETRY_OBSOLETE`. |
+
+Lỗi: 409 `EMAIL_RETRY_NOT_FAILED` (thư không ở trạng thái thất bại), 409 `EMAIL_RETRY_OBSOLETE` (thư không còn ý nghĩa
+hoặc người nhận đã đổi), 409 `EMAIL_RETRY_NOT_POSSIBLE` (không dựng lại được an toàn), 503 `EMAIL_RETRY_BUSY`,
+503 `INTERVIEW_INVITATION_UNAVAILABLE`/`OFFER_UNAVAILABLE` khi tính năng tương ứng đang tắt.
+
+Ghi chú cho frontend: màn hình nhật ký có bộ lọc loại/trạng thái/khoảng thời gian, cột thời điểm gửi (`sentAt`) và mẫu
+(`typeName`); nút "Gửi lại" chỉ hiện khi `retryable` là true; sau 202 tải lại danh sách (trạng thái chuyển dần
+`QUEUED` → `SENDING` → `SENT`/`RETRY_WAIT`/`FAILED`); hiển thị `attempts` dạng dòng thời gian.
+
+Câu hỏi BA/PO: có cho người xem nhật ký thấy đầy đủ địa chỉ email ứng viên không (hiện hiển thị đầy đủ cho người đã
+được xem hồ sơ); có cần gửi lại hàng loạt.

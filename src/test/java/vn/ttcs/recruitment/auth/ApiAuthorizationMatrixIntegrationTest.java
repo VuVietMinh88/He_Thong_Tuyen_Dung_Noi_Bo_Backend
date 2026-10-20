@@ -112,6 +112,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String OFFERS_WRITE_SCOPED = "OFFERS_WRITE_SCOPED";
     private static final String NOTIFICATIONS_READ_ALL = "NOTIFICATIONS_READ_ALL";
     private static final String NOTIFICATIONS_WRITE_ALL = "NOTIFICATIONS_WRITE_ALL";
+    private static final String NOTIFICATIONS_READ_SCOPED = "NOTIFICATIONS_READ_SCOPED";
+    private static final String NOTIFICATIONS_WRITE_SCOPED = "NOTIFICATIONS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -399,7 +401,16 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/messaging/templates/{type}", permission(NOTIFICATIONS_READ_ALL), null, 404),
             endpoint("PUT", "/api/v1/messaging/templates/{type}", allOf(NOTIFICATIONS_READ_ALL, NOTIFICATIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/messaging/templates/{type}/preview", new Rule(List.of(NOTIFICATIONS_READ_ALL), false,
-                    false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), INVALID_BODY, 400));
+                    false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), INVALID_BODY, 400),
+            // Story S8-02 (tasks 537-539): the email log of readable applications; the unknown id stops a permitted
+            // detail or retry at 404 (the retry has no body).
+            endpoint("GET", "/api/v1/messaging/emails", new Rule(List.of(NOTIFICATIONS_READ_ALL, NOTIFICATIONS_READ_SCOPED),
+                    true, false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 200),
+            endpoint("GET", "/api/v1/messaging/emails/{id}", new Rule(List.of(NOTIFICATIONS_READ_ALL, NOTIFICATIONS_READ_SCOPED),
+                    true, false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404),
+            endpoint("POST", "/api/v1/messaging/emails/{id}/retry", new Rule(List.of(NOTIFICATIONS_WRITE_ALL,
+                    NOTIFICATIONS_WRITE_SCOPED), true, false, false, List.of(List.of(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED),
+                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
