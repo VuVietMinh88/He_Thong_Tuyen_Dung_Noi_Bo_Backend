@@ -527,3 +527,22 @@ nay, nên luôn lớn hơn `maxDays` khi hồ sơ có cờ.
 
 Ghi chú cho frontend: hiển thị biểu tượng "quá hạn" trên bảng Kanban/danh sách bằng cách gọi API này (hoặc lọc theo
 `applicationId`); cờ cập nhật mỗi ngày một lần, không theo thời gian thực.
+
+## Nhắc recruiter hồ sơ quá hạn, không trùng trong ngày (task 420)
+
+Không thêm endpoint. Migration `V66_12__create_sla_reminders.sql` thêm `sla_reminders` (khóa chính `application_id`,
+`stage`, `reminder_date`, `recipient_id`; `ON DELETE CASCADE` từ hồ sơ và tài khoản).
+
+Sau khi gắn cờ, cùng lần chạy hằng ngày `SlaReminders` ghi một dòng cho mỗi (hồ sơ quá hạn, giai đoạn, ngày theo
+`app.business-zone`, người nhận) **trước khi** gửi; trùng khóa thì bỏ qua (`ON CONFLICT DO NOTHING`), nên chạy lại
+trong ngày hoặc hai lần chạy đồng thời không nhắc trùng; ngày hôm sau nhắc lại nếu vẫn quá hạn. Chỉ recruiter **đủ
+điều kiện** được nhắc: được phân công vào yêu cầu tuyển dụng của hồ sơ, tài khoản còn hoạt động (không bị vô hiệu/khóa)
+và vẫn đọc được hồ sơ (có quyền đọc `CANDIDATES` và hồ sơ trong phạm vi). Người nhận là recruiter chính (`PRIMARY`) đủ
+điều kiện; nếu yêu cầu không có recruiter chính đủ điều kiện (chưa có, bị vô hiệu/khóa hoặc đã mất quyền) thì các
+recruiter hỗ trợ đủ điều kiện. Chỉ hồ sơ còn cờ của yêu cầu tuyển dụng đang tuyển (`APPROVED`, task 419) được nhắc.
+Mỗi nhắc nhở mới là một sự kiện `SLA_OVERDUE` (task 544) → thông báo trong ứng dụng và/hoặc email theo tùy chọn của
+người nhận (task 551); lúc tạo thông báo, người nhận được kiểm lại (vẫn được phân công và vẫn đọc được hồ sơ). Cờ cũ
+được xóa ở task 419, nên hồ sơ đã chuyển giai đoạn không còn được nhắc.
+
+Nội dung thông báo: "Hồ sơ quá hạn xử lý — Hồ sơ của {ứng viên} (vị trí {vị trí}) đã ở giai đoạn {giai đoạn} {n} ngày,
+vượt ngưỡng {m} ngày."; `n` là số ngày lịch như `daysInStage` (task 419); liên kết `APPLICATION`.

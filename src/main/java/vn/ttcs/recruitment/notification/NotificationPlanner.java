@@ -4,6 +4,8 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.application.ApplicationStage;
+import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.requisition.ApprovalRound;
 import vn.ttcs.recruitment.requisition.ApproverCandidate;
 import vn.ttcs.recruitment.requisition.ApproverDirectory;
@@ -12,6 +14,9 @@ import vn.ttcs.recruitment.requisition.RecruitmentRequisitionRepository;
 import vn.ttcs.recruitment.requisition.RequisitionApprovalRepository;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
 
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,15 +39,17 @@ public class NotificationPlanner {
     private final RecruitmentRequisitionRepository requisitions;
     private final RequisitionApprovalRepository approvals;
     private final ApproverDirectory directory;
+    private final BusinessCalendar calendar;
 
     public NotificationPlanner(NamedParameterJdbcTemplate jdbc, NotificationRecipients recipients,
                                RecruitmentRequisitionRepository requisitions, RequisitionApprovalRepository approvals,
-                               ApproverDirectory directory) {
+                               ApproverDirectory directory, BusinessCalendar calendar) {
         this.jdbc = jdbc;
         this.recipients = recipients;
         this.requisitions = requisitions;
         this.approvals = approvals;
         this.directory = directory;
+        this.calendar = calendar;
     }
 
     /** One stored event (V66_7) as the worker claimed it. */
@@ -189,9 +196,28 @@ public class NotificationPlanner {
                 "OFFER_RESPONDED:" + event.entityId());
     }
 
-    // Task 420 publishes the overdue reminders; until then nothing produces this event.
+    // Task 420: one reminder per (application, stage, day, recipient) was recorded by SlaReminders before this event;
+    // the notification is sent only while the application is still flagged in that stage, to a recipient still
+    // assigned to its requisition and still allowed to read it. Days are calendar days, like the flag (SlaMonitor).
     private List<Planned> slaOverdue(Event event) {
-        return List.of();
+        var rows = jdbc.queryForList("""
+                SELECT f.stage, f.max_days, f.entered_at, a.full_name, a.posting_title, a.requisition_id
+                FROM application_sla_flags f JOIN job_applications a ON a.id = f.application_id
+                WHERE f.application_id = :id AND a.stage = f.stage
+                """, Map.of("id", event.entityId()));
+        if (rows.isEmpty() || event.recipients().isEmpty()) return List.of();
+        var flag = rows.getFirst();
+        List<UUID> readers = jdbc.queryForList("""
+                SELECT recruiter_id FROM requisition_recruiters WHERE requisition_id = :id AND recruiter_id IN (:ids)
+                """, new MapSqlParameterSource("id", flag.get("requisition_id")).addValue("ids", event.recipients()),
+                UUID.class).stream().filter(user -> recipients.readsApplication(user, event.entityId())).toList();
+        LocalDate entered = calendar.dateOf(((Timestamp) flag.get("entered_at")).toInstant());
+        long days = Math.max(0, ChronoUnit.DAYS.between(entered, calendar.today()));
+        String stage = ApplicationStage.valueOf((String) flag.get("stage")).displayName();
+        return plan(readers, NotificationType.SLA_OVERDUE, "Hồ sơ quá hạn xử lý",
+                "Hồ sơ của " + flag.get("full_name") + " (vị trí " + flag.get("posting_title") + ") đã ở giai đoạn "
+                        + stage + " " + days + " ngày, vượt ngưỡng " + flag.get("max_days") + " ngày.",
+                NotificationLink.application(event.entityId()), "SLA_OVERDUE:" + event.id());
     }
 
     private List<UUID> active(List<UUID> ids) {

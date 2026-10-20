@@ -60,13 +60,16 @@ public class SlaMonitor {
 
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate named;
+    private final SlaReminders reminders;
     private final BusinessCalendar calendar;
     private final Clock clock;
     private final TransactionTemplate transaction;
 
-    public SlaMonitor(JdbcTemplate jdbc, BusinessCalendar calendar, Clock clock, PlatformTransactionManager manager) {
+    public SlaMonitor(JdbcTemplate jdbc, SlaReminders reminders, BusinessCalendar calendar, Clock clock,
+                      PlatformTransactionManager manager) {
         this.jdbc = jdbc;
         this.named = new NamedParameterJdbcTemplate(jdbc);
+        this.reminders = reminders;
         this.calendar = calendar;
         this.clock = clock;
         transaction = new TransactionTemplate(manager);
@@ -79,14 +82,15 @@ public class SlaMonitor {
     public void runDaily() {
         try {
             Result result = run();
-            LOG.info("SLA check flagged {} application(s), cleared {}", result.flagged(), result.cleared());
+            LOG.info("SLA check flagged {} application(s), cleared {}, sent {} reminder(s)", result.flagged(),
+                    result.cleared(), result.reminders());
         } catch (RuntimeException failure) {
             LOG.warn("SLA check failed; it runs again tomorrow or when started by hand");
         }
     }
 
-    /** Counts of one run: flags inserted or refreshed, stale flags deleted. */
-    public record Result(int flagged, int cleared) {
+    /** Counts of one run. */
+    public record Result(int flagged, int cleared, int reminders) {
     }
 
     /** The SQL list parameter of MONITORED_REQUISITION_STATUSES. */
@@ -129,7 +133,8 @@ public class SlaMonitor {
                     ON CONFLICT (application_id) DO UPDATE SET entered_at = EXCLUDED.entered_at,
                         due_at = EXCLUDED.due_at, max_days = EXCLUDED.max_days, checked_at = EXCLUDED.checked_at
                     """, flags));
-            return new Result(flagged, cleared);
+            int sent = reminders.remind(now);
+            return new Result(flagged, cleared, sent);
         });
     }
 
