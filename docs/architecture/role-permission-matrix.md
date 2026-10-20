@@ -45,7 +45,7 @@ Có 12 module × 2 thao tác × 2 phạm vi = 48 mã: V3 tạo 40 mã của mư�
 |`EVALUATIONS`|Phiếu đánh giá|Interviewer: phiếu của mình ở vòng mình tham gia. Hiring Manager: phiếu thuộc vị trí mình sở hữu|Chưa có|
 |`OFFERS`|Offer & onboarding|Recruiter: offer của vị trí được phân công. Approver: offer chờ mình duyệt. Hiring Manager: offer của vị trí mình. Candidate: offer gửi cho mình|Chưa có|
 |`NOTIFICATIONS`|Email & thông báo|Thông báo gửi cho chính mình hoặc thuộc vị trí mình liên quan|Chưa có|
-|`REPORTS`|Báo cáo & dashboard|Recruiter: số liệu vị trí được phân công. Hiring Manager: số liệu vị trí mình sở hữu|Chưa có|
+|`REPORTS`|Báo cáo & dashboard|Recruiter: số liệu vị trí được phân công. Hiring Manager: số liệu vị trí mình sở hữu|Dashboard, biểu đồ (555–558), tiến độ vị trí (562–563), phễu (567–569), báo cáo thời gian/chi phí và xuất Excel (574–576), chất lượng nguồn và xuất Excel (580–582): đọc cần `REPORTS_READ_*` cùng `REQUISITIONS_READ_*` và `CANDIDATES_READ_*`, chỉ không lọc dòng khi cả ba là ALL; chi phí nhập tay (573) ghi cần `REPORTS_WRITE_*`. Xem `docs/api/reporting.md`|
 |`USER_ADMIN`|Người dùng & nhật ký|Chưa vai trò nào dùng|Tài khoản, vai trò, khóa tài khoản (145–166)|
 |`SALARY_RANGES`|Không có dòng riêng; tách khỏi "Danh mục tổ chức & vị trí" theo Jira 205 (V7_1)|Chưa định nghĩa, chưa vai trò nào dùng; server coi như không có quyền|Dải lương `salaryMin`/`salaryMax` của chức danh (205)|
 |`HEADCOUNT_PLANS`|Không có dòng riêng; mô tả vai trò HR Manager có "ngân sách headcount" (story S3-04, V14)|Chưa định nghĩa, chưa vai trò nào dùng; server coi như không có quyền|Bảng định biên và ngân sách lương theo phòng ban, năm (272); khai báo, sửa, xem định biên và tra cứu số còn lại (273)|

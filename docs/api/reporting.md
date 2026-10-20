@@ -776,3 +776,30 @@ mặc định hợp lý; nếu nghiệp vụ muốn tiêu chí khác (ví dụ t
 Ghi chú cho frontend: hiển thị huy hiệu "Chất lượng tốt nhất" cho `bestSource` và "Nhiều hồ sơ nhất" cho
 `mostApplications`; dòng có `meetsMinimumSample = false` ghi chú "Chưa đủ mẫu (cần ≥ minApplications hồ sơ)"; tỷ lệ hiển
 thị dạng phần trăm (`0.4000` → 40,00%).
+
+## TKNHTTDNB1-582 — Xuất Excel báo cáo chất lượng nguồn
+
+`GET /api/v1/reports/sources/export?from=&to=&requisitionId=&departmentId=&positionId=&minApplications=`
+
+Cùng tham số, quyền, phạm vi và **cùng đối tượng báo cáo** với `GET /api/v1/reports/sources` (task 581). Response 200:
+`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+`Content-Disposition: attachment; filename="bao-cao-chat-luong-nguon_<from>_<to>.xlsx"`, `Cache-Control: no-store`.
+
+| Sheet | Nội dung |
+| --- | --- |
+| `Bộ lọc` | khoảng ngày, phạm vi, bộ lọc, cỡ mẫu tối thiểu, tổng số hồ sơ, nguồn chất lượng nhất ("Chưa có nguồn đủ mẫu" khi không có), nguồn nhiều hồ sơ nhất, cách xếp hạng, thời điểm lập |
+| `Theo nguồn` | hạng chất lượng, nguồn, mã, đang dùng, số hồ sơ, qua sàng lọc, tỷ lệ qua sàng lọc, nhận việc, tỷ lệ nhận việc, bị loại, rút hồ sơ, đang xử lý, đủ cỡ mẫu — đúng thứ tự dòng của JSON |
+
+Xử lý dữ liệu thiếu và mẫu số bằng 0:
+
+- Dòng "Không rõ nguồn" luôn có tên rõ ràng; ô "Mã nguồn" và "Đang dùng" để trống vì không có nguồn trong danh mục.
+  Dòng "Giới thiệu nội bộ" có mã `INTERNAL_REFERRAL` và ô "Đang dùng" để trống, được xếp hạng như nguồn danh mục.
+- Nguồn không được xếp hạng (chưa đủ mẫu, hoặc "Không rõ nguồn"): ô hạng để trống.
+- Tỷ lệ có mẫu số bằng 0 (`null` trong JSON) là ô trống, không phải 0%; tỷ lệ có giá trị là ô số định dạng `0.00%`.
+- Ô số là số, ô chữ là chữ, không có ô công thức; tên nguồn như `=1+1` được giữ nguyên văn (quote-prefixed); tối đa
+  5.000 dòng mỗi sheet (vượt quá → 400 `REPORT_TOO_LARGE`). File không chứa dữ liệu cá nhân ứng viên.
+
+Lỗi (JSON): 400 (`VALIDATION_ERROR` cho ngày/`minApplications`/UUID sai), 401, 403, 404.
+
+Ghi chú cho frontend: dùng chung cách tải file với task 576; gửi đúng các tham số đang hiển thị trên màn hình để file
+khớp với bảng.
