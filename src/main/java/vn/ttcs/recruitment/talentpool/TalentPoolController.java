@@ -17,13 +17,15 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
-/** Tasks 398-399 (story S5-06): the talent pool: add, read, search and remove. */
+/** Tasks 398-400 (story S5-06): the talent pool: add, read, search, remove, and suggestions for a requisition. */
 @RestController
 public class TalentPoolController {
     private final TalentPoolService service;
+    private final TalentPoolSuggestionService suggestions;
 
-    public TalentPoolController(TalentPoolService service) {
+    public TalentPoolController(TalentPoolService service, TalentPoolSuggestionService suggestions) {
         this.service = service;
+        this.suggestions = suggestions;
     }
 
     @PostMapping("/api/v1/talent-pool")
@@ -50,5 +52,11 @@ public class TalentPoolController {
     public ResponseEntity<Void> remove(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         service.remove(jwt, id);
         return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+
+    @GetMapping("/api/v1/requisitions/{id}/talent-pool-suggestions")
+    public ResponseEntity<TalentPoolSuggestionView> suggest(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                            @RequestParam(defaultValue = "20") int limit) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(suggestions.suggest(jwt, id, limit));
     }
 }
