@@ -4,6 +4,7 @@ import vn.ttcs.recruitment.security.AccessScope;
 
 import java.util.Collection;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import static vn.ttcs.recruitment.security.PermissionModule.CANDIDATES;
@@ -22,7 +23,7 @@ import static vn.ttcs.recruitment.security.PermissionModule.REQUISITIONS;
  */
 public record ReportViewer(UUID id, AccessScope reports, AccessScope reportsWrite, AccessScope requisitions,
                            AccessScope candidates, AccessScope interviews, AccessScope offers,
-                           AccessScope evaluations) {
+                           AccessScope evaluations, AccessScope evaluationsWrite, Set<String> roles) {
     public ReportViewer {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(reports, "reports");
@@ -32,13 +33,19 @@ public record ReportViewer(UUID id, AccessScope reports, AccessScope reportsWrit
         Objects.requireNonNull(interviews, "interviews");
         Objects.requireNonNull(offers, "offers");
         Objects.requireNonNull(evaluations, "evaluations");
+        Objects.requireNonNull(evaluationsWrite, "evaluationsWrite");
+        roles = Set.copyOf(roles);
     }
 
     static ReportViewer of(UUID id, Collection<String> grants) {
+        return of(id, grants, Set.of());
+    }
+
+    static ReportViewer of(UUID id, Collection<String> grants, Set<String> roles) {
         return new ReportViewer(id, AccessScope.read(grants, REPORTS), AccessScope.write(grants, REPORTS),
                 AccessScope.read(grants, REQUISITIONS), AccessScope.read(grants, CANDIDATES),
                 AccessScope.read(grants, INTERVIEWS), AccessScope.read(grants, OFFERS),
-                AccessScope.read(grants, EVALUATIONS));
+                AccessScope.read(grants, EVALUATIONS), AccessScope.write(grants, EVALUATIONS), roles);
     }
 
     /** May the viewer open a report at all: a read grant of REPORTS, REQUISITIONS and CANDIDATES (any scope). */
@@ -58,6 +65,21 @@ public record ReportViewer(UUID id, AccessScope reports, AccessScope reportsWrit
 
     boolean offersUnrestricted() {
         return unrestricted() && offers == AccessScope.ALL;
+    }
+
+    /**
+     * Task 562: may make a hiring decision somewhere, as ApplicationStageChangeService.decide requires: the role
+     * HIRING_MANAGER, HR_MANAGER or ADMIN and an EVALUATIONS read grant (a HIRING_MANAGER only for the departments it
+     * manages, checked in SQL).
+     */
+    boolean decidesHiring() {
+        return evaluations != AccessScope.NONE
+                && (roles.contains("HIRING_MANAGER") || seniorDecider());
+    }
+
+    /** ADMIN and HR_MANAGER decide for every department. */
+    boolean seniorDecider() {
+        return roles.contains("ADMIN") || roles.contains("HR_MANAGER");
     }
 
     /** The scope shown to the client, so a screen can say "all company" or "your positions". */

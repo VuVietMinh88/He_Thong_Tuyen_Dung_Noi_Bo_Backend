@@ -247,3 +247,82 @@ chậm nhất 1.277 ms (lời gọi tham chiếu 257 ms): con số phụ thuộc
 
 Ghi chú cho frontend: gọi đúng một API `GET /api/v1/reports/dashboard` cho cả trang; không gọi lặp cho từng thẻ. Khi đổi
 khoảng ngày của biểu đồ chỉ cần gọi lại với `from`/`to` mới.
+
+## TKNHTTDNB1-562 — Tiến độ pipeline, lịch sắp tới và phiếu còn chờ của một vị trí
+
+`GET /api/v1/reports/requisitions/{id}/progress`
+
+Quyền như phần chung; yêu cầu tuyển dụng phải tồn tại (404 `REQUISITION_NOT_FOUND`) và nằm trong phạm vi người xem
+(403): HR thấy mọi yêu cầu; Trưởng bộ phận thấy yêu cầu của phòng ban mình quản lý (kể cả phòng ban con); recruiter
+thấy yêu cầu mình đang được phân công.
+
+Response 200:
+
+```json
+{
+  "generatedAt": "2026-10-15T03:00:00Z",
+  "businessDate": "2026-10-15",
+  "scope": "SCOPED",
+  "requisition": {
+    "requisitionId": "…", "positionId": "…", "positionName": "Developer", "departmentId": "…",
+    "departmentName": "IT", "status": "APPROVED", "headcount": 2, "hiredCount": 1, "remainingHeadcount": 1,
+    "neededBy": "2026-10-25", "daysRemaining": 10
+  },
+  "stageCounts": [
+    {"stage": "NEW", "label": "Hồ sơ mới", "count": 3},
+    {"stage": "SCREENING", "label": "Sàng lọc", "count": 2},
+    {"stage": "INTERVIEW", "label": "Phỏng vấn", "count": 2},
+    {"stage": "OFFER", "label": "Đề xuất offer", "count": 1},
+    {"stage": "HIRED", "label": "Nhận việc", "count": 1},
+    {"stage": "ONBOARDED", "label": "Hoàn tất hội nhập", "count": 0},
+    {"stage": "REJECTED", "label": "Loại", "count": 4},
+    {"stage": "WITHDRAWN", "label": "Ứng viên rút", "count": 1}
+  ],
+  "totalApplications": 14,
+  "activeApplications": 8,
+  "upcomingInterviews": {
+    "available": true, "unavailableReason": null, "total": 2, "limit": 20,
+    "items": [{"interviewId": "…", "applicationId": "…", "candidateName": "Nguyễn Văn A", "applicationStage": "INTERVIEW",
+               "roundName": "Vòng kỹ thuật", "startsAt": "…", "endsAt": "…", "mode": "ONSITE", "viewerOnPanel": true}]
+  },
+  "pendingEvaluations": {"available": false, "unavailableReason": "MISSING_EVALUATIONS_WRITE", "total": 0, "limit": 20, "items": []},
+  "awaitingDecision": {
+    "available": true, "unavailableReason": null, "total": 1, "limit": 20,
+    "items": [{"applicationId": "…", "candidateName": "Trần Thị B", "interviewId": "…", "roundName": "Vòng cuối",
+               "interviewEndedAt": "…", "submittedEvaluations": 2}]
+  }
+}
+```
+
+Định nghĩa:
+
+| Trường | Cách tính |
+| --- | --- |
+| `stageCounts` | số hồ sơ của yêu cầu đang ở từng giai đoạn **hiện tại** (đủ 8 giai đoạn, kể cả 0, theo thứ tự pipeline). Khác với phễu (task 567) vốn tính theo lịch sử |
+| `activeApplications` | NEW + SCREENING + INTERVIEW + OFFER |
+| `hiredCount` | HIRED + ONBOARDED; `remainingHeadcount = max(headcount − hiredCount, 0)` |
+| `daysRemaining` | `neededBy − hôm nay` (ngày nghiệp vụ): âm khi đã trễ, `null` khi yêu cầu không có ngày cần người |
+| `upcomingInterviews` | buổi `SCHEDULED` có `startsAt ≥ bây giờ` của hồ sơ còn trong pipeline (NEW..OFFER), sớm nhất trước; `viewerOnPanel` cho biết người xem có trong hội đồng (đang hoạt động) |
+| `pendingEvaluations` | phiếu **của chính người xem**: buổi phỏng vấn đã kết thúc (`endsAt ≤ bây giờ`), không bị hủy, người xem là thành viên hội đồng đang hoạt động, chưa có phiếu (`NOT_STARTED`) hoặc phiếu còn `DRAFT`. Không bao giờ lộ phiếu của người khác |
+| `awaitingDecision` | hồ sơ chờ người xem ra quyết định tuyển (`POST /applications/{id}/hiring-decisions`): giai đoạn `INTERVIEW`, yêu cầu đang `APPROVED`, buổi phỏng vấn mới nhất (giờ bắt đầu muộn nhất trong các buổi `SCHEDULED`) có ít nhất một phiếu `SUBMITTED` của thành viên hội đồng đang hoạt động — đúng điều kiện API quyết định chấp nhận |
+
+Mỗi danh sách tối đa 20 dòng (`limit`), `total` là tổng số dòng khớp. Mỗi danh sách có cổng quyền riêng; thiếu quyền thì
+`available: false` và lý do, không trả danh sách rỗng giả:
+
+| Danh sách | Điều kiện | Lý do khi thiếu |
+| --- | --- | --- |
+| `upcomingInterviews` | `INTERVIEWS_READ_*` | `MISSING_INTERVIEWS_READ` |
+| `pendingEvaluations` | `EVALUATIONS_WRITE_*` (chỉ người được viết phiếu mới có phiếu phải nộp; seed: HR_MANAGER, ADMIN, INTERVIEWER) | `MISSING_EVALUATIONS_WRITE` |
+| `awaitingDecision` | vai trò HIRING_MANAGER, HR_MANAGER hoặc ADMIN và `EVALUATIONS_READ_*`; HIRING_MANAGER chỉ thấy hồ sơ của phòng ban mình quản lý | `NOT_A_HIRING_DECIDER` |
+
+Ba danh sách hiển thị tên ứng viên, nên mỗi hồ sơ được hiển thị ghi một dòng `GRANTED`/`PROFILE` vào
+`candidate_access_events` trong cùng transaction (như Kanban). Số đếm không ghi log. Response không có email, số điện
+thoại, CV, điểm hay nhận xét đánh giá.
+
+Câu hỏi BA/PO: "ứng viên đang chờ mình cho ý kiến" được hiểu là cả phiếu đánh giá của chính mình (người phỏng vấn) và
+quyết định tuyển (Trưởng bộ phận). Seed hiện tại không cho HIRING_MANAGER quyền viết phiếu, nên với Trưởng bộ phận danh
+sách hữu ích là `awaitingDecision`; nếu một tài khoản vừa là Trưởng bộ phận vừa là Người phỏng vấn thì thấy cả hai.
+
+Ghi chú cho frontend: dùng `stageCounts[].label` làm nhãn cột; hiển thị `daysRemaining < 0` thành "Trễ N ngày";
+`viewerOnPanel = true` có thể tô nổi buổi người xem tham gia; bấm một dòng chờ quyết định thì mở
+`GET /api/v1/applications/{applicationId}/evaluation-summary`.
