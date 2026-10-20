@@ -37,14 +37,19 @@ class CandidateExportIntegrationTest extends CandidateSearchTestSupport {
         return binary.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
     }
 
-    // The names in column B below the header, in the file's order.
+    // The values of the "Họ tên" column below the header, in the file's order.
     static List<String> names(byte[] content) throws Exception {
         try (var workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
             Sheet sheet = workbook.getSheetAt(0);
-            List<String> names = new ArrayList<>();
             DataFormatter formatter = new DataFormatter();
+            int column = -1;
+            for (var cell : sheet.getRow(0)) {
+                if ("Họ tên".equals(formatter.formatCellValue(cell))) column = cell.getColumnIndex();
+            }
+            assertThat(column).as("name column").isNotNegative();
+            List<String> names = new ArrayList<>();
             for (Row row : sheet) {
-                if (row.getRowNum() > 0) names.add(formatter.formatCellValue(row.getCell(1)));
+                if (row.getRowNum() > 0) names.add(formatter.formatCellValue(row.getCell(column)));
             }
             return names;
         }

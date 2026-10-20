@@ -107,6 +107,27 @@ public class CandidateSearchRepository {
         return found == null ? 0 : found;
     }
 
+    // Task 424: the position an export is named after, from a requisition filter or a position filter.
+    Optional<CandidateExportDescription.Position> positionOfRequisition(UUID requisitionId) {
+        return jdbc.query("SELECT p.code, p.name FROM recruitment_requisitions r JOIN positions p ON p.id = r.position_id"
+                        + " WHERE r.id = :id", new MapSqlParameterSource("id", requisitionId),
+                (row, index) -> new CandidateExportDescription.Position(row.getString("code"), row.getString("name")))
+                .stream().findFirst();
+    }
+
+    Optional<CandidateExportDescription.Position> position(UUID positionId) {
+        return jdbc.query("SELECT code, name FROM positions WHERE id = :id", new MapSqlParameterSource("id", positionId),
+                (row, index) -> new CandidateExportDescription.Position(row.getString("code"), row.getString("name")))
+                .stream().findFirst();
+    }
+
+    // The names of these catalog values, in the catalog's order.
+    List<String> catalogNames(List<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        return jdbc.query("SELECT name FROM recruitment_catalog_items WHERE id IN (:ids) ORDER BY sort_order, name, id",
+                new MapSqlParameterSource("ids", ids), (row, index) -> row.getString("name"));
+    }
+
     long count(CandidateReader reader, CandidateSearchCriteria criteria) {
         Query query = query(reader, criteria);
         Long total = jdbc.queryForObject("SELECT count(*)" + FROM + query.where(), query.parameters(), Long.class);
