@@ -637,6 +637,12 @@ public class SecurityConfiguration {
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAuthority("PERM_SELF_PROFILE_READ"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_SELF_PROFILE_WRITE")))
+                        // Story S5-10 (tasks 418-420): stage SLA. Candidate readers see thresholds and flags (the
+                        // flags only within their candidate scope); only CANDIDATES_WRITE_ALL changes a threshold.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/sla/thresholds")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/sla/thresholds/*")
+                                .hasAuthority("PERM_CANDIDATES_WRITE_ALL")
                         .requestMatchers(HttpMethod.POST, "/api/v1/messaging/rejections")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_WRITE_ALL",

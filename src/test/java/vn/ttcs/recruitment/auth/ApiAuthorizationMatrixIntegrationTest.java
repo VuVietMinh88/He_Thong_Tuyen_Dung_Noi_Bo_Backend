@@ -426,7 +426,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/notifications/read-all", permission(SELF_PROFILE_WRITE), null, 200),
             // Story S8-04 (tasks 549-551): own preferences; the empty body stops a permitted save at 400.
             endpoint("GET", "/api/v1/notifications/preferences", permission(SELF_PROFILE_READ), null, 200),
-            endpoint("PUT", "/api/v1/notifications/preferences", allOf(SELF_PROFILE_READ, SELF_PROFILE_WRITE), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/notifications/preferences", allOf(SELF_PROFILE_READ, SELF_PROFILE_WRITE), INVALID_BODY, 400),
+            // Story S5-10 (tasks 418-420): "{stage}" becomes NEW; the empty body stops a permitted save at 400.
+            endpoint("GET", "/api/v1/sla/thresholds", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            endpoint("PUT", "/api/v1/sla/thresholds/{stage}", permission(CANDIDATES_WRITE_ALL), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -1267,7 +1270,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString())
                     .replace("{questionId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
                     .replace("{type}", CATALOG_TYPE).replace("{applicationId}", UNKNOWN_ID.toString())
-                    .replace("{itemId}", UNKNOWN_ID.toString());
+                    .replace("{itemId}", UNKNOWN_ID.toString()).replace("{stage}", "NEW");
         }
 
         @Override
