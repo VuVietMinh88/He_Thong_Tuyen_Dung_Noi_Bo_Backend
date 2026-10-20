@@ -273,3 +273,76 @@ Ghi chú cho frontend:
 - Không cần xử lý định dạng: mở tệp là đọc được ngay, cột ngày sắp xếp đúng.
 - Câu hỏi BA/PO: khi không lọc theo vị trí, tên tệp dùng `TAT-CA`; nếu muốn bắt buộc chọn vị trí trước khi xuất, chỉ cần
   FE ẩn nút xuất khi chưa chọn vị trí.
+
+## 407 — Thêm hồ sơ ứng viên thủ công
+
+`POST /api/v1/requisitions/{id}/manual-applications` — `multipart/form-data`
+
+Migration: `V65_1__create_manual_application_intakes.sql` (bảng `manual_application_intakes`: hồ sơ, người nhập,
+thời điểm nhập).
+
+Quyền: `CANDIDATES_WRITE_ALL` (ADMIN, HR_MANAGER) hoặc `CANDIDATES_WRITE_SCOPED` (RECRUITER) **và** quyền đọc ứng viên.
+Người có quyền SCOPED phải đang là recruiter PRIMARY/SUPPORTING của requisition `{id}`; trưởng phòng chỉ có quyền đọc
+nên không thêm được. Quyền và phạm vi được đọc lại sau khi khóa tài khoản, phiên và sau mỗi lần chờ khóa.
+
+Các phần của form (đúng tên, mỗi phần tối đa một lần, tối đa 7 phần):
+
+| Phần | Bắt buộc | Quy tắc |
+|---|---|---|
+| `fullName` | có | như cổng nộp hồ sơ: tối đa 120 ký tự, văn bản thuần một dòng |
+| `email` | có | email hợp lệ, tối đa 254 ký tự; chuẩn hóa trim + chữ thường |
+| `phone` | có | 8–15 chữ số, có thể có `+` đầu; khoảng trắng, `.`, `-`, `()` được bỏ |
+| `sourceId` | không | UUID của nguồn `CANDIDATE_SOURCE` **đang hoạt động** (ví dụ "Hội chợ việc làm") |
+| `coverLetter` | không | tối đa 5000 ký tự, văn bản thuần |
+| `candidateConsent` | có | đúng chuỗi `true`: người nhập xác nhận ứng viên đồng ý cho công ty lưu hồ sơ |
+| `cv` | có | một tệp PDF hoặc DOCX ≤ 10 MiB, kiểm bằng `CvValidator` chung (đúng định dạng, không nội dung chủ động) |
+
+Không có phần `requisitionId`, `jobPostingId`, `stage`, `trackingCode`, `enteredBy`…: requisition lấy từ đường dẫn, người
+nhập lấy từ JWT; phần lạ bị từ chối.
+
+Hồ sơ đi qua **đúng luồng của cổng nộp hồ sơ** (`ApplicationStorageService`): tin tuyển dụng của requisition phải đang
+nhận hồ sơ (requisition APPROVED, tin PUBLISHED, chưa quá hạn), nguồn phải đang hoạt động, email đã nộp vào requisition
+này bị chặn (409), email đã có ở requisition khác được gộp vào cùng hồ sơ ứng viên, CV được lưu cùng giao dịch. Ứng viên
+nhận email xác nhận kèm mã tra cứu/link rút hồ sơ như khi tự nộp (outbox mã hóa); người nhập **không** thấy mã tra cứu.
+Hồ sơ mới ở giai đoạn `NEW`.
+
+Response 201:
+
+```json
+{
+  "applicationId": "9d1e…",
+  "candidateId": "0c1d…",
+  "requisitionId": "77aa…",
+  "postingTitle": "Java Developer",
+  "fullName": "Hoàng Thị Mai",
+  "stage": "NEW",
+  "stageName": "Hồ sơ mới",
+  "receivedAt": "2026-10-15T03:00:00Z",
+  "enteredBy": { "id": "5b7c…", "fullName": "Recruiter A" }
+}
+```
+
+Lỗi:
+
+| HTTP | code | Khi nào |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | Trường sai/thiếu, thiếu CV, phần lạ, chưa xác nhận đồng ý, nguồn không còn áp dụng |
+| 400 | `INVALID_MULTIPART`, `APPLICATION_CV_INVALID`, `APPLICATION_CV_ACTIVE_CONTENT` | Form hỏng, CV hỏng/có nội dung chủ động |
+| 401 | `SESSION_INVALID` | Phiên hết hạn/thu hồi |
+| 403 | `FORBIDDEN` | Không có quyền ghi ứng viên, hoặc requisition ngoài phạm vi |
+| 404 | `REQUISITION_NOT_FOUND` | Requisition không tồn tại |
+| 404 | `JOB_POSTING_NOT_FOUND` | Requisition chưa có tin, hoặc tin không còn công khai |
+| 409 | `JOB_POSTING_EXPIRED` | Tin đã hết hạn nhận hồ sơ |
+| 409 | `APPLICATION_ALREADY_SUBMITTED` | Email này đã có hồ sơ trong requisition (xem 408 để kiểm tra trước) |
+| 413 | `APPLICATION_CV_TOO_LARGE` | CV > 10 MiB hoặc form > 11 MiB |
+| 415 | `APPLICATION_FORM_TYPE_UNSUPPORTED`, `APPLICATION_CV_TYPE_UNSUPPORTED` | Không phải multipart, CV không phải PDF/DOCX |
+| 503 | `MANUAL_APPLICATION_UNAVAILABLE` | Chưa cấu hình khóa mã hóa email xác nhận |
+| 503 | `MANUAL_APPLICATION_BUSY` (có `Retry-After`), `MANUAL_APPLICATION_FAILED` | Đang bận/lỗi tạm thời |
+
+Ghi chú cho frontend:
+
+- Dùng `FormData`, **không** tự đặt header `Content-Type` (để trình duyệt thêm boundary).
+- Nút "Thêm ứng viên" chỉ hiện ở requisition mà người dùng phụ trách (hoặc với HR/Admin); server vẫn kiểm tra lại.
+- Ô `candidateConsent` là checkbox bắt buộc "Ứng viên đã đồng ý cho công ty lưu hồ sơ".
+- Câu hỏi BA/PO: (1) có bắt buộc chọn nguồn cho hồ sơ nhập tay không (hiện không bắt buộc); (2) có gửi email xác nhận cho
+  ứng viên nhập tay không (hiện có, giống cổng nộp, để ứng viên tra cứu/rút hồ sơ).

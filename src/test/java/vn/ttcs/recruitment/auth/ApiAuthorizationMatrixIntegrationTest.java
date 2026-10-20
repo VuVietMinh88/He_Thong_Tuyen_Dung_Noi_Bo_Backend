@@ -367,6 +367,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("DELETE", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Story S6-01 (tasks 423-424): the export of the search; every permitted caller gets a workbook without rows.
             endpoint("GET", "/api/v1/candidate-search/export", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            // Story S5-08 (tasks 407-408): the manual intake is multipart only, so the JSON sample stops at 415 before
+            // readiness, the form or any lock.
+            endpoint("POST", "/api/v1/requisitions/{id}/manual-applications", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 415),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
