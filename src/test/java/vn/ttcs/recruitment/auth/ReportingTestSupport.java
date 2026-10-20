@@ -129,6 +129,15 @@ abstract class ReportingTestSupport extends ScreeningTestSupport {
         return id;
     }
 
+    /** An application of the requisition referred by a staff member (INTERVIEWER) through the real referral API. */
+    UUID referred(UUID requisitionId, String email) throws Exception {
+        UUID posting = jdbc.queryForObject("SELECT id FROM job_postings WHERE requisition_id = ? ORDER BY created_at LIMIT 1",
+                UUID.class, requisitionId);
+        var response = applications.refer(interviewerToken, posting, email);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        return UUID.fromString(json.readTree(response.body()).path("id").asText());
+    }
+
     void received(UUID applicationId, Instant receivedAt) {
         jdbc.update("UPDATE job_applications SET received_at = ? WHERE id = ?", Timestamp.from(receivedAt), applicationId);
     }
