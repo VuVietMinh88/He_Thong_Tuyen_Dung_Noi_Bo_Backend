@@ -70,7 +70,7 @@ class ApprovalNotificationIntegrationTest {
     void fixture() throws Exception {
         clock.set(START);
         api = new ApprovalTestSupport(jdbc, json, transactions, Integer.parseInt(environment.getRequiredProperty("local.server.port")));
-        jdbc.execute("TRUNCATE notifications, notification_events");
+        jdbc.execute("TRUNCATE notifications, notification_events CASCADE");
         api.reset();
         bootstrap.run(new DefaultApplicationArguments());
         UUID adminId = jdbc.queryForObject("SELECT id FROM user_accounts WHERE email = 'admin@example.test'", UUID.class);

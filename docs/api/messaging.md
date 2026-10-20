@@ -432,3 +432,29 @@ PUT gửi các loại muốn đổi (1–20 phần tử, mỗi loại một lầ
 
 Ghi chú cho frontend: bảng loại × kênh với công tắc; loại `mandatory` hiển thị công tắc khóa ở trạng thái bật (máy chủ
 vẫn từ chối nếu gửi tắt).
+
+## Áp dụng tùy chọn khi gửi thông báo (task 551)
+
+Không thêm endpoint. `NotificationDispatch` đọc tùy chọn của **từng người nhận, từng kênh** ngay khi tạo thông báo, trong
+transaction của `NotificationWorker`:
+
+- kênh trong ứng dụng bật (hoặc loại bắt buộc) → thêm vào `notifications`;
+- kênh email bật (hoặc loại bắt buộc) **và** gửi email thông báo đang bật (`NOTIFICATION_EMAIL_DELIVERY_ENABLED=true`)
+  → thêm vào `notification_email_outbox` (migration `V66_9__create_notification_email_outbox.sql`, unique người nhận +
+  khóa chống trùng, cùng quy tắc lease/thử lại 6 lần như các outbox khác). **Khi công tắc này tắt (mặc định) không giữ
+  bản email nào**, nên bật lại sau này không gửi dồn thông báo cũ.
+- Dòng outbox **chỉ lưu id** (sự kiện, người nhận, loại, khóa chống trùng), không lưu tiêu đề/nội dung (có tên ứng viên).
+  `NotificationEmailWorker` (chu kỳ `app.notifications.email-poll-delay-ms`, mặc định 60 s) dựng lại thư ngay trước khi
+  gửi, trong một transaction đọc: tài khoản còn hoạt động (không thì hủy `RECIPIENT_UNAVAILABLE`, gửi tới **địa chỉ hiện
+  tại**), đọc lại tùy chọn kênh email (đã tắt thì hủy `PREFERENCE_OFF`), rồi lập lại thông báo từ sự kiện bằng đúng quy tắc
+  của task 544 (trạng thái đã đổi hoặc người nhận đã mất quyền thì hủy `OBSOLETE`). Bản email chờ lâu hơn
+  `app.notifications.email-max-age` (`NOTIFICATION_EMAIL_MAX_AGE`, mặc định `24h`) thì hủy `EXPIRED`, không gửi muộn.
+  Thư gồm tiêu đề "[Thông báo] …", nội dung thông báo và lời nhắc đăng nhập, không có liên kết hay bí mật.
+- `APPROVAL_PENDING` luôn đi cả hai kênh dù tùy chọn lưu gì.
+- Kiểm thử: `src/test/resources/application-default.properties` đặt `app.notifications.email-poll-delay-ms=3600000`;
+  test gọi `NotificationEmailWorker.processNext()`.
+
+Ghi chú cho frontend: không có màn hình mới; người dùng tắt kênh nào thì không nhận ở kênh đó từ sự kiện kế tiếp (bản
+email đang chờ cũng bị hủy khi đến lượt gửi).
+
+Câu hỏi BA/PO: thời hạn 24 giờ của bản email thông báo có phù hợp không (cấu hình được).
