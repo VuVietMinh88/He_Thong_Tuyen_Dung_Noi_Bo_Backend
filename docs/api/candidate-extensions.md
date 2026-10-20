@@ -85,3 +85,30 @@ Ghi chú cho frontend:
 - Hiển thị `stageName` thay vì tự dịch `stage`. `rating` có thể `null` (chưa đánh giá).
 - Muốn xem hồ sơ rút lui phải chọn rõ giai đoạn `WITHDRAWN`.
 - Câu hỏi BA/PO: nhiều nhãn mặc định là "có ít nhất một" (`ANY`); nếu nghiệp vụ muốn "có đủ" làm mặc định, chỉ cần đổi giá trị gửi lên.
+
+## 393 — Tìm từ khóa trong thư giới thiệu
+
+Cùng endpoint `GET /api/v1/candidate-search`, thêm tham số:
+
+| Tham số | Kiểu | Ý nghĩa |
+|---|---|---|
+| `coverLetterKeyword` | 2..100 ký tự | Tìm trong thư giới thiệu của chính lần ứng tuyển đó, không phân biệt hoa thường và dấu tiếng Việt, khoảng trắng liền nhau tính là một. `%`, `_`, `!` là ký tự thường. Hồ sơ không có thư giới thiệu không bao giờ khớp. |
+
+`coverLetterKeyword` được **kết hợp (AND)** với `keyword` (họ tên/email/điện thoại) và mọi bộ lọc khác trên cùng một hồ
+sơ. Ví dụ `keyword=binh&coverLetterKeyword=java&stage=SCREENING` chỉ trả hồ sơ của "Bình" đang ở Sàng lọc có chữ "Java"
+trong thư. Phạm vi vẫn là `CandidateAccess.READABLE`: thư của hồ sơ ngoài phạm vi không bao giờ được tìm.
+
+Khi có `coverLetterKeyword`, mỗi item có `"COVER_LETTER"` trong `matchedIn`. Response **không** trả nội dung thư; muốn
+đọc thư, mở hồ sơ hợp nhất (`GET /api/v1/candidates/{id}/unified-profile`).
+
+Lỗi thêm: 400 `VALIDATION_ERROR` với `fieldErrors.coverLetterKeyword` khi từ khóa ngắn hơn 2, dài hơn 100 ký tự hoặc chứa
+ký tự điều khiển/ẩn.
+
+Hiệu năng: mỗi hồ sơ trong phạm vi chỉ được chuẩn hóa (NFC, bỏ dấu, chữ thường) một lần cho mỗi lệnh tìm; tổng số và
+trang lấy trong cùng một câu truy vấn, chi tiết chỉ đọc cho các dòng của trang. Quá thời gian → 503
+`CANDIDATE_SEARCH_BUSY` (xem 392).
+
+Ghi chú cho frontend:
+
+- Có thể đặt một ô "Từ khóa trong thư giới thiệu" riêng cạnh ô tìm tên/email/điện thoại; hai ô cùng lọc.
+- Đánh dấu dòng có `COVER_LETTER` bằng biểu tượng "khớp thư giới thiệu"; không tự trích nội dung thư từ API khác vào bảng.
