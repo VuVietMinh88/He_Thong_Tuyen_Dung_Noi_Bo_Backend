@@ -484,5 +484,46 @@ thập phân, chuỗi, trường lạ), 404 `SLA_STAGE_NOT_FOUND` (giai đoạn 
 Ghi chú cho frontend: màn hình cấu hình bốn dòng giai đoạn với ô số ngày; gửi `version` hiện có; ô để trống thì gửi
 `"maxDays": null` (luôn gửi trường này).
 
-Câu hỏi BA/PO: tính theo ngày lịch (hiện tại) hay ngày làm việc; có áp SLA khi yêu cầu tuyển dụng đang tạm dừng không
-(hiện vẫn áp).
+Câu hỏi BA/PO: tính theo ngày lịch (hiện tại, hết ngày theo `app.business-zone`) hay ngày làm việc; có áp SLA khi yêu
+cầu tuyển dụng đang tạm dừng không (từ task 419: không áp — yêu cầu tạm dừng không gắn cờ, không nhắc; khi tiếp tục
+tuyển, thời gian tạm dừng hiện vẫn được tính vào số ngày ở giai đoạn: có cần trừ ra không).
+
+## Tác vụ hằng ngày phát hiện hồ sơ vượt SLA (task 419)
+
+| Method | Endpoint | Quyền |
+|---|---|---|
+| GET | `/api/v1/sla/overdue?page=0&size=20` | `CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED`; chỉ hồ sơ mình được xem |
+
+Migration `V66_11__create_application_sla_flags.sql` thêm `application_sla_flags` (một cờ cho mỗi hồ sơ: giai đoạn lúc
+phát hiện, `entered_at`, `due_at`, `max_days`, `flagged_at`, `checked_at`; `ON DELETE CASCADE` từ hồ sơ).
+
+`SlaMonitor.runDaily` chạy mỗi ngày một lần theo `app.sla.cron` (mặc định `0 0 7 * * *`, múi giờ `app.business-zone`;
+`-` để tắt):
+
+- Thời gian ở giai đoạn hiện tại tính từ dòng lịch sử giai đoạn (`application_stage_events`) gần nhất đưa hồ sơ **vào**
+  giai đoạn đó; hồ sơ còn `NEW` chưa có dòng nào thì tính từ lúc nhận hồ sơ (`received_at`).
+- Ngưỡng tính theo **ngày lịch** của `app.business-zone`: hồ sơ vào giai đoạn trong ngày D được ở đó hết ngày
+  D + `max_days` (dù vào lúc mấy giờ), quá hạn từ 00:00 ngày D + `max_days` + 1 (`due_at`). Ví dụ `NEW` = 3, nhận hồ
+  sơ 06:00 ngày 15/10 → còn hạn cả ngày 18/10 (lần chạy 07:00 ngày 18/10 không gắn cờ), quá hạn từ 00:00 ngày 19/10.
+- Chỉ xét bốn giai đoạn đang xử lý có ngưỡng, và chỉ hồ sơ của yêu cầu tuyển dụng **đang tuyển** (`APPROVED`): yêu cầu
+  đã tuyển đủ (`FILLED`), đã hủy (`CANCELLED`) hoặc đang tạm dừng (`PAUSED`) không gắn cờ, cờ cũ bị xóa ở lần chạy kế
+  tiếp; tiếp tục tuyển (`PAUSED` → `APPROVED`) thì được xét lại từ lần chạy sau.
+- Mỗi lần chạy: xóa cờ cũ không còn đúng (hồ sơ đã chuyển giai đoạn, đã kết thúc/rút, yêu cầu tuyển dụng ngừng tuyển,
+  ngưỡng bị bỏ hoặc nới) rồi thêm
+  hoặc cập nhật cờ của hồ sơ đang quá hạn, trong một transaction có advisory lock nên chỉ một instance chạy tại một
+  thời điểm; chạy lại không tạo cờ trùng (khóa chính `application_id`).
+
+GET trả các hồ sơ đang có cờ, quá hạn lâu nhất trước:
+
+```json
+{"items":[{"applicationId":"...","candidateName":"Nguyễn Văn A","positionTitle":"Java","requisitionId":"...",
+  "stage":"NEW","stageName":"Hồ sơ mới","enteredAt":"...","dueAt":"...","maxDays":3,"daysInStage":4,"flaggedAt":"..."}],
+ "page":0,"size":20,"totalItems":1,"totalPages":1}
+```
+
+Mỗi hồ sơ hiển thị được ghi nhật ký truy cập (`GRANTED`). Cờ chỉ hiện khi hồ sơ vẫn ở đúng giai đoạn đã gắn cờ và yêu
+cầu tuyển dụng vẫn đang tuyển. `daysInStage` là số ngày lịch (theo `app.business-zone`) từ ngày vào giai đoạn tới hôm
+nay, nên luôn lớn hơn `maxDays` khi hồ sơ có cờ.
+
+Ghi chú cho frontend: hiển thị biểu tượng "quá hạn" trên bảng Kanban/danh sách bằng cách gọi API này (hoặc lọc theo
+`applicationId`); cờ cập nhật mỗi ngày một lần, không theo thời gian thực.

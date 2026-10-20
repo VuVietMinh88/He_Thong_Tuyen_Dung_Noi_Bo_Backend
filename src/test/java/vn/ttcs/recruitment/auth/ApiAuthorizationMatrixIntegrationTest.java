@@ -429,7 +429,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/notifications/preferences", allOf(SELF_PROFILE_READ, SELF_PROFILE_WRITE), INVALID_BODY, 400),
             // Story S5-10 (tasks 418-420): "{stage}" becomes NEW; the empty body stops a permitted save at 400.
             endpoint("GET", "/api/v1/sla/thresholds", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
-            endpoint("PUT", "/api/v1/sla/thresholds/{stage}", permission(CANDIDATES_WRITE_ALL), INVALID_BODY, 400));
+            endpoint("PUT", "/api/v1/sla/thresholds/{stage}", permission(CANDIDATES_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/sla/overdue", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",

@@ -208,5 +208,6 @@ thư cảm ơn), V66_4 thêm `retry_count`, `last_retried_by`, `last_retried_at`
 hàng loạt theo `requestId`). Story S8-03: V66_6 `notifications` (thông báo trong ứng dụng theo người nhận, trạng thái
 đọc riêng), V66_7 `notification_events` (sự kiện nghiệp vụ đã commit, worker tạo thông báo bất đồng bộ). Story S8-04: V66_8 `notification_preferences` (tùy chọn theo người dùng × loại ×
 kênh; `APPROVAL_PENDING` không thể tắt), V66_9 `notification_email_outbox` (bản email của thông báo theo tùy chọn kênh; chỉ lưu id, dựng lại lúc gửi). Story S5-10:
-V66_10 `stage_sla_thresholds` (số ngày tối đa 1–365 hoặc trống cho bốn giai đoạn đang xử lý). Chi tiết ở
+V66_10 `stage_sla_thresholds` (số ngày tối đa 1–365 hoặc trống cho bốn giai đoạn đang xử lý), V66_11
+`application_sla_flags` (cờ quá hạn do tác vụ hằng ngày đặt và xóa). Chi tiết ở
 [email, thông báo và SLA](../api/messaging.md).

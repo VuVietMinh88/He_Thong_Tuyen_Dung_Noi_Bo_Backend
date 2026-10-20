@@ -639,7 +639,7 @@ public class SecurityConfiguration {
                                         AuthorityAuthorizationManager.hasAuthority("PERM_SELF_PROFILE_WRITE")))
                         // Story S5-10 (tasks 418-420): stage SLA. Candidate readers see thresholds and flags (the
                         // flags only within their candidate scope); only CANDIDATES_WRITE_ALL changes a threshold.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/sla/thresholds")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/sla/thresholds", "/api/v1/sla/overdue")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/sla/thresholds/*")
                                 .hasAuthority("PERM_CANDIDATES_WRITE_ALL")
