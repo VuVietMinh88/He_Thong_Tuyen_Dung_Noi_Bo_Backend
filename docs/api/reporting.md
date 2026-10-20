@@ -326,3 +326,62 @@ sách hữu ích là `awaitingDecision`; nếu một tài khoản vừa là Trư
 Ghi chú cho frontend: dùng `stageCounts[].label` làm nhãn cột; hiển thị `daysRemaining < 0` thành "Trễ N ngày";
 `viewerOnPanel = true` có thể tô nổi buổi người xem tham gia; bấm một dòng chờ quyết định thì mở
 `GET /api/v1/applications/{applicationId}/evaluation-summary`.
+
+## TKNHTTDNB1-563 — API tiến độ các vị trí của Trưởng bộ phận
+
+`GET /api/v1/reports/requisition-progress?departmentId=&positionId=&page=0&size=20`
+
+Danh sách các yêu cầu tuyển dụng **đang mở** (`APPROVED`, `PAUSED`) trong phạm vi người xem, gấp nhất trước: `neededBy`
+tăng dần, yêu cầu không có ngày cần người ở cuối, rồi theo id. Mỗi dòng là bản tóm tắt của task 562, chỉ có số đếm, không
+có tên ứng viên (nên không ghi log truy cập hồ sơ). Bấm vào một dòng thì mở chi tiết
+`GET /api/v1/reports/requisitions/{id}/progress`.
+
+Phạm vi quản lý (kiểm tra ở mỗi request, không dựa vào vai trò trong token):
+
+- Trưởng bộ phận (HIRING_MANAGER): yêu cầu của phòng ban có `manager_user_id` là mình và mọi phòng ban con; đổi trưởng
+  phòng thì request kế tiếp không còn thấy.
+- Recruiter: yêu cầu mình đang là recruiter chính/hỗ trợ; gỡ phân công thì mất ngay.
+- HR_MANAGER/ADMIN: mọi yêu cầu.
+
+Tham số: `departmentId`, `positionId` (kiểm tra 404/403 như task 557); `page` 0–10000; `size` 1–50 (mặc định 20).
+
+Response 200:
+
+```json
+{
+  "generatedAt": "2026-10-15T03:00:00Z",
+  "businessDate": "2026-10-15",
+  "scope": "SCOPED",
+  "filters": {"departmentId": null, "positionId": null},
+  "lists": {
+    "upcomingInterviews": {"available": true, "unavailableReason": null},
+    "pendingEvaluations": {"available": false, "unavailableReason": "MISSING_EVALUATIONS_WRITE"},
+    "awaitingDecision": {"available": true, "unavailableReason": null}
+  },
+  "items": [
+    {
+      "requisition": {"requisitionId": "…", "positionName": "Developer", "departmentName": "IT", "status": "PAUSED",
+                      "headcount": 2, "hiredCount": 1, "remainingHeadcount": 1, "neededBy": "2026-10-10",
+                      "daysRemaining": -5, "positionId": "…", "departmentId": "…"},
+      "stageCounts": [{"stage": "NEW", "label": "Hồ sơ mới", "count": 0}, "… đủ 8 giai đoạn …"],
+      "totalApplications": 3,
+      "activeApplications": 1,
+      "upcomingInterviews": 1,
+      "pendingEvaluations": null,
+      "awaitingDecision": 0
+    }
+  ],
+  "page": 0, "size": 20, "totalElements": 3, "totalPages": 1
+}
+```
+
+Số đếm từng dòng dùng đúng định nghĩa và cổng quyền của task 562. Số đếm người xem không được xem là `null` (không phải
+0), và `lists` cho biết lý do một lần cho cả trang. Các số đếm của một trang được tính bằng 4 câu SQL gom nhóm cho tối đa
+50 yêu cầu, không truy vấn lặp từng dòng.
+
+Lỗi: 400 `VALIDATION_ERROR` (trang/kích thước/UUID sai), 401, 403 (thiếu quyền hoặc bộ lọc ngoài phạm vi), 404
+`DEPARTMENT_NOT_FOUND`/`POSITION_NOT_FOUND`.
+
+Ghi chú cho frontend: đây là màn hình "Vị trí của tôi" của Trưởng bộ phận. Hiển thị `daysRemaining` âm bằng màu cảnh báo;
+cột "Chờ tôi quyết định" dùng `awaitingDecision`, cột "Phiếu của tôi" dùng `pendingEvaluations`; giá trị `null` hiển thị
+"—" kèm tooltip theo `lists.*.unavailableReason`.

@@ -29,17 +29,19 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Task 562 (story S8-06): requisition progress for the people who own a requisition (the head of its department,
+ * Tasks 562-563 (story S8-06): requisition progress for the people who own a requisition (the head of its department,
  * HR) or work on it (its recruiters), inside the report scope (ReportingAccess). Each list is gated by its own grant:
  * the upcoming interviews by an INTERVIEWS read grant, the viewer's own pending evaluation forms by an EVALUATIONS
  * write grant (only a panel member who may write a form has one to write), and the applications waiting for a hiring
  * decision by the right to decide (ReportViewer.decidesHiring, and for a HIRING_MANAGER the management of the
  * department). The detail names candidates, so every disclosed application is logged (CandidateAccess.recordGranted,
- * PROFILE) in the same transaction; counts disclose nobody.
+ * PROFILE) in the same transaction; the list shows counts only and discloses nobody.
  */
 @Service
 public class ProgressReportService {
     static final int LIST_LIMIT = 20;
+    static final int DEFAULT_PAGE_SIZE = 20;
+    static final int MAX_PAGE_SIZE = 50;
 
     private final ReportingAccess access;
     private final ProgressReportRepository repository;
@@ -61,6 +63,16 @@ public class ProgressReportService {
         return access.auditedRead(jwt, viewer -> {
             access.requireFilters(viewer, new ReportFilters(requisitionId, null, null));
             return progress(viewer, requisitionId);
+        });
+    }
+
+    /** Task 563: the viewer's open requisitions, most urgent first, with counts only. */
+    public RequisitionProgressPageView list(Jwt jwt, UUID departmentId, UUID positionId, Integer page, Integer size) {
+        ReportPaging paging = ReportPaging.of(page, size, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+        ReportFilters filters = new ReportFilters(null, departmentId, positionId);
+        return access.read(jwt, viewer -> {
+            access.requireFilters(viewer, filters);
+            return list(viewer, filters, paging);
         });
     }
 
@@ -90,6 +102,37 @@ public class ProgressReportService {
                 candidates.recordGranted(reader, CandidateAccessKind.PROFILE, candidate, List.copyOf(applications)));
         return new RequisitionProgressView(now, today, viewer.scopeName(), summary.requisition(), summary.stages(),
                 summary.total(), summary.active(), upcoming, pending, awaiting);
+    }
+
+    private RequisitionProgressPageView list(ReportViewer viewer, ReportFilters filters, ReportPaging paging) {
+        Instant now = now();
+        LocalDate today = calendar.dateOf(now);
+        ReportQuery query = ReportQuery.of(viewer, filters).with("now", Timestamp.from(now));
+        long total = repository.openCount(query);
+        List<Header> headers = repository.openPage(query, paging);
+        List<RequisitionProgressPageView.Item> items = new ArrayList<>();
+        Availability interviews = interviewsGate(viewer), evaluations = evaluationsGate(viewer),
+                decisions = decisionGate(viewer);
+        if (!headers.isEmpty()) {
+            ReportQuery counts = ReportQuery.of(viewer, ReportFilters.NONE).with("now", Timestamp.from(now))
+                    .with("requisitionIds", headers.stream().map(Header::requisitionId).toList());
+            Map<UUID, Map<String, Long>> stages = repository.stageCounts(counts);
+            Map<UUID, Long> upcoming = interviews.available() ? repository.upcomingCounts(counts) : null;
+            Map<UUID, Long> pending = evaluations.available() ? repository.pendingCounts(counts) : null;
+            Map<UUID, Long> awaiting = decisions.available()
+                    ? repository.awaitingCounts(counts, decisionScope(viewer)) : null;
+            for (Header header : headers) {
+                UUID id = header.requisitionId();
+                Summary summary = summary(header, stages.getOrDefault(id, Map.of()), today);
+                items.add(new RequisitionProgressPageView.Item(summary.requisition(), summary.stages(), summary.total(),
+                        summary.active(), upcoming == null ? null : count(upcoming, id),
+                        pending == null ? null : count(pending, id), awaiting == null ? null : count(awaiting, id)));
+            }
+        }
+        return new RequisitionProgressPageView(now, today, viewer.scopeName(),
+                new RequisitionProgressPageView.Filters(filters.departmentId(), filters.positionId()),
+                new RequisitionProgressPageView.Lists(interviews, evaluations, decisions), List.copyOf(items),
+                paging.page(), paging.size(), total, paging.totalPages(total));
     }
 
     private record Summary(RequisitionProgressView.Requisition requisition, List<StageCount> stages, long total,

@@ -26,6 +26,7 @@ import java.util.UUID;
 @Repository
 class ProgressReportRepository {
     static final List<String> PIPELINE_STAGES = List.of("NEW", "SCREENING", "INTERVIEW", "OFFER");
+    static final List<String> OPEN_STATUSES = List.of("APPROVED", "PAUSED");
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -50,6 +51,21 @@ class ProgressReportRepository {
     Header header(ReportQuery query) {
         return jdbc.query(HEADER + "WHERE r.id IN (:requisitionIds) AND " + query.rows(), query.parameters(),
                 (row, number) -> header(row)).getFirst();
+    }
+
+    // Task 563: the open requisitions (approved or paused) in the scope and the filters, the most urgent first: the
+    // earliest needed-by date, requisitions without one last, then by id so pages never overlap.
+    long openCount(ReportQuery query) {
+        query.with("openStatuses", OPEN_STATUSES);
+        return count("SELECT count(*) FROM recruitment_requisitions r WHERE r.status IN (:openStatuses) AND "
+                + query.rows(), query);
+    }
+
+    List<Header> openPage(ReportQuery query, ReportPaging paging) {
+        query.with("openStatuses", OPEN_STATUSES).with("limit", paging.size()).with("offset", paging.offset());
+        return jdbc.query(HEADER + "WHERE r.status IN (:openStatuses) AND " + query.rows()
+                        + " ORDER BY r.needed_by NULLS LAST, r.id LIMIT :limit OFFSET :offset", query.parameters(),
+                (row, number) -> header(row));
     }
 
     /** Per requisition, the number of applications in each current stage (stages without one are absent). */
