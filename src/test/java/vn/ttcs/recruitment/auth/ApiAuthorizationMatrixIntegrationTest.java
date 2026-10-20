@@ -379,6 +379,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/applications/{id}/fit", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             endpoint("PUT", "/api/v1/applications/{id}/qualifications", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/requisitions/{id}/fit-ranking", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Story S5-06 (tasks 398-400): the talent pool; the empty body stops an add at 400 before any lock.
+            endpoint("POST", "/api/v1/talent-pool", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/talent-pool/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),

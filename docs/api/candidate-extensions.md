@@ -649,3 +649,90 @@ Ghi chú cho frontend:
 - Màn hình "Gợi ý xếp hạng" trong requisition: bảng hạng, tên, giai đoạn, điểm, cờ Đạt/Không đạt, nút xem chi tiết tiêu chí
   (`fit.criteria`). Luôn hiển thị `advice`.
 - Không có hành động hàng loạt "loại các hồ sơ không đạt" trên màn hình này; chuyển giai đoạn vẫn dùng API giai đoạn như cũ.
+
+## 398 — Lưu hồ sơ ứng viên tiềm năng và lý do
+
+Migration: `V65_5__create_talent_pool.sql` (bảng `talent_pool_entries`: ứng viên, hồ sơ nguồn, bằng chứng, lý do, người và
+thời điểm thêm/gỡ; bảng `talent_pool_interests`: chức danh quan tâm và kỹ năng, có khóa so khớp không phân biệt hoa
+thường/dấu). Mục không bao giờ bị xóa: gỡ khỏi kho chỉ ghi người và thời điểm gỡ; mỗi ứng viên có tối đa **một** mục
+đang hoạt động.
+
+### Thêm vào kho
+
+`POST /api/v1/talent-pool`
+
+Quyền: `CANDIDATES_WRITE_ALL`, hoặc `CANDIDATES_WRITE_SCOPED` khi đang là recruiter phụ trách requisition của hồ sơ nguồn
+(kiểm lại sau khi khóa tài khoản, phiên, requisition và hồ sơ). Trưởng phòng chỉ đọc nên không thêm được.
+
+```json
+{
+  "applicationId": "4b8f…",
+  "reason": "Phỏng vấn tốt, thiếu kinh nghiệm quản lý",
+  "titleInterests": ["Lập trình viên Java"],
+  "skills": ["Java", "Spring"]
+}
+```
+
+- `reason`: bắt buộc, 1..1000 ký tự văn bản thuần (cho phép xuống dòng).
+- `titleInterests`: 1..10 chức danh, mỗi chức danh ≤ 100 ký tự; trùng (không phân biệt hoa thường/dấu) chỉ giữ một.
+- `skills`: 0..30 kỹ năng, mỗi kỹ năng ≤ 60 ký tự.
+- Ứng viên là hồ sơ hợp nhất của `applicationId`; người thêm là JWT. Không gửi `candidateId`/`addedBy` (trường lạ bị từ chối).
+
+**Điều kiện "bị loại ở vòng cuối, có bằng chứng":** hồ sơ đang ở `REJECTED` và lần chuyển sang `REJECTED` gần nhất là:
+
+| `evidence` | Bằng chứng |
+|---|---|
+| `HIRING_DECISION` | Quyết định tuyển dụng `REJECT` sau phỏng vấn (bảng `hiring_decisions`) |
+| `OFFER_DECLINED` | Ứng viên từ chối offer (sự kiện giai đoạn gắn offer) |
+| `FINAL_STAGE_REJECTION` | Bị loại thẳng từ `INTERVIEW` hoặc `OFFER` trong lịch sử giai đoạn |
+
+Bị loại từ `NEW`/`SCREENING`, hoặc hồ sơ chưa/không còn ở `REJECTED` → 409 `TALENT_POOL_NOT_ELIGIBLE`. Thêm vào kho
+**không** đổi gì ở hồ sơ hay giai đoạn.
+
+Response 201 (một mục):
+
+```json
+{
+  "entryId": "e1f2…",
+  "candidateId": "0c1d…",
+  "sourceApplicationId": "4b8f…",
+  "sourceRequisitionId": "77aa…",
+  "sourcePostingTitle": "Java Developer",
+  "fullName": "Nguyễn Văn A",
+  "email": "lan@example.test",
+  "phone": "0912345678",
+  "evidence": "FINAL_STAGE_REJECTION",
+  "evidenceName": "Bị loại ở vòng phỏng vấn hoặc offer",
+  "reason": "Phỏng vấn tốt, thiếu kinh nghiệm quản lý",
+  "titleInterests": ["Lập trình viên Java"],
+  "skills": ["Java", "Spring"],
+  "addedAt": "2026-10-15T03:00:00Z",
+  "addedBy": { "id": "5b7c…", "fullName": "Recruiter A" },
+  "removedAt": null,
+  "removedBy": null,
+  "candidateStatus": "AVAILABLE",
+  "candidateStatusName": "Có thể liên hệ"
+}
+```
+
+`candidateStatus` cho biết ứng viên hiện ở đâu, tính từ **mọi** hồ sơ của ứng viên: `HIRED` (có hồ sơ đã nhận việc/hoàn tất
+hội nhập), `IN_PIPELINE` (có hồ sơ đang xử lý ở bất kỳ requisition nào), `AVAILABLE` (còn lại). Đây chỉ là một cờ tổng quát,
+không lộ hồ sơ khác; danh sách kho vẫn hiện mọi mục (có cờ), còn gợi ý cho vị trí mới (400) chỉ đưa ứng viên `AVAILABLE`.
+Câu hỏi BA/PO: cờ này dùng cả hồ sơ ngoài phạm vi của người xem (để tránh liên hệ người đã nhận việc nơi khác); nếu cần
+giới hạn theo phạm vi, đổi cách tính.
+
+### Xem một mục
+
+`GET /api/v1/talent-pool/{entryId}` — quyền đọc ứng viên; mục chỉ hiện với người **đọc được hồ sơ nguồn**
+(`CandidateAccess.READABLE`). 404 `TALENT_POOL_ENTRY_NOT_FOUND`; ngoài phạm vi 403 (ghi nhật ký từ chối).
+
+Lỗi của POST: 400 `VALIDATION_ERROR`, 400 `INVALID_JSON`, 401, 403, 404 `APPLICATION_NOT_FOUND`,
+409 `TALENT_POOL_NOT_ELIGIBLE`, 409 `TALENT_POOL_ALREADY_ADDED`, 503 `TALENT_POOL_BUSY`.
+
+Ghi chú cho frontend:
+
+- Nút "Đưa vào kho tiềm năng" chỉ hiện ở hồ sơ đang `REJECTED`; server vẫn kiểm bằng chứng và trả 409 nếu bị loại sớm.
+- Form: lý do (textarea), chức danh quan tâm (tag, bắt buộc ≥ 1), kỹ năng (tag; có thể gợi ý sẵn từ kỹ năng đã ghi nhận ở
+  tab "Đánh giá phù hợp").
+- Câu hỏi BA/PO: recruiter có được xem ứng viên trong kho thuộc requisition mình không phụ trách không (hiện **không**:
+  mục theo phạm vi của hồ sơ nguồn; HR/Admin xem tất cả).
