@@ -148,3 +148,47 @@ phép; 401/403 như phần chung.
 
 Ghi chú cho frontend: vẽ cột theo `points` theo đúng thứ tự trả về; nhãn tuần nên hiển thị `weekStart`–`weekEnd`; nhãn
 tháng dùng `month`. Khi người dùng đổi khoảng ngày, gửi lại cả `from` và `to`.
+
+## TKNHTTDNB1-557 — API dashboard tổng hợp theo phạm vi truy cập
+
+`GET /api/v1/reports/dashboard?from=&to=&departmentId=&positionId=&page=&size=`
+
+Một lần gọi trả đủ thẻ chỉ số, danh sách trễ hạn (task 555) và cả hai biểu đồ (task 556), cùng một snapshot. Response
+của task 555 có thêm:
+
+- `filters`: `{"departmentId": "…" | null, "positionId": "…" | null}`.
+- `charts`: đúng cấu trúc của `GET /api/v1/reports/dashboard/charts` (gồm `scope`, `filters`,
+  `weeklyApplications`, `monthlyClosedRequisitions`).
+
+Tham số:
+
+| Tham số | Ý nghĩa |
+| --- | --- |
+| `from`, `to` | khoảng ngày của biểu đồ (quy tắc như task 556). Thẻ chỉ số luôn mô tả hôm nay |
+| `departmentId` | chỉ phòng ban đó (không gồm phòng ban con, giống bộ lọc danh sách yêu cầu tuyển dụng) |
+| `positionId` | chỉ các yêu cầu của chức danh đó, ở mọi phòng ban trong phạm vi |
+| `page`, `size` | phân trang danh sách trễ hạn |
+
+`GET /api/v1/reports/dashboard/charts` nhận thêm `departmentId`, `positionId` với cùng ý nghĩa.
+
+Bộ lọc chỉ thu hẹp phạm vi, không bao giờ mở rộng. Thứ tự kiểm tra:
+
+1. 401 nếu chưa đăng nhập; 403 nếu thiếu quyền đọc báo cáo (trước mọi tra cứu).
+2. 404 `DEPARTMENT_NOT_FOUND` ("Không tìm thấy phòng ban.") hoặc `POSITION_NOT_FOUND` ("Không tìm thấy chức danh.")
+   nếu id không tồn tại.
+3. 403 `FORBIDDEN` nếu người xem SCOPED lọc theo phòng ban mình không quản lý và không có yêu cầu nào được phân công ở
+   đó, hoặc theo chức danh không có yêu cầu nào trong phạm vi. HR (ALL) lọc được mọi phòng ban/chức danh tồn tại, kể
+   cả khi rỗng.
+4. 400 `VALIDATION_ERROR` cho UUID sai định dạng, khoảng ngày sai, trang sai.
+
+Bảo đảm phạm vi (đã có test tích hợp):
+
+- Mọi phần (thẻ, phỏng vấn, offer, trễ hạn, biểu đồ tuần, biểu đồ tháng) dùng cùng điều kiện phạm vi và bộ lọc.
+- Gỡ phân công recruiter hoặc đổi trưởng phòng: request kế tiếp không còn thấy số liệu đó.
+- Thu hồi quyền `REPORTS_READ_SCOPED`: request kế tiếp với cùng token bị 403.
+- HR có `REPORTS_READ_ALL` nhưng bị hạ `CANDIDATES` xuống SCOPED: báo cáo chuyển sang `SCOPED`.
+- Response không chứa tên, email, số điện thoại hay id hồ sơ ứng viên.
+
+Ghi chú cho frontend: trang dashboard chỉ cần gọi một API này. Bộ chọn phòng ban/chức danh nên lấy từ
+`GET /api/v1/departments` và `GET /api/v1/positions`; với người xem SCOPED, xử lý 403 bằng thông báo "Bạn không phụ
+trách phòng ban/chức danh này" và giữ bộ lọc cũ.
