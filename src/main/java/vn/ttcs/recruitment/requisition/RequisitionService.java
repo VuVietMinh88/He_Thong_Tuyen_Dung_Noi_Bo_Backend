@@ -8,6 +8,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
@@ -75,6 +78,7 @@ public class RequisitionService {
     private final Validator validator;
     private final BusinessCalendar calendar;
     private final Clock clock;
+    private final NotificationEvents notificationEvents;
 
     public RequisitionService(RecruitmentRequisitionRepository requisitions, RequisitionListRepository listing,
                               PositionRepository positions, DepartmentRepository departments,
@@ -84,7 +88,8 @@ public class RequisitionService {
                               ApprovalChainSelector approvalChains, RequisitionApprovalRepository approvals,
                               ApprovalParticipants participants, ApproverDirectory approverDirectory,
                               RecruiterAssignmentAccess assignments, Validator validator, BusinessCalendar calendar,
-                              Clock clock) {
+                              Clock clock, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.requisitions = requisitions;
         this.listing = listing;
         this.positions = positions;
@@ -335,6 +340,8 @@ public class RequisitionService {
         approvals.appendSubmitted(id, approvals.nextRound(id), before, chain, salaryBasis, caller.id(), now(), comment);
         requisition.moveTo(before, RequisitionStatus.PENDING_APPROVAL);
         requisitions.flush();
+        // Task 544: the approvers of the first level hear about it after this commits.
+        notificationEvents.publish(NotificationType.APPROVAL_PENDING, NotificationLink.Type.REQUISITION, id);
         return RequisitionView.from(requisition);
     }
 

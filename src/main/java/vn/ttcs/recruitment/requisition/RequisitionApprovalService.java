@@ -6,6 +6,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthService;
@@ -48,13 +51,15 @@ public class RequisitionApprovalService {
     private final PermissionService permissions;
     private final AuthService auth;
     private final Clock clock;
+    private final NotificationEvents notificationEvents;
 
     public RequisitionApprovalService(RequisitionService requisitionService,
                                       RecruitmentRequisitionRepository requisitions,
                                       RequisitionApprovalRepository approvals, ApprovalParticipants participants,
                                       ApproverDirectory directory, DepartmentRepository departments,
                                       AccountRepository accounts, AuthSessionRepository sessions,
-                                      PermissionService permissions, AuthService auth, Clock clock) {
+                                      PermissionService permissions, AuthService auth, Clock clock, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.requisitionService = requisitionService;
         this.requisitions = requisitions;
         this.approvals = approvals;
@@ -241,6 +246,10 @@ public class RequisitionApprovalService {
         approvals.appendDecision(id, round.round(), outcome, writer.actorId(), now(), request.comment());
         requisition.moveTo(outcome.before(), outcome.after());
         requisitions.flush();
+        // Task 544: an approval that leaves the requisition waiting moves it to the next level's approvers.
+        if (requisition.getStatus() == RequisitionStatus.PENDING_APPROVAL) {
+            notificationEvents.publish(NotificationType.APPROVAL_PENDING, NotificationLink.Type.REQUISITION, id);
+        }
         return RequisitionView.from(requisition);
     }
 

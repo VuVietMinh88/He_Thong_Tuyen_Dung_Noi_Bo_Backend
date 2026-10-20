@@ -6,6 +6,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.auth.AuthSession;
@@ -57,12 +60,14 @@ public class RequisitionRecruiterService {
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
     private final Clock clock;
+    private final NotificationEvents notificationEvents;
 
     public RequisitionRecruiterService(RequisitionService requisitionService,
                                        RecruitmentRequisitionRepository requisitions,
                                        RequisitionRecruiterRepository recruiters,
                                        RequisitionRecruiterChangeRepository changes, AccountRepository accounts,
-                                       AuthSessionRepository sessions, PermissionService permissions, Clock clock) {
+                                       AuthSessionRepository sessions, PermissionService permissions, Clock clock, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.requisitionService = requisitionService;
         this.requisitions = requisitions;
         this.recruiters = recruiters;
@@ -143,8 +148,17 @@ public class RequisitionRecruiterService {
     // changes the team by the same rules and writes the same history.
     void apply(UUID id, RecruiterChange change, UUID actorId, String note) {
         Instant at = now();
+        // Task 544: only someone who joins the team is "assigned to a new position"; a role change is not news.
+        var before = recruiters.findByRequisition(id);
+        boolean joins = change.type() != RecruiterChangeType.SUPPORTING_REMOVED
+                && !before.holds(change.recruiterId(), RequisitionRecruiterRole.PRIMARY)
+                && !before.holds(change.recruiterId(), RequisitionRecruiterRole.SUPPORTING);
         recruiters.apply(id, change, actorId, at);
         changes.record(id, change, actorId, at, note);
+        if (joins) {
+            notificationEvents.publish(NotificationType.RECRUITER_ASSIGNED, NotificationLink.Type.REQUISITION, id,
+                    java.util.List.of(change.recruiterId()));
+        }
     }
 
     private RequisitionAssignmentView view(UUID id, boolean showEligibility) {

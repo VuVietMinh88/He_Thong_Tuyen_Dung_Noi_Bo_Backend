@@ -7,6 +7,9 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.catalog.RecruitmentCatalogItemRepository;
 import vn.ttcs.recruitment.catalog.RecruitmentCatalogType;
 import vn.ttcs.recruitment.common.ApiException;
@@ -96,12 +99,14 @@ public class JobPostingService {
     private final RecruitmentCatalogItemRepository catalogItems;
     private final Validator validator;
     private final BusinessCalendar calendar;
+    private final NotificationEvents notificationEvents;
 
     public JobPostingService(JobPostingAccess access, JobPostingRepository postings,
                              JobPostingSourceRepository sources, JobPostingReadRepository reads,
                              JobPostingAuthorRepository authors, JobPostingEventRepository events,
                              RecruitmentCatalogItemRepository catalogItems, Validator validator,
-                             BusinessCalendar calendar) {
+                             BusinessCalendar calendar, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.access = access;
         this.postings = postings;
         this.sources = sources;
@@ -229,6 +234,8 @@ public class JobPostingService {
         postings.flush();
         events.append(id, posting.getRevision(), JobPostingEventType.SUBMITTED, before,
                 JobPostingStatus.PENDING_APPROVAL, caller.id(), access.now(), request.comment());
+        // Task 544: the reviewers hear about it after this commits.
+        notificationEvents.publish(NotificationType.APPROVAL_PENDING, NotificationLink.Type.JOB_POSTING, id);
         return view(id, caller);
     }
 

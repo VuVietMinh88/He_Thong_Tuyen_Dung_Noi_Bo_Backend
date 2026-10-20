@@ -333,3 +333,34 @@ một dòng, trạng thái đọc riêng từng người.
 
 Chỉ mục hộp thư `(recipient_id, created_at DESC, id DESC)` và chỉ mục một phần cho số chưa đọc. `NotificationRepository`
 luôn lọc theo người nhận ở mọi câu đọc/ghi.
+
+## Phát sinh thông báo bất đồng bộ (task 544)
+
+Không thêm endpoint. Migration `V66_7__create_notification_events.sql` thêm `notification_events`: mỗi sự kiện nghiệp vụ
+đã commit là một dòng, ghi **trong cùng transaction** với thao tác gốc bằng một câu `INSERT` ngắn (`NotificationEvents`),
+nên thao tác không chậm đi và rollback thì không có thông báo. `NotificationWorker` (chu kỳ
+`app.notifications.poll-delay-ms`, mặc định 5 s) nhận từng sự kiện bằng lease (`FOR UPDATE SKIP LOCKED`), xác định
+người nhận và nội dung **từ dữ liệu hiện tại**, rồi ghi các thông báo và trạng thái `DONE` trong một transaction có rào
+lease; lỗi thì chờ và thử lại tối đa 6 lần (`RETRY_WAIT`, rồi `FAILED`).
+
+| Sự kiện (nơi phát) | Người nhận | Khóa chống trùng |
+|---|---|---|
+| Yêu cầu tuyển dụng được gửi duyệt hoặc được duyệt một cấp (`RequisitionService.submit`, `RequisitionApprovalService.decide`) | mọi người được quyết định cấp hiện tại (`ApproverDirectory.admitted`), tài khoản còn hoạt động | yêu cầu + vòng + cấp |
+| Tin tuyển dụng được gửi duyệt (`JobPostingService.submit`) | người có `JOB_POSTINGS_WRITE_ALL`, trừ tác giả và người gửi duyệt (quy tắc `JobPostingReviewRule`) | tin + revision |
+| Offer được gửi duyệt hoặc HR duyệt sang cấp cao (`OfferService.submit/decide`) | người duyệt được chỉ định của bước hiện tại, nếu tài khoản còn hoạt động, vẫn có vai trò của bước (`HR_MANAGER` khi `PENDING_HR`, `APPROVER` khi `PENDING_HIGHER`) và quyền đọc + ghi Offer — đúng điều kiện để quyết định bước đó | offer + vòng + trạng thái |
+| Recruiter được phân công mới vào yêu cầu (`RequisitionRecruiterService.apply`, gồm cả bàn giao) | recruiter đó, nếu vẫn còn được phân công; đổi vai trò của người đã trong nhóm không thông báo | sự kiện |
+| Người phỏng vấn được thêm vào buổi phỏng vấn (`InterviewInvitationLifecycle.scheduled/changed`, kể cả khi email lời mời đang tắt) | người phỏng vấn mới, nếu còn trong hội đồng và lịch còn hiệu lực | buổi phỏng vấn + người nhận |
+| Ứng viên chấp nhận/từ chối offer (`OfferDeliveryService.respond`) | người tạo offer và recruiter chính của yêu cầu, nếu còn hoạt động và **vẫn xem được offer** lúc tạo thông báo (quyền đọc Offer và đọc hồ sơ trong phạm vi, cùng kiểm tra `OfferAccess.scope` của màn hình offer) | offer |
+
+Khóa chống trùng nằm trong `notifications.dedupe_key`: xử lý lại một sự kiện (sau sự cố) hoặc hai sự kiện về cùng một
+trạng thái (ví dụ hai lần nhận sự kiện trước khi người duyệt kịp xử lý) không tạo thông báo thứ hai; phân công lại đúng
+người đang giữ vai trò không phát sự kiện. Sự kiện mà trạng thái đã đổi (yêu cầu đã được quyết định, người phỏng vấn
+đã bị bỏ) không tạo thông báo. Người nhận được xác định lại lúc xử lý sự kiện: người đã mất vai trò/quyền cần để xem
+thực thể (ví dụ không còn quyền Offer) không nhận gì.
+
+Kiểm thử: `src/test/resources/application-default.properties` đặt `app.notifications.poll-delay-ms=3600000`, nên
+worker không tự chạy nền trong test (không giữ khóa tài khoản/phê duyệt khi test dọn database); test gọi
+`NotificationWorker.processNext()`.
+
+Ghi chú cho frontend: thông báo xuất hiện sau vài giây (không đồng bộ); làm mới số chưa đọc định kỳ (ví dụ 30–60 s)
+hoặc khi người dùng mở chuông.

@@ -10,6 +10,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
@@ -46,10 +49,12 @@ public class OfferService {
     private final Clock clock;
     private final TransactionTemplate reads;
     private final TransactionTemplate writes;
+    private final NotificationEvents notificationEvents;
 
     public OfferService(OfferRepository data, OfferAccess access, SalaryBandService bands, AccountRepository accounts,
         BusinessCalendar calendar, MailLayout mail, Clock clock, PlatformTransactionManager transactions,
-        @Value("${app.offers.time-zone:Asia/Ho_Chi_Minh}") String mailTimeZone) {
+        @Value("${app.offers.time-zone:Asia/Ho_Chi_Minh}") String mailTimeZone, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.data = data;
         this.access = access;
         this.bands = bands;
@@ -163,6 +168,8 @@ public class OfferService {
             data.submit(offer, locked.context(), band, request, locked.actor().id(), now);
             var result = find(id, false);
             data.event(result, "SUBMITTED", locked.actor(), null, now, true);
+            // Task 544: the HR approver named on the offer hears about it after this commits.
+            notificationEvents.publish(NotificationType.APPROVAL_PENDING, NotificationLink.Type.OFFER, id);
             access.audit(locked.actor(), locked.context());
             return mask(result, locked.actor().id());
         });
@@ -205,6 +212,9 @@ public class OfferService {
             data.transition(id, next, now);
             var result = find(id, false);
             data.event(result, event, actor, request.comment(), now, false);
+            if ("PENDING_HIGHER".equals(next)) {
+                notificationEvents.publish(NotificationType.APPROVAL_PENDING, NotificationLink.Type.OFFER, id);
+            }
             access.audit(actor, context);
             return mask(result, actor.id());
         });
