@@ -505,6 +505,10 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/screening/notes")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        // Story S5-05 (tasks 392-394): the candidate search is read like the board. The service reads
+                        // the CANDIDATES read code again and returns only CandidateAccess.READABLE applications.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidate-search")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
