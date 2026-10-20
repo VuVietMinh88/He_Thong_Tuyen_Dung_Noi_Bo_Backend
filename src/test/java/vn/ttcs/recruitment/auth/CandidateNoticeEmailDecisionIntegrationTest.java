@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import vn.ttcs.recruitment.messaging.CandidateNoticeEmails;
@@ -19,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Task 533: the rejection letter and the thanks after an interview are decided by real events (a staff rejection, the
  * interview's first submitted evaluation) in the event's transaction, following each type's automatic-send flag.
  */
+// Task 538: the candidate mail worker must not pick up the queued emails while the test looks at them.
+@TestPropertySource(properties = "app.candidate-mail.poll-delay-ms=3600000")
 class CandidateNoticeEmailDecisionIntegrationTest extends InterviewEvaluationTestSupport {
     @Autowired CandidateNoticeEmails notices;
     EmailTemplateTestData seeded;
