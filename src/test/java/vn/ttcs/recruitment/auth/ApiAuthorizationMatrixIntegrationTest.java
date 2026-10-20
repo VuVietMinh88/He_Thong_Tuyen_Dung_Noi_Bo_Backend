@@ -116,6 +116,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String NOTIFICATIONS_WRITE_SCOPED = "NOTIFICATIONS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
+    // Stories S8-05..S8-09: a report needs a read grant of REPORTS, REQUISITIONS and CANDIDATES (ALL or SCOPED).
+    private static final Rule REPORT_READER = new Rule(List.of("REPORTS_READ_ALL", "REPORTS_READ_SCOPED"), true, false,
+            false, List.of(List.of(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED),
+                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of());
 
     // One row per handler mapping. Path variables get an unknown id, and write samples carry an invalid body,
     // so a call that passes authorization stops at 404 or validation instead of changing data.
@@ -430,7 +434,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Story S5-10 (tasks 418-420): "{stage}" becomes NEW; the empty body stops a permitted save at 400.
             endpoint("GET", "/api/v1/sla/thresholds", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             endpoint("PUT", "/api/v1/sla/thresholds/{stage}", permission(CANDIDATES_WRITE_ALL), INVALID_BODY, 400),
-            endpoint("GET", "/api/v1/sla/overdue", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200));
+            endpoint("GET", "/api/v1/sla/overdue", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            // Stories S8-05..S8-09: reports. A SCOPED viewer passes the matcher and sees only its own rows (empty here).
+            endpoint("GET", "/api/v1/reports/dashboard", REPORT_READER, null, 200));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
