@@ -9,7 +9,7 @@ V60 stores immutable hiring decisions and the submitted evaluation evidence used
 See `docs/api/interviews.md`, `interview-evaluations.md`, `interview-question-usage.md` and
 `hiring-decisions.md` for their contracts.
 
-Candidate extensions (`docs/api/candidate-extensions.md`): V65 stores personal saved candidate-search filters; V65_1 records who entered an application by hand; V65_2 indexes application phones in their national form for the manual duplicate check.
+Candidate extensions (`docs/api/candidate-extensions.md`): V65 stores personal saved candidate-search filters; V65_1 records who entered an application by hand; V65_2 indexes application phones in their national form for the manual duplicate check; V65_3 stores the required criteria (experience, education, skills) of a position.
 
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one

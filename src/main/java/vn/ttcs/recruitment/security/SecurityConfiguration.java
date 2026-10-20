@@ -528,6 +528,12 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/manual-applications",
                                 "/api/v1/requisitions/*/manual-applications/duplicate-check")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        // Story S5-09 (tasks 412-414): the required criteria belong to the position catalog: read like
+                        // a position, saved by ORGANIZATION_WRITE_ALL; the service reads both codes again.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/positions/*/required-criteria")
+                                .hasAuthority("PERM_ORGANIZATION_READ_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*/required-criteria")
+                                .hasAuthority("PERM_ORGANIZATION_WRITE_ALL")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
