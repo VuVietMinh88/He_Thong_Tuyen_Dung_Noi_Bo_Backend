@@ -55,9 +55,8 @@ import static vn.ttcs.recruitment.auth.ApprovalTestSupport.step;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.EMPLOYMENT_TYPE;
 import static vn.ttcs.recruitment.catalog.RecruitmentCatalogType.WORK_LOCATION;
 
-// Task 291 (story S3-07): "Kiểm tra ứng viên đang xử lý trước khi đóng yêu cầu". The backend has no candidate module, so
-// the production RequisitionPipelineSource knows of nobody (RequisitionStatusChangeIntegrationTest pins that closing is
-// then never held back). Here a test-only @Primary source answers what each test puts in PIPELINES, so the warning,
+// Task 291 (story S3-07): "Kiểm tra ứng viên đang xử lý trước khi đóng yêu cầu". Task 325 supplies the real application
+// source, tested by ApplicationStorageIntegrationTest. Here a test-only @Primary source answers PIPELINES so the warning,
 // the confirmation and the place of the check in the status change can be exercised.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.config.import=", "app.bootstrap.enabled=true",
@@ -110,7 +109,7 @@ class RequisitionActivePipelineIntegrationTest {
     @TestConfiguration(proxyBeanMethods = false)
     static class PipelineConfiguration {
 
-        // Over NoCandidateModulePipelineSource, as the candidate module's source will replace it.
+        // Override the production application source for deterministic status-change probes.
         @Bean
         @Primary
         RequisitionPipelineSource fakePipelineSource() {

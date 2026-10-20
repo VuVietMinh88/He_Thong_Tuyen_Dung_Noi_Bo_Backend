@@ -6,7 +6,7 @@ Tiêu chí của story S3-07:
 
 - "Ba trạng thái kết thúc có lý do riêng: Đã tuyển đủ, Tạm dừng, Huỷ": đã có (290, 293). Task 293 thêm ba trạng thái và lưu người thao tác, thời điểm, trạng thái trước/sau và lý do; task 290 thêm API, chỉ cho Trưởng phòng Nhân sự, bắt lý do khi tạm dừng, đóng hay hủy.
 - "Đóng yêu cầu tự động gỡ tin tuyển dụng đang đăng": đã có (292). Đã tuyển đủ hoặc hủy chuyển mọi tin chưa đóng của yêu cầu sang `CLOSED` (Đã đóng) trong cùng transaction: tin rời cổng tuyển dụng ngay, không sửa, duyệt hay xuất bản được nữa, và lịch sử tin ghi người đóng, thời điểm và lý do. Tạm dừng chỉ ẩn tin (task 309), không đóng.
-- "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng": đã có API và bước xác nhận (291, mục "Ứng viên còn trong quy trình (task 291)"); nguồn ứng viên chờ module ứng viên: hiện số luôn là 0 (nghĩa là backend chưa có dữ liệu ứng viên, không phải đã kiểm và không còn ai) và đóng yêu cầu không bị chặn; backend không trả số ứng viên giả. Tiêu chí này chỉ đạt đủ khi có module ứng viên.
+- "Ứng viên còn đang trong pipeline được cảnh báo cần xử lý trước khi đóng": đã có API và bước xác nhận (291, mục "Ứng viên còn trong quy trình (task 291)"); từ 325, ApplicationPipelineSource đếm hồ sơ thật trong job_applications. Số 0 nghĩa là không có hồ sơ active. Luồng nộp công khai vẫn thuộc 326–329.
 
 ## Quyền
 
@@ -111,7 +111,7 @@ GET /api/v1/requisitions/5d0e6a1c-2f3b-4c5d-8e9f-0a1b2c3d4e5f/active-pipeline
 Authorization: Bearer <accessToken>
 ```
 
-200, `Cache-Control: no-store`. Hiện mọi yêu cầu đều trả:
+200, `Cache-Control: no-store`. Yêu cầu không có hồ sơ đang xử lý trả:
 
 ```json
 { "count": 0, "stages": [] }
@@ -130,9 +130,9 @@ Khi có module ứng viên, ví dụ:
 - Trả lời ở mọi trạng thái, kể cả đã tuyển đủ và đã hủy (ứng viên còn lại sau một lần đóng có xác nhận).
 - Thứ tự kiểm: matcher (chưa đăng nhập 401; thiếu `REQUISITIONS_WRITE_ALL` 403); `{id}` không phải UUID 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ."; token, phiên và tài khoản (401); mã `REQUISITIONS_WRITE_ALL` đọc lại (403); có `REQUISITIONS_READ_ALL` hoặc `REQUISITIONS_READ_SCOPED` (403, trước khi biết yêu cầu có tồn tại hay không); yêu cầu tồn tại (404 `REQUISITION_NOT_FOUND`); người chỉ có `REQUISITIONS_READ_SCOPED` phụ trách phòng ban của yêu cầu (403; người tham gia duyệt và recruiter được phân công không được tính); rồi hỏi nguồn ứng viên. Một snapshot `REPEATABLE_READ` chỉ đọc, không khóa gì.
 
-### Nguồn hiện tại: chưa có module ứng viên
+### Nguồn hiện tại: hồ sơ ứng tuyển của task 325
 
-Backend chưa có module ứng viên (V1–V27 không có bảng ứng viên hay hồ sơ ứng tuyển), nên nguồn mặc định `NoCandidateModulePipelineSource` trả `{count: 0, stages: []}` cho mọi yêu cầu. Số 0 này nghĩa là **backend chưa có dữ liệu ứng viên**, không phải đã kiểm và không còn ai; vì vậy hiện đóng yêu cầu không bao giờ bị chặn. Backend không trả số ứng viên giả. Response không có cờ riêng cho "chưa có dữ liệu" (hình dạng đã thống nhất); tài liệu này và ghi chú cho frontend nói rõ điều đó. Tiêu chí của story chỉ đạt đủ khi có module ứng viên.
+V26 thêm `job_applications`. `ApplicationPipelineSource` thay stub cũ và đếm hồ sơ thật theo requisition, không đọc byte CV. NEW, SCREENING, INTERVIEW và OFFER được tính đang xử lý; HIRED, REJECTED và WITHDRAWN không được tính. Task 325 chỉ tạo NEW; chưa có API chuyển giai đoạn hay tiếp nhận công khai. Khi có hồ sơ NEW đã lưu, đóng/hủy yêu cầu phải tuân theo xác nhận pipeline hiện có. Yêu cầu chưa có hồ sơ hoặc chỉ còn hồ sơ ở giai đoạn cuối trả `{count: 0, stages: []}`.
 
 ### Xác nhận khi đóng
 
@@ -164,14 +164,14 @@ Chủ của bảng: `RequisitionStatusChange.checksActivePipeline` (ghim bởi `
 
 ### Dành cho module ứng viên
 
-Module ứng viên thay `NoCandidateModulePipelineSource` bằng `RequisitionPipelineSource` của mình (xóa lớp mặc định: hai bean cùng loại làm ứng dụng không khởi động được) và tuân theo:
+Từ 325, `ApplicationPipelineSource` là nguồn thật duy nhất và `ApplicationStorageService` khóa yêu cầu `FOR SHARE` trước khi thêm hồ sơ NEW. Các thao tác ghi hồ sơ tiếp theo phải giữ hợp đồng sau:
 
 - "Đang trong quy trình" là hồ sơ ứng tuyển vào yêu cầu chưa ở trạng thái cuối; module tự định nghĩa các bước.
 - Chạy trong transaction của người gọi: khi đổi trạng thái là dưới khóa dòng yêu cầu (`FOR NO KEY UPDATE`, READ COMMITTED), khi đọc là snapshot `REPEATABLE_READ` chỉ đọc. Nguồn chỉ đọc và không khóa gì, nên sau khóa dòng yêu cầu không có gì phải chờ.
 - Trả `ActivePipeline.NONE` cho yêu cầu không biết và không ném lỗi cho yêu cầu đó.
 - Mọi thao tác ghi đưa một hồ sơ vào quy trình phải khóa dòng yêu cầu `FOR NO KEY UPDATE` trước, theo thứ tự tài khoản, phiên, yêu cầu rồi tới dòng của mình, và từ chối yêu cầu đã tuyển đủ hoặc đã hủy, như các thao tác ghi tin tuyển dụng. Nếu không, hồ sơ thêm vào sau khi số đã được đọc có thể lọt qua bước kiểm. `FOR KEY SHARE` không xung đột với đổi trạng thái nên không đủ, và **không** dùng `FOR SHARE`: khi dòng chỉ đang bị khóa chia sẻ, PostgreSQL cấp ngay khóa chia sẻ cho người đến sau, vượt lên trước lần đổi trạng thái hay thao tác ghi tin đang chờ, nên các thao tác ghi chồng lên nhau có thể làm nó chờ mãi. Thao tác ghi nhiều yêu cầu khóa chúng theo thứ tự id. Hồ sơ nộp vào một tin tuyển dụng thì gọi `JobPostingApplicationGate.requireOpen` (task 321) thay cho bước này, và không tự khóa dòng yêu cầu trước lời gọi đó: bước kiểm khóa dòng yêu cầu `FOR NO KEY UPDATE`, rồi dòng tin, và từ chối khi yêu cầu không còn `APPROVED` (xem [API cổng việc làm công khai](job-posting-portal.md#kiểm-tra-khả-năng-ứng-tuyển-task-321)).
 
-Bước kiểm hỏi nguồn **sau** khóa dòng yêu cầu ở READ COMMITTED, nên với một nguồn thật tuân theo hợp đồng trên, hồ sơ được commit trong lúc HR chờ khóa cũng được đếm. Test hiện tại (`RequisitionActivePipelineIntegrationTest`, với nguồn giả trong bộ nhớ) chỉ ghim rằng nguồn được hỏi sau khi có khóa, dưới khóa, sau mọi bước kiểm khác và trước khi ghi gì; việc đếm đúng ở mức database do test của module ứng viên kiểm.
+Bước kiểm hỏi nguồn **sau** khóa dòng yêu cầu ở READ COMMITTED, nên với một nguồn thật tuân theo hợp đồng trên, hồ sơ được commit trong lúc HR chờ khóa cũng được đếm. `RequisitionActivePipelineIntegrationTest` dùng nguồn giả để ghim thứ tự kiểm tra; `ApplicationStorageIntegrationTest` kiểm count từ PostgreSQL thật và cả hai chiều chờ khóa nộp–đóng.
 
 ## Nhóm trạng thái
 
@@ -381,7 +381,7 @@ Màn hình đổi trạng thái ở nhánh `UI` (`jobReqStatusService.ts`, `JobR
 |`` axiosClient.patch(`/job-requisitions/${id}/status`, data) ``|`POST /requisitions/{id}/status-changes`. CORS không cho `PATCH`; `/job-requisitions` không có trong bảng quyền nên trả 403, và giao diện chuyển mọi 403 sang `/unauthorized`|`` axiosClient.post(`/requisitions/${id}/status-changes`, data) ``|
 |Body `{status: 'PAUSED' \| 'CLOSED' \| 'CANCELLED', reason?}`|`{status: 'PAUSED' \| 'APPROVED' \| 'FILLED' \| 'CANCELLED', reason, expectedRevision}`. `reason` giữ tên. `CLOSED` là `FILLED` (chờ BA/PO chốt mã). `APPROVED` là mở lại yêu cầu tạm dừng|Đổi `CLOSED` thành `FILLED`; thêm `expectedRevision`|
 |Không gửi phiên bản|`expectedRevision` là `.revision` của `GET /requisitions/{id}/approvals`; gặp 409 `REQUISITION_STATE_CHANGED` thì tải lại|Đọc `.revision` trước khi mở hộp thoại|
-|`getActiveCandidatesCount`: `` axiosClient.get(`/job-requisitions/${id}/active-candidates-count`) `` → `{count}`, gọi trước mọi thao tác (cả tạm dừng), lỗi thì không mở hộp thoại|`GET /requisitions/{id}/active-pipeline` → `{count, stages}` (task 291; chỉ `REQUISITIONS_WRITE_ALL`, đường cũ vẫn 403 và bị chuyển sang `/unauthorized`). Trả lời ở mọi trạng thái; hiện luôn là `{count: 0, stages: []}` vì chưa có module ứng viên (0 là chưa có dữ liệu)|Đổi URL, giữ `data.count`; có thể liệt kê `stages` (`name`, `count`), mảng này có thể rỗng kể cả khi `count > 0`. Giữ khối cảnh báo: nó hiện khi có module ứng viên. Đổi cùng lúc với việc gắn `JobReqStatusActionsUI` vào trang chi tiết (chỉ khi có `REQUISITIONS_WRITE_ALL`)|
+|`getActiveCandidatesCount`: `` axiosClient.get(`/job-requisitions/${id}/active-candidates-count`) `` → `{count}`, gọi trước mọi thao tác (cả tạm dừng), lỗi thì không mở hộp thoại|`GET /requisitions/{id}/active-pipeline` → `{count, stages}` (task 291; chỉ `REQUISITIONS_WRITE_ALL`, đường cũ vẫn 403 và bị chuyển sang `/unauthorized`). Trả lời ở mọi trạng thái; từ 325 đếm hồ sơ thật; `{count: 0, stages: []}` khi không có hồ sơ active|Đổi URL, giữ `data.count`; có thể liệt kê `stages` (`name`, `count`), mảng này có thể rỗng kể cả khi `count > 0`. Giữ khối cảnh báo khi count > 0 từ nguồn hồ sơ thật. Đổi cùng lúc với việc gắn `JobReqStatusActionsUI` vào trang chi tiết (chỉ khi có `REQUISITIONS_WRITE_ALL`)|
 |Gửi đổi trạng thái không kèm xác nhận|`confirmActiveCandidates: true` cho đã tuyển đủ hoặc hủy đi qua khi còn ứng viên; bị bỏ qua khi tạm dừng hay mở lại|Gửi `confirmActiveCandidates: true` khi thao tác là `FILLED` hoặc `CANCELLED` và hộp thoại đã hiện số lớn hơn 0|
 |–|409 `REQUISITION_HAS_ACTIVE_CANDIDATES` (có người vào quy trình sau khi hộp thoại mở); body có thêm `activePipeline`|Lấy số từ `err.response.data.activePipeline.count`, giữ hộp thoại mở với cảnh báo và `message`; lần bấm sau gửi lại với `true` và cùng `expectedRevision`|
 |Lý do "(Tùy chọn)", chỉ gửi khi có nội dung|Bắt buộc khi tạm dừng, đã tuyển đủ, hủy (tối đa 2.000 ký tự); thiếu thì 400 `REQUISITION_STATUS_REASON_REQUIRED`, hiện bằng `apiError` sẵn có|Nhãn "bắt buộc"|

@@ -55,7 +55,7 @@ Quyết định của backend (chờ BA/PO xác nhận):
 
 ### Recruiter được phân công (task 285)
 
-Story S3-06, tiêu chí "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao". Backend chưa có module ứng viên, nên task 285 áp dụng quy tắc phân công ở chỗ đã có dữ liệu recruiter: yêu cầu tuyển dụng và các API chỉ đọc của nó. Với yêu cầu tuyển dụng, đây là việc **mở rộng** cho recruiter (trước đây họ không xem được yêu cầu mình được giao). Phần **giới hạn** hồ sơ ứng viên của tiêu chí chưa làm được cho tới khi có module ứng viên: quy tắc phân công đã có và áp dụng cho yêu cầu tuyển dụng; phần hồ sơ ứng viên chờ module ứng viên, sẽ dùng cùng quy tắc.
+Story S3-06, tiêu chí "Recruiter chỉ nhìn thấy ứng viên của vị trí được giao". 325 đã có lớp lưu hồ sơ nội bộ nhưng chưa có API xem hồ sơ ứng viên; task 285 áp dụng quy tắc phân công ở chỗ đã có dữ liệu recruiter: yêu cầu tuyển dụng và các API chỉ đọc của nó. Với yêu cầu tuyển dụng, đây là việc **mở rộng** cho recruiter (trước đây họ không xem được yêu cầu mình được giao). Phần **giới hạn** hồ sơ ứng viên của tiêu chí chờ API quản lý hồ sơ ứng viên: quy tắc phân công đã có và áp dụng cho yêu cầu tuyển dụng; phần đọc hồ sơ ứng viên vẫn chưa triển khai và sẽ dùng cùng quy tắc.
 
 Quy tắc: người gọi xem được một yêu cầu khi có `ALL`, **hoặc** phụ trách phòng ban của nó (kể cả phòng ban cha), **hoặc** đang là recruiter chính hay hỗ trợ của nó (một dòng trong `requisition_recruiters`, V16), **hoặc** tham gia duyệt nó (task 262). Quy tắc nằm ở một chỗ, `RecruiterAssignmentAccess`; tin tuyển dụng (`JOB_POSTINGS_*_SCOPED`, task 303) dùng cùng quy tắc, và module ứng viên sau này cũng phải dùng nó. Chỉ thao tác **đọc** dùng quy tắc này; mọi thao tác ghi giữ quy tắc phòng ban.
 

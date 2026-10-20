@@ -118,13 +118,5 @@ class ActivePipelineTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessage(change + " needs no confirmation");
     }
 
-    // Without a candidate module the backend knows of nobody: 0 for every requisition, which means "no data".
-    @Test
-    void withoutACandidateModuleNobodyIsKnown() {
-        var source = new NoCandidateModulePipelineSource();
-
-        for (int index = 0; index < 3; index++) {
-            assertThat(source.activePipeline(UUID.randomUUID())).isEqualTo(ActivePipeline.NONE);
-        }
-    }
+    // The real application source and its empty-data behavior are tested against PostgreSQL in task 325.
 }

@@ -21,7 +21,7 @@ import java.util.UUID;
  *   id order. An application to a job posting calls JobPostingApplicationGate.requireOpen instead (task 321), which
  *   takes this lock and refuses a requisition that is no longer approved; it must not lock the requisition itself
  *   before that call.
- * Exactly one bean: the candidate module replaces NoCandidateModulePipelineSource (delete it).
+ * Exactly one production bean: ApplicationPipelineSource reads stored applications.
  */
 public interface RequisitionPipelineSource {
     ActivePipeline activePipeline(UUID requisitionId);

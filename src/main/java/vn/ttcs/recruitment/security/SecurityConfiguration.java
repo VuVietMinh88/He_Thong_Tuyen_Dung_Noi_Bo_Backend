@@ -14,12 +14,15 @@ import org.springframework.security.authorization.AuthorityAuthorizationManager;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
 import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.auth.AuthService;
+import vn.ttcs.recruitment.application.ApplicationIntakeFilter;
+import vn.ttcs.recruitment.application.ApplicationIntakeRoutes;
 
 import java.util.List;
 
@@ -32,6 +35,10 @@ public class SecurityConfiguration {
     public BearerTokenResolver bearerTokenResolver() {
         DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
         return request -> {
+            if (ApplicationIntakeRoutes.isSubmission(request)
+                    || ("GET".equals(request.getMethod()) && ApplicationIntakeRoutes.SOURCES.equals(request.getServletPath()))) {
+                return null;
+            }
             // These endpoints authenticate their body; a stale bearer must not block recovery.
             if ("POST".equals(request.getMethod())
                     && ("/api/v1/auth/refresh".equals(request.getServletPath())
@@ -71,7 +78,8 @@ public class SecurityConfiguration {
     public SecurityFilterChain securityFilterChain(HttpSecurity http, AuthService authService,
                                                   JsonSecurityErrors errors,
                                                   PermissionService permissions,
-                                                  BearerTokenResolver bearerTokenResolver) throws Exception {
+                                                  BearerTokenResolver bearerTokenResolver,
+                                                  ApplicationIntakeFilter intakeFilter) throws Exception {
         return http
                 .cors(withDefaults())
                 // These APIs accept bearer headers/body tokens only, never browser authentication cookies.
@@ -80,10 +88,13 @@ public class SecurityConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .addFilterBefore(intakeFilter, BearerTokenAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health", "/api/v1/health").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/api/health").permitAll()
+                        .requestMatchers(HttpMethod.POST, ApplicationIntakeRoutes.SUBMISSION_MATCHER).permitAll()
+                        .requestMatchers(HttpMethod.GET, ApplicationIntakeRoutes.SOURCES).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/auth/activate-account").permitAll()

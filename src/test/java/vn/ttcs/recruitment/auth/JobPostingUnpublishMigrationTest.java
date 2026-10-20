@@ -379,7 +379,7 @@ class JobPostingUnpublishMigrationTest {
     }
 
     private static FluentConfiguration flyway(DataSource dataSource) {
-        return Flyway.configure().dataSource(dataSource).locations("classpath:db/migration");
+        return Flyway.configure().dataSource(dataSource).locations("classpath:db/migration-feedback");
     }
 
     // The upgrade starts from the newest migration below V26, whichever task added it.

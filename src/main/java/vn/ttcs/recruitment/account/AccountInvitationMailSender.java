@@ -1,11 +1,9 @@
 package vn.ttcs.recruitment.account;
 
 import jakarta.mail.MessagingException;
-import jakarta.mail.SendFailedException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.MailPreparationException;
-import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
@@ -22,7 +20,7 @@ public class AccountInvitationMailSender {
     private final URI activationPage;
 
     public AccountInvitationMailSender(JavaMailSender sender,
-                                       @Value("${app.password-reset.mail-from}") String from,
+                                       @Value("${app.mail.from}") String from,
                                        @Value("${app.account-activation.page-url}") URI activationPage) {
         this.sender = sender;
         this.from = from;
@@ -62,14 +60,6 @@ public class AccountInvitationMailSender {
      * failure (no connection, login refused, timeout, a temporary 4xx reply) means the mail server is not working.
      */
     public static boolean refusedRecipient(MailException failure) {
-        if (failure instanceof MailSendException sendFailure) {
-            for (Exception cause : sendFailure.getFailedMessages().values()) {
-                if (cause instanceof SendFailedException refused && refused.getInvalidAddresses() != null
-                        && refused.getInvalidAddresses().length > 0) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return vn.ttcs.recruitment.common.MailFailureClassifier.refusedRecipient(failure);
     }
 }

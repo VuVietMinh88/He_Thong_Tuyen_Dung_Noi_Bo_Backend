@@ -35,6 +35,16 @@
 
     <dependencies>
         <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-fileupload2-jakarta-servlet6</artifactId>
+            <version>2.0.0-M5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.8</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
@@ -96,6 +106,16 @@
                 <includes>
                     <include>V*__*.sql</include>
                 </includes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/database/migrations-feedback</directory>
+                <targetPath>db/migration-feedback</targetPath>
+                <includes><include>V*__*.sql</include><include>README.md</include></includes>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/database/migrations-shared</directory>
+                <targetPath>db/migration-shared</targetPath>
+                <includes><include>V*__*.sql</include><include>README.md</include></includes>
             </resource>
         </resources>
         <plugins>

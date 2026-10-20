@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -62,7 +63,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 })
 @Import(AuthIntegrationTest.DatabaseConfiguration.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
-class AuthIntegrationTest {
+public class AuthIntegrationTest {
 
     private static final String EMAIL = "admin@example.test";
     private static final String PASSWORD = "TestingOnly123!";
@@ -793,17 +794,22 @@ class AuthIntegrationTest {
     // (app.job-posting-expiry.cron=-) while the tests move this clock. A test that activates a profile does not read
     // that file and must set the property itself.
     @TestConfiguration(proxyBeanMethods = false)
-    static class DatabaseConfiguration {
+    @PropertySource("classpath:isolated-mail-test.properties")
+    public static class DatabaseConfiguration {
 
         @Bean(destroyMethod = "close")
+        @org.springframework.boot.autoconfigure.condition.ConditionalOnExpression("'${test.database.url:}' == ''")
         EmbeddedPostgres embeddedPostgres() throws IOException {
             return EmbeddedPostgres.builder().setPort(0)
                     .setServerConfig("listen_addresses", "127.0.0.1").start();
         }
 
         @Bean
-        DataSource dataSource(EmbeddedPostgres postgres) {
-            return postgres.getPostgresDatabase();
+        DataSource dataSource(org.springframework.beans.factory.ObjectProvider<EmbeddedPostgres> postgres,
+                              org.springframework.core.env.Environment environment) throws java.sql.SQLException {
+            String dockerUrl = environment.getProperty("test.database.url");
+            return dockerUrl == null || dockerUrl.isBlank() ? postgres.getObject().getPostgresDatabase()
+                    : DockerTestDataSource.create(dockerUrl);
         }
 
         @Bean

@@ -172,7 +172,8 @@ class JobPostingExpiryIntegrationTest {
         List<ScheduledTask> tasks = new ArrayList<>();
         schedules.forEach(holder -> tasks.addAll(holder.getScheduledTasks()));
 
-        assertThat(tasks).singleElement().satisfies(task -> {
+        assertThat(tasks).filteredOn(task -> task.getTask().getRunnable().toString()
+                .equals(JobPostingExpiry.class.getName() + ".runDaily")).singleElement().satisfies(task -> {
             assertThat(task.nextExecution()).isNull();
             assertThat(task.getTask()).isInstanceOfSatisfying(CronTask.class, cron -> {
                 assertThat(cron.getExpression()).isEqualTo("0 0 0 31 2 *");

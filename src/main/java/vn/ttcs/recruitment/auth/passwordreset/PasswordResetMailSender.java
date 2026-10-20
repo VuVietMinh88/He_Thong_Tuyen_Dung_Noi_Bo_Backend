@@ -19,7 +19,7 @@ public class PasswordResetMailSender {
     private final URI resetPage;
 
     public PasswordResetMailSender(JavaMailSender sender,
-                                   @Value("${app.password-reset.mail-from}") String from,
+                                   @Value("${app.mail.from}") String from,
                                    @Value("${app.password-reset.page-url}") URI resetPage) {
         this.sender = sender;
         this.from = from;
