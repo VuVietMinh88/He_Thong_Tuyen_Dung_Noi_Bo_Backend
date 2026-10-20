@@ -282,3 +282,37 @@ Câu hỏi BA/PO: có cho người xem nhật ký thấy đầy đủ địa ch�
 Ghi chú cho frontend: màn hình danh sách hồ sơ Loại cho chọn nhiều dòng → "Xem trước" hiển thị từng thư (tab/accordion
 theo ứng viên), đánh dấu người sẽ bị bỏ qua; nếu sửa nội dung, lưu mẫu (PUT task 532) trước khi gửi vì lệnh gửi luôn dùng
 mẫu đã lưu.
+
+## Gửi thư từ chối hàng loạt không gửi trùng (task 527)
+
+`POST /api/v1/messaging/rejections` — quyền: `NOTIFICATIONS_WRITE_*` + `CANDIDATES_WRITE_*` + `CANDIDATES_READ_*`,
+và phạm vi ghi của **từng** hồ sơ (ALL, hoặc recruiter được phân công yêu cầu tuyển dụng của hồ sơ).
+
+```json
+{"requestId":"<uuid do frontend tạo cho mỗi lần bấm Gửi>","applicationIds":["<uuid>","<uuid>"]}
+```
+
+```json
+{"requestId":"...","queued":1,"skipped":1,"entries":[
+  {"applicationId":"...","outcome":"QUEUED","messageId":"..."},
+  {"applicationId":"...","outcome":"SKIPPED_ALREADY_NOTIFIED","messageId":null}]}
+```
+
+- Kiểm tra như bản xem trước (1–100 hồ sơ, không trùng, 404, cùng trạng thái `REJECTED` → 409), cộng quyền ghi: một hồ
+  sơ ngoài phạm vi → 403 cho cả lô, không thư nào được xếp hàng.
+- `outcome`: `QUEUED` (đã đưa vào hàng đợi, thư `MANUAL` trong nhật ký với người gửi là người gọi),
+  `SKIPPED_ALREADY_NOTIFIED` (đã có thư từ chối đang chờ, đang gửi hoặc đã gửi — tự động hoặc thủ công),
+  `SKIPPED_RETRY_REQUIRED` (thư trước bị lỗi: dùng "Gửi lại" ở nhật ký email để giữ một lịch sử).
+- Chống gửi trùng: khóa theo thứ tự tài khoản → phiên → các yêu cầu tuyển dụng (theo id) → các hồ sơ (theo yêu cầu, rồi
+  id), đọc lại trạng thái thư dưới khóa, nên hai lô đồng thời có chung hồ sơ chạy lần lượt và lô sau bỏ qua; unique
+  `email_messages_one_rejection_idx` là chốt chặn cuối ở database. Thư tự động (task 533) và gửi lại (task 539) cũng
+  khóa hồ sơ rồi kiểm tra thư đang có: hồ sơ đã nhận thư hàng loạt, được mở lại rồi bị Loại lần nữa vẫn chuyển giai
+  đoạn bình thường và không có thư thứ hai.
+- Idempotent theo `requestId` (migration `V66_5__create_rejection_batches.sql`, bảng `rejection_batches`): gửi lại cùng
+  yêu cầu (bấm đúp, thử lại sau timeout) nhận đúng kết quả lần đầu và không xếp hàng thêm; cùng `requestId` với danh
+  sách khác → 409 `REJECTION_BATCH_REQUEST_REUSED`. 503 `REJECTION_BATCH_BUSY` khi chờ khóa quá lâu.
+- Gửi dùng mẫu `REJECTION` đã lưu (không nhận nháp) và không phụ thuộc cờ gửi tự động. Thư được gửi bất đồng bộ bởi
+  hàng đợi task 538; kết quả từng thư xem ở nhật ký email (task 539).
+
+Ghi chú cho frontend: tạo `requestId` mới (UUID v4) mỗi lần người dùng bấm "Gửi", giữ nguyên khi tự động thử lại; hiển
+thị bảng kết quả theo `outcome`; khóa nút trong lúc chờ phản hồi.
