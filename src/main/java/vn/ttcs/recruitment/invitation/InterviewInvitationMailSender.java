@@ -6,6 +6,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.mail.MailLayout;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
 
 import java.nio.charset.StandardCharsets;
 
@@ -20,14 +21,23 @@ public class InterviewInvitationMailSender {
     }
 
     public void send(InterviewMailPayload payload, String messageId) {
+        send(payload, messageId, null);
+    }
+
+    /**
+     * Task 533: a candidate's invitation takes its subject and opening from the INTERVIEW_INVITATION template; the
+     * details and links below stay fixed (InterviewMailContent). A null template keeps the fixed text.
+     */
+    public void send(InterviewMailPayload payload, String messageId, EmailTemplate.Rendered template) {
         var message = sender.createMimeMessage();
         try {
             var helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
             helper.setValidateAddresses(true);
             helper.setFrom(settings.from());
             helper.setTo(payload.email());
-            helper.setSubject(InterviewMailContent.subject(payload));
-            layout.write(helper, InterviewMailContent.body(payload, settings.zone()));
+            helper.setSubject(template == null ? InterviewMailContent.subject(payload) : template.subject());
+            layout.write(helper, InterviewMailContent.body(payload, settings.zone(),
+                    template == null ? null : template.paragraphs()));
             message.setHeader("Message-ID", messageId);
         } catch (MessagingException | IllegalArgumentException | NullPointerException exception) {
             // Rendering/address validation errors cannot improve after waiting for SMTP. Keep personal data out

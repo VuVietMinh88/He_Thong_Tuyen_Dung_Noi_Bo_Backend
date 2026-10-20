@@ -52,6 +52,15 @@ public final class OfferMailContent {
     }
 
     public static MailBody body(OfferMailPayload payload, ZoneId zone) {
+        return body(payload, zone, null);
+    }
+
+    /**
+     * Task 533: the body with its opening (greeting and first sentence) taken from the OFFER template's rendered
+     * paragraphs. The approved terms, the reply link and the closing stay fixed below it; a null opening keeps the
+     * fixed text, as the offer preview does.
+     */
+    public static MailBody body(OfferMailPayload payload, ZoneId zone, java.util.List<String> opening) {
         Objects.requireNonNull(payload, "payload");
         Objects.requireNonNull(zone, "zone");
         LocalDate startDate = Objects.requireNonNull(payload.startDate(), "startDate");
@@ -73,10 +82,14 @@ public final class OfferMailContent {
         }
 
         String name = singleLine(payload.recipientName());
-        MailBody.Builder body = MailBody.builder()
-                .paragraph(name.isEmpty() ? "Xin chào," : "Xin chào " + name + ",")
-                .paragraph("Bạn nhận được lời mời nhận việc với thông tin dưới đây.")
-                .field("Vị trí", position)
+        MailBody.Builder body = MailBody.builder();
+        if (opening != null && !opening.isEmpty()) {
+            opening.forEach(body::paragraph);
+        } else {
+            body.paragraph(name.isEmpty() ? "Xin chào," : "Xin chào " + name + ",")
+                    .paragraph("Bạn nhận được lời mời nhận việc với thông tin dưới đây.");
+        }
+        body.field("Vị trí", position)
                 .field("Lương cơ bản hằng tháng", salary)
                 .field("Phụ cấp hằng tháng", allowance)
                 .field("Ngày bắt đầu làm việc", date(startDate))

@@ -39,15 +39,16 @@ public class InterviewInvitationOutboxRepository {
         transactions.setTimeout(5);
     }
 
+    /** False when a row with this dedupe key already exists (task 533 then records no second email message). */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void enqueue(UUID id, InterviewView view, UUID invitation, UUID recipient, String kind, String dedupe,
+    public boolean enqueue(UUID id, InterviewView view, UUID invitation, UUID recipient, String kind, String dedupe,
                         InterviewInvitationCrypto.Encrypted encrypted) {
-        jdbc.update("""
+        return jdbc.update("""
                 INSERT INTO interview_invitation_outbox(id,interview_id,application_id,schedule_version,invitation_id,
                     recipient_user_id,kind,dedupe_key,key_id,nonce,ciphertext)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (dedupe_key) DO NOTHING
                 """, id, view.id(), view.applicationId(), view.version(), invitation, recipient, kind, dedupe,
-                encrypted.keyId(), encrypted.nonce(), encrypted.ciphertext());
+                encrypted.keyId(), encrypted.nonce(), encrypted.ciphertext()) == 1;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

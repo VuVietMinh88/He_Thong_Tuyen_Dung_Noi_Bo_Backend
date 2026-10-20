@@ -13,6 +13,8 @@ import vn.ttcs.recruitment.auth.passwordreset.PasswordResetMailSender;
 import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.mail.MailLayout;
 import vn.ttcs.recruitment.mail.MailParts;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -45,7 +47,11 @@ class ApplicationCommonMailConfigurationTest {
             context.getBean(AccountInvitationMailSender.class).send("recipient@example.test","TestOnlyPassword","test-token",Duration.ofHours(24));
             context.getBean(PasswordResetMailSender.class).send("recipient@example.test","test-token");
             context.getBean(ApplicationConfirmationMailSender.class).send(new ApplicationConfirmationPayload("recipient@example.test","Candidate","Developer",Instant.now(),"A".repeat(43),"https://portal.example.test/tra-cuu#ma="+"A".repeat(43),
-                    context.getEnvironment().getRequiredProperty("app.mail.from")),"<test@example.test>");
+                    context.getEnvironment().getRequiredProperty("app.mail.from")),"<test@example.test>",false,
+                    // Task 533: the worker passes the APPLICATION_RECEIPT template; this is V66's default text.
+                    new EmailTemplate.Rendered(EmailTemplateType.APPLICATION_RECEIPT,0,
+                            "Xác nhận nhận hồ sơ ứng tuyển — Hệ thống tuyển dụng nội bộ",
+                            List.of("Chào Candidate,","Hệ thống đã nhận hồ sơ ứng tuyển của bạn.")));
             assertThat(messages).hasSize(3);
             String expected=mode+"@example.test";
             for(var message:messages)assertThat(message.getFrom()[0].toString()).isEqualTo(expected);

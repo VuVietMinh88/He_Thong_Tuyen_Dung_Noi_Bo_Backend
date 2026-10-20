@@ -9,6 +9,8 @@ import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.interview.InterviewNotifications;
 import vn.ttcs.recruitment.interview.InterviewView;
+import vn.ttcs.recruitment.messaging.EmailMessageLog;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -26,12 +28,15 @@ public class InterviewInvitationLifecycle implements InterviewNotifications {
     private final InterviewInvitationOutboxRepository outbox;
     private final ResetTokenGenerator tokens;
     private final Clock clock;
+    private final EmailMessageLog messages;
 
+    // Task 533: every candidate email is recorded in email_messages; the first invitation honours the
+    // INTERVIEW_INVITATION automatic-send flag.
     public InterviewInvitationLifecycle(JdbcTemplate jdbc, InterviewInvitationSettings settings,
             InterviewInvitationCrypto crypto, InterviewInvitationOutboxRepository outbox,
-            ResetTokenGenerator tokens, Clock clock) {
+            ResetTokenGenerator tokens, Clock clock, EmailMessageLog messages) {
         this.jdbc = jdbc; this.settings = settings; this.crypto = crypto; this.outbox = outbox;
-        this.tokens = tokens; this.clock = clock;
+        this.tokens = tokens; this.clock = clock; this.messages = messages;
     }
 
     @Override public void requireReady() { settings.requireReady(); }
@@ -141,8 +146,25 @@ public class InterviewInvitationLifecycle implements InterviewNotifications {
         UUID id = UUID.randomUUID();
         String dedupe = tokens.hash(current.id() + ":" + current.version() + ":" + kind + ":"
                 + (user == null ? "candidate" : user) + ":" + (invitation == null ? "none" : invitation.id()));
-        outbox.enqueue(id, current, invitation == null ? null : invitation.id(), user, kind, dedupe,
-                crypto.encrypt(id, current.id(), payload));
+        if (user != null) {
+            outbox.enqueue(id, current, invitation == null ? null : invitation.id(), user, kind, dedupe,
+                    crypto.encrypt(id, current.id(), payload));
+            return;
+        }
+        // Task 533 (story S8-01): only the first invitation is the automatic email of the INTERVIEW_INVITATION type.
+        // With its automatic sending off it is recorded as SUPPRESSED and not queued; the recruiter informs the
+        // candidate. An update or a cancellation always goes out: the candidate may hold the earlier details.
+        var message = new EmailMessageLog.Message(EmailTemplateType.INTERVIEW_INVITATION, kind, current.applicationId(),
+                current.id(), null, EmailMessageLog.Trigger.AUTOMATIC, recipient.email(), "INTERVIEW_INVITATION:" + dedupe,
+                null);
+        if ("INVITATION".equals(kind) && !messages.autoSend(EmailTemplateType.INTERVIEW_INVITATION)) {
+            messages.suppressed(message);
+            return;
+        }
+        if (outbox.enqueue(id, current, invitation == null ? null : invitation.id(), null, kind, dedupe,
+                crypto.encrypt(id, current.id(), payload))) {
+            messages.queued(message, EmailMessageLog.Delivery.INTERVIEW_INVITATION, id);
+        }
     }
 
     private record Invitation(UUID id, String token) {

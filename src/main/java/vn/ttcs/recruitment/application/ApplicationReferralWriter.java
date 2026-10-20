@@ -57,8 +57,7 @@ public class ApplicationReferralWriter {
     private final AuthSessionRepository sessions;
     private final PermissionService permissions;
     private final ReferralApplicationStorage referrals;
-    private final ApplicationOutboxRepository outbox;
-    private final ApplicationOutboxCrypto crypto;
+    private final ApplicationReceiptDispatch receipts;
     private final ApplicationConfirmationSettings settings;
     private final JdbcTemplate jdbc;
     private final Clock clock;
@@ -66,10 +65,10 @@ public class ApplicationReferralWriter {
     private final SecureRandom random = new SecureRandom();
 
     ApplicationReferralWriter(AccountRepository accounts, AuthSessionRepository sessions, PermissionService permissions,
-            ReferralApplicationStorage referrals, ApplicationOutboxRepository outbox, ApplicationOutboxCrypto crypto,
+            ReferralApplicationStorage referrals, ApplicationReceiptDispatch receipts,
             ApplicationConfirmationSettings settings, JdbcTemplate jdbc, Clock clock, PlatformTransactionManager manager) {
         this.accounts = accounts; this.sessions = sessions; this.permissions = permissions; this.referrals = referrals;
-        this.outbox = outbox; this.crypto = crypto; this.settings = settings; this.jdbc = jdbc; this.clock = clock;
+        this.receipts = receipts; this.settings = settings; this.jdbc = jdbc; this.clock = clock;
         transaction = new TransactionTemplate(manager);
         // Commits on its own and reads the newest committed row version under each lock (store() needs READ COMMITTED).
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -119,10 +118,10 @@ public class ApplicationReferralWriter {
                 """, stored.id());
         String title = (String) saved.get("posting_title");
         var receipt = new ApplicationReceipt(stored.id(), stored.receivedAt(), code, settings.trackingUrl(code));
-        UUID outboxId = UUID.randomUUID();
         var payload = new ApplicationConfirmationPayload(form.submission().email(), form.submission().fullName(), title,
                 receipt.receivedAt(), code, receipt.trackingUrl(), settings.from());
-        outbox.enqueue(outboxId, stored.id(), settings.messageId(outboxId), crypto.encrypt(outboxId, stored.id(), payload));
+        // Task 533: queued, or recorded as suppressed when the receipt's automatic sending is off.
+        receipts.decide(stored.id(), payload);
         return ApplicationReferralView.of(stored.id(), (String) saved.get("full_name"), title, stored.receivedAt(),
                 stored.stage(), (String) saved.get("note"));
     }

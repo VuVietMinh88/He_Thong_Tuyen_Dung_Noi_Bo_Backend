@@ -5,7 +5,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.MailPreparationException;
 
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
+import vn.ttcs.recruitment.messaging.EmailTemplates;
+import vn.ttcs.recruitment.messaging.TemplateVariable;
+
 import java.time.Instant;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -17,7 +25,11 @@ class InterviewInvitationWorkerTest {
     private final InterviewInvitationOutboxRepository outbox = mock(InterviewInvitationOutboxRepository.class);
     private final InterviewInvitationCrypto crypto = mock(InterviewInvitationCrypto.class);
     private final InterviewInvitationMailSender mail = mock(InterviewInvitationMailSender.class);
-    private final InterviewInvitationWorker worker = new InterviewInvitationWorker(settings, outbox, crypto, mail);
+    private final EmailTemplates templates = mock(EmailTemplates.class);
+    private final InterviewInvitationWorker worker = new InterviewInvitationWorker(settings, outbox, crypto, mail, templates);
+    // Task 533: the candidate's first invitation is rendered from the INTERVIEW_INVITATION template.
+    private final EmailTemplate.Rendered template = new EmailTemplate.Rendered(EmailTemplateType.INTERVIEW_INVITATION, 2,
+            "Mời phỏng vấn Developer", List.of("Chào Candidate,", "Lúc 09:00 Thứ Ba, ngày 01/01/2030."));
     private final InterviewInvitationOutboxRepository.Delivery delivery =
             new InterviewInvitationOutboxRepository.Delivery(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                     0, UUID.randomUUID(), null, "INVITATION", "v1", new byte[12], new byte[20], UUID.randomUUID(), 1);
@@ -35,6 +47,10 @@ class InterviewInvitationWorkerTest {
         when(crypto.decrypt(delivery.id(), delivery.interviewId(), delivery.keyId(), delivery.nonce(), delivery.ciphertext()))
                 .thenReturn(payload);
         when(outbox.renew(delivery)).thenReturn(true);
+        when(settings.zone()).thenReturn(ZoneId.of("Asia/Ho_Chi_Minh"));
+        when(templates.render(EmailTemplateType.INTERVIEW_INVITATION, Map.of(TemplateVariable.CANDIDATE_NAME, "Candidate",
+                TemplateVariable.POSITION_TITLE, "Developer", TemplateVariable.INTERVIEW_TIME,
+                "09:00 Thứ Ba, ngày 01/01/2030"))).thenReturn(template);
     }
 
     @Test void disabledDeliveryNeverClaimsOrContactsSmtp() {
@@ -87,14 +103,14 @@ class InterviewInvitationWorkerTest {
     }
 
     @Test void temporarySmtpFailureSchedulesRetryWithoutRecordingSuccess() {
-        doThrow(new MailSendException("Synthetic SMTP failure")).when(mail).send(payload, messageId);
+        doThrow(new MailSendException("Synthetic SMTP failure")).when(mail).send(payload, messageId, template);
         assertThat(worker.processNext()).isTrue();
         verify(outbox).failed(delivery, false, "RECIPIENT_REFUSED");
         verify(outbox, never()).sent(any());
     }
 
     @Test void invalidMailContentIsTerminalWithoutAnSmtpRetry() {
-        doThrow(new MailPreparationException("Invalid invitation content")).when(mail).send(payload, messageId);
+        doThrow(new MailPreparationException("Invalid invitation content")).when(mail).send(payload, messageId, template);
         assertThat(worker.processNext()).isTrue();
         verify(outbox).failed(delivery, true, "PAYLOAD_INVALID");
         verify(outbox, never()).sent(any());
@@ -106,10 +122,28 @@ class InterviewInvitationWorkerTest {
         sequence.verify(outbox).claim();
         sequence.verify(outbox).unavailableReason(delivery, payload);
         sequence.verify(outbox).renew(delivery);
-        sequence.verify(mail).send(payload, messageId);
+        sequence.verify(mail).send(payload, messageId, template);
         sequence.verify(outbox).sent(delivery);
         assertThat(messageId).contains(delivery.id().toString());
         assertThat(delivery.toString()).doesNotContain(delivery.id().toString(), "INVITATION");
+    }
+
+    @Test void staffAndUpdatedEmailsKeepTheFixedTextWithoutReadingTheTemplate() {
+        var staff = new InterviewInvitationOutboxRepository.Delivery(delivery.id(), delivery.interviewId(),
+                delivery.applicationId(), 0, delivery.invitationId(), UUID.randomUUID(), "INVITATION", "v1", new byte[12],
+                new byte[20], delivery.leaseToken(), 1);
+        var updated = new InterviewInvitationOutboxRepository.Delivery(delivery.id(), delivery.interviewId(),
+                delivery.applicationId(), 0, delivery.invitationId(), null, "UPDATED", "v1", new byte[12],
+                new byte[20], delivery.leaseToken(), 1);
+        for (var row : List.of(staff, updated)) {
+            reset(mail);
+            when(outbox.claim()).thenReturn(Optional.of(row));
+            when(crypto.decrypt(row.id(), row.interviewId(), row.keyId(), row.nonce(), row.ciphertext())).thenReturn(payload);
+            when(outbox.renew(row)).thenReturn(true);
+            assertThat(worker.processNext()).isTrue();
+            verify(mail).send(payload, messageId, null);
+        }
+        verifyNoInteractions(templates);
     }
 
     @Test void messageIdUsesConfiguredSenderDomainAndStaysStableForEachOutboxRow() {

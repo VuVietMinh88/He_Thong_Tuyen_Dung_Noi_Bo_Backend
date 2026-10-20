@@ -109,3 +109,46 @@ Câu hỏi BA/PO: RECRUITER có được sửa mẫu dùng chung toàn công ty 
 `NOTIFICATIONS_WRITE_ALL`; code không đổi quyền này). Hệ quả cụ thể: **một recruiter bất kỳ** có thể sửa nội dung mọi thư
 gửi ứng viên của toàn công ty và tắt "gửi tự động" của mẫu Thư offer; khi đó mọi lần gửi offer của HR trên toàn công ty
 bị chặn với 409 `OFFER_EMAIL_DISABLED` (task 533) cho tới khi có người bật lại.
+
+## Áp dụng mẫu và cờ gửi tự động trong luồng gửi thật (task 533)
+
+Không thêm endpoint. Migration `V66_1__create_email_messages.sql` thêm bảng `email_messages`: mỗi thư gửi ứng viên
+thuộc năm loại mẫu là một dòng, ghi **trong cùng transaction với sự kiện nghiệp vụ** (commit/rollback cùng nhau):
+
+| Cột | Ý nghĩa |
+|---|---|
+| `template_type`, `variant` | loại mẫu; `variant` chỉ với `INTERVIEW_INVITATION`: `INVITATION`, `UPDATED`, `CANCELLED` |
+| `application_id`, `interview_id`, `offer_id` | hồ sơ (bắt buộc), lịch phỏng vấn (hai loại phỏng vấn), offer (loại `OFFER`) |
+| `trigger_kind` | `AUTOMATIC` (sự kiện tự gửi) hoặc `MANUAL` (người dùng bấm gửi: offer, gửi hàng loạt) |
+| `status` | `QUEUED`, `SENDING`, `RETRY_WAIT`, `SENT`, `FAILED`, `SUPPRESSED`, `CANCELLED` |
+| `delivery`, `delivery_id` | outbox gửi thư và dòng của nó (`APPLICATION_CONFIRMATION`, `INTERVIEW_INVITATION`, `OFFER_DELIVERY`, `CANDIDATE_MAIL`) |
+| `recipient_email`, `dedupe_key`, `last_failure`, `created_by`, `created_at`, `updated_at`, `sent_at` | người nhận lúc quyết định, khóa chống trùng, lỗi an toàn gần nhất, người gửi tay |
+
+`SUPPRESSED` = loại thư đang tắt gửi tự động: không có dòng outbox, không bao giờ gửi, không bao giờ hiện là đã gửi
+(CHECK `email_messages_suppressed`, `email_messages_sent`). Trigger `sync_email_message_status` trên ba outbox cũ chép
+mọi thay đổi trạng thái của dòng outbox sang thư (PENDING→`QUEUED`, PROCESSING→`SENDING`, RETRY_WAIT, SENT, FAILED,
+CANCELLED), nên hai bảng luôn khớp kể cả khi worker hủy dòng lỗi thời hoặc lease hết hạn. Unique
+`email_messages_one_rejection_idx`: mỗi hồ sơ tối đa một thư từ chối đang chờ/đang gửi/đã gửi. Mọi nơi ghi thư từ chối
+khóa dòng hồ sơ trước (`FOR NO KEY UPDATE`) rồi kiểm tra thư đang có, nên không bao giờ chạm unique này (không có lỗi
+500).
+
+| Loại | Sự kiện thật | Cờ tắt thì |
+|---|---|---|
+| `APPLICATION_RECEIPT` | nộp hồ sơ công khai hoặc nhân viên giới thiệu (cùng transaction lưu hồ sơ) | `SUPPRESSED`, không xếp hàng; mã tra cứu vẫn trả trong phản hồi 201 |
+| `INTERVIEW_INVITATION` | đặt lịch (đơn lẻ, hàng loạt, gửi lại lời mời) | thư mời đầu tiên `SUPPRESSED`; thư cập nhật/hủy lịch vẫn luôn gửi (ứng viên có thể đang giữ thông tin cũ) |
+| `OFFER` | `POST /offers/{id}/send` | 409 `OFFER_EMAIL_DISABLED`, offer giữ `APPROVED` (thư là cách duy nhất ứng viên nhận liên kết phản hồi) |
+| `REJECTION` | nhân viên chuyển hồ sơ sang `REJECTED` (đổi giai đoạn hoặc quyết định tuyển dụng `REJECT`); ứng viên tự từ chối offer hay rút hồ sơ thì không; hồ sơ đã có thư từ chối đang chờ/đang gửi/đã gửi (tự động hoặc gửi hàng loạt, ví dụ trước khi hồ sơ được mở lại từ `REJECTED`) thì không ghi gì thêm và việc chuyển giai đoạn vẫn thành công | `SUPPRESSED` (gửi hàng loạt S7-09 vẫn gửi được sau) |
+| `INTERVIEW_THANKS` | phiếu đánh giá đầu tiên của buổi phỏng vấn được nộp (chỉ nộp được sau giờ kết thúc, buổi đã đánh giá không đổi lịch được); mỗi buổi một thư; chỉ khi hồ sơ còn ở giai đoạn đang xử lý (`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`): đã rút, đã Loại, đã nhận việc/hội nhập thì không | `SUPPRESSED` |
+
+Khi gửi, worker đọc mẫu hiện hành: tiêu đề và phần mở đầu lấy từ mẫu; phần bắt buộc giữ cố định (thư xác nhận:
+`ReceiptMailText`; lời mời: `InterviewMailContent`; offer: `OfferMailContent`). Thư cho người phỏng vấn và thư
+cập nhật/hủy lịch giữ văn bản cố định. Hai loại `REJECTION`/`INTERVIEW_THANKS` được ghi `QUEUED` với
+`delivery = CANDIDATE_MAIL`; hàng đợi gửi chúng thêm ở task 538.
+
+Ghi chú cho frontend: khi gửi offer có thể nhận 409 `OFFER_EMAIL_DISABLED` — hướng dẫn người dùng bật "gửi tự động" của
+mẫu Thư offer. Không có màn hình mới ở task này.
+
+Câu hỏi BA/PO: thư cập nhật/hủy lịch có nên tuân theo cờ của thư mời không (hiện luôn gửi vì an toàn); tắt thư offer
+nên chặn gửi offer (hiện tại) hay cho phép ghi nhận offer đã trao tay ngoài hệ thống. Lưu ý: cờ này là cấu hình chung
+toàn công ty và theo seed RECRUITER cũng sửa được (task 532), nên một recruiter tắt cờ Thư offer là chặn mọi lần gửi
+offer của HR.

@@ -6,6 +6,12 @@ import org.springframework.mail.MailException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.common.MailFailureClassifier;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
+import vn.ttcs.recruitment.messaging.EmailTemplates;
+import vn.ttcs.recruitment.messaging.TemplateVariable;
+
+import java.util.Map;
 
 @Component
 public class ApplicationConfirmationWorker {
@@ -15,11 +21,15 @@ public class ApplicationConfirmationWorker {
     private final ApplicationOutboxCrypto crypto;
     private final ApplicationConfirmationMailSender mail;
     private final ApplicationReferralLookup referrals;
+    private final EmailTemplates templates;
 
     // Task 351: the referral lookup tells the mail sender, at send time, that a staff member submitted the application.
+    // Task 533: the APPLICATION_RECEIPT template current at send time gives the subject and the opening.
     public ApplicationConfirmationWorker(ApplicationConfirmationSettings settings,ApplicationOutboxRepository outbox,
-            ApplicationOutboxCrypto crypto,ApplicationConfirmationMailSender mail,ApplicationReferralLookup referrals) {
+            ApplicationOutboxCrypto crypto,ApplicationConfirmationMailSender mail,ApplicationReferralLookup referrals,
+            EmailTemplates templates) {
         this.settings=settings;this.outbox=outbox;this.crypto=crypto;this.mail=mail;this.referrals=referrals;
+        this.templates=templates;
     }
 
     @Scheduled(initialDelayString="${app.application-confirmation.poll-delay-ms:10000}",
@@ -39,7 +49,10 @@ public class ApplicationConfirmationWorker {
         if(!outbox.renew(delivery))return true;
         // Task 351: a failed lookup leaves the row PROCESSING until its lease expires; it is then retried.
         boolean referred=referrals.isReferral(delivery.applicationId());
-        try {mail.send(payload,delivery.messageId(),referred);}
+        // A failed template read also leaves the row PROCESSING until its lease expires.
+        EmailTemplate.Rendered template=templates.render(EmailTemplateType.APPLICATION_RECEIPT,Map.of(
+                TemplateVariable.CANDIDATE_NAME,payload.fullName(),TemplateVariable.POSITION_TITLE,payload.postingTitle()));
+        try {mail.send(payload,delivery.messageId(),referred,template);}
         catch(MailException exception) {
             outbox.failed(delivery,MailFailureClassifier.refusedRecipient(exception),"RECIPIENT_REFUSED");return true;
         }

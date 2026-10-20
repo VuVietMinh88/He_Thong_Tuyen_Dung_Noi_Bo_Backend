@@ -1115,10 +1115,21 @@ class ApiAuthorizationMatrixIntegrationTest {
     }
 
     // Arrays are equal only to themselves, so BYTEA columns such as user_avatars.image are compared as hex text.
+    // SQL arrays (email_templates.supported_variables) too: a java.sql.Array is equal only to itself, so it is compared
+    // as the list of its elements.
     private static Map<String, Object> comparable(Map<String, Object> row) {
         Map<String, Object> copy = new LinkedHashMap<>();
-        row.forEach((column, value) -> copy.put(column, value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes) : value));
+        row.forEach((column, value) -> copy.put(column, value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes)
+                : value instanceof java.sql.Array array ? elements(array) : value));
         return copy;
+    }
+
+    private static List<Object> elements(java.sql.Array array) {
+        try {
+            return Arrays.asList((Object[]) array.getArray());
+        } catch (java.sql.SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
     private HttpResponse<String> request(String method, String path, String payload, String token) throws Exception {

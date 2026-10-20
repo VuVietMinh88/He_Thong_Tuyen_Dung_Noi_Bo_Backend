@@ -7,6 +7,13 @@ import org.springframework.mail.MailPreparationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.common.MailFailureClassifier;
+import vn.ttcs.recruitment.messaging.CandidateMailFormat;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
+import vn.ttcs.recruitment.messaging.EmailTemplates;
+import vn.ttcs.recruitment.messaging.TemplateVariable;
+
+import java.util.Map;
 
 @Component
 public class InterviewInvitationWorker {
@@ -15,10 +22,12 @@ public class InterviewInvitationWorker {
     private final InterviewInvitationOutboxRepository outbox;
     private final InterviewInvitationCrypto crypto;
     private final InterviewInvitationMailSender mail;
+    private final EmailTemplates templates;
 
+    // Task 533: a candidate's first invitation uses the INTERVIEW_INVITATION template current at send time.
     public InterviewInvitationWorker(InterviewInvitationSettings settings, InterviewInvitationOutboxRepository outbox,
-            InterviewInvitationCrypto crypto, InterviewInvitationMailSender mail) {
-        this.settings = settings; this.outbox = outbox; this.crypto = crypto; this.mail = mail;
+            InterviewInvitationCrypto crypto, InterviewInvitationMailSender mail, EmailTemplates templates) {
+        this.settings = settings; this.outbox = outbox; this.crypto = crypto; this.mail = mail; this.templates = templates;
     }
 
     @Scheduled(initialDelayString = "${app.interview-invitation.poll-delay-ms:60000}",
@@ -51,7 +60,14 @@ public class InterviewInvitationWorker {
             return true;
         }
         if (!outbox.renew(delivery)) return true;
-        try { mail.send(payload, settings.messageId(delivery.id())); }
+        EmailTemplate.Rendered template = null;
+        if (delivery.recipientUserId() == null && "INVITATION".equals(delivery.kind())) {
+            template = templates.render(EmailTemplateType.INTERVIEW_INVITATION, Map.of(
+                    TemplateVariable.CANDIDATE_NAME, payload.recipientName(),
+                    TemplateVariable.POSITION_TITLE, payload.positionTitle(),
+                    TemplateVariable.INTERVIEW_TIME, CandidateMailFormat.interviewTime(payload.startsAt(), settings.zone())));
+        }
+        try { mail.send(payload, settings.messageId(delivery.id()), template); }
         catch (MailPreparationException exception) {
             outbox.failed(delivery, true, "PAYLOAD_INVALID");
             return true;
