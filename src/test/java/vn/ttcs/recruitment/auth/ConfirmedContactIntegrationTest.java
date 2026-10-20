@@ -226,7 +226,9 @@ class ConfirmedContactIntegrationTest extends CvApplicationTestSupport {
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM application_confirmed_contacts",Integer.class)).isZero();
     }
-    @Test void upgradingV29PreservesSubmissionCvJobsAndReceiptWithoutBackfill() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings={"s5","feedback"})
+    void upgradingV59PreservesSubmissionCvJobsAndReceiptWithoutBackfill(String lineage) throws Exception {
         receipts.accept(posting,new ApplicationSubmission("Receipt","receipt@example.test","0912345678",null,null),
                 validator.validate("cv.pdf",new java.io.ByteArrayInputStream(pdf)));
         api.expect(api.request("POST","/api/v1/applications/"+app+"/cv-extractions",null,recruiterToken),202);
@@ -240,13 +242,13 @@ class ConfirmedContactIntegrationTest extends CvApplicationTestSupport {
         };
         try {
             var legacy=new org.springframework.jdbc.core.JdbcTemplate(isolated);
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("29").load().migrate();
+            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).locations(lineage.equals("s5") ? "classpath:db/migration" : "classpath:db/migration-feedback", "classpath:db/migration-shared").target("59").load().migrate();
             for (String table : List.of("user_accounts","departments","positions","recruitment_catalog_items","recruitment_requisitions",
                     "job_postings","job_applications","application_cvs","application_email_outbox","cv_extraction_jobs","cv_extraction_attempts"))
                 legacy.execute("INSERT INTO "+schema+"."+table+" SELECT * FROM "+original+"."+table);
             byte[] receipt=legacy.queryForObject("SELECT ciphertext FROM application_email_outbox",byte[].class);
             String submission=legacy.queryForObject("SELECT row_to_json(a)::text FROM job_applications a WHERE id=?",String.class,app);
-            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).target("30").load().migrate();
+            org.flywaydb.core.Flyway.configure().dataSource(isolated).schemas(schema).defaultSchema(schema).locations(lineage.equals("s5") ? "classpath:db/migration" : "classpath:db/migration-feedback", "classpath:db/migration-shared").target("60").load().migrate();
             assertThat(legacy.queryForObject("SELECT row_to_json(a)::text FROM job_applications a WHERE id=?",String.class,app)).isEqualTo(submission);
             assertThat(legacy.queryForObject("SELECT content FROM application_cvs WHERE application_id=?",byte[].class,app)).isEqualTo(pdf);
             assertThat(legacy.queryForObject("SELECT ciphertext FROM application_email_outbox",byte[].class)).isEqualTo(receipt);
