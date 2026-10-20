@@ -14,16 +14,16 @@ record ReportQuery(ReportViewer viewer, ReportFilters filters, MapSqlParameterSo
 
     /** Requisition and application rows (alias r) the viewer may report on. */
     String rows() {
-        return ReportingAccess.SCOPE + filters.sql();
+        return ReportingAccess.rows(viewer.unrestricted()) + filters.sql();
     }
 
     /** Interview rows: the same requisitions, unfiltered only for a viewer who also reads every interview. */
     String interviewRows() {
-        return ReportingAccess.INTERVIEW_SCOPE + filters.sql();
+        return ReportingAccess.rows(viewer.interviewsUnrestricted()) + filters.sql();
     }
 
     String offerRows() {
-        return ReportingAccess.OFFER_SCOPE + filters.sql();
+        return ReportingAccess.rows(viewer.offersUnrestricted()) + filters.sql();
     }
 
     ReportQuery with(String name, Object value) {

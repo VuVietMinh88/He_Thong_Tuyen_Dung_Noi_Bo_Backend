@@ -18,7 +18,7 @@ import static vn.ttcs.recruitment.security.PermissionModule.REQUISITIONS;
  * request (PermissionService). Report numbers are built from requisitions and their applications, so a row is visible
  * without a filter only when REPORTS, REQUISITIONS and CANDIDATES are all ALL: a broad REPORTS grant never widens a
  * narrow candidate grant. Otherwise the row must belong to a requisition the viewer is assigned to now or to a
- * department the viewer manages (ReportingAccess.SCOPE), the same rule as CandidateAccess.READABLE.
+ * department the viewer manages (ReportingAccess.SCOPED_ROWS), the same rule as CandidateAccess.READABLE.
  */
 public record ReportViewer(UUID id, AccessScope reports, AccessScope reportsWrite, AccessScope requisitions,
                            AccessScope candidates, AccessScope interviews, AccessScope offers,

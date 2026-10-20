@@ -192,3 +192,58 @@ Bảo đảm phạm vi (đã có test tích hợp):
 Ghi chú cho frontend: trang dashboard chỉ cần gọi một API này. Bộ chọn phòng ban/chức danh nên lấy từ
 `GET /api/v1/departments` và `GET /api/v1/positions`; với người xem SCOPED, xử lý 403 bằng thông báo "Bạn không phụ
 trách phòng ban/chức danh này" và giữ bộ lọc cũ.
+
+## TKNHTTDNB1-558 — Tối ưu truy vấn dashboard cho mục tiêu dưới 2 giây
+
+Không thêm API. Cách đạt mục tiêu:
+
+- **Cửa sổ có giới hạn**: biểu đồ tối đa 366 ngày (54 tuần, 13 tháng), thẻ tuần chỉ đọc một tuần, danh sách trễ hạn tối
+  đa 50 dòng mỗi trang, mỗi câu SQL bị dừng sau 5 giây (`statement_timeout`), mỗi báo cáo trong một transaction tối đa
+  15 giây.
+- **Tổng hợp trong SQL**: mỗi phần là một câu `count`/`width_bucket … GROUP BY`; không tải từng hồ sơ lên Java, không
+  truy vấn lặp theo từng dòng (số người đã tuyển của dòng trễ hạn là subquery dùng
+  `job_applications_requisition_stage_idx`).
+- **Điều kiện phạm vi gọn**: người xem ALL nhận điều kiện `TRUE` (không có subquery phạm vi trong câu SQL); người xem
+  SCOPED dùng hai subquery (phân công hiện tại, cây phòng ban) mà PostgreSQL chạy một lần mỗi câu.
+- **Index mới (V67)**:
+
+| Index | Phục vụ |
+| --- | --- |
+| `job_applications_received_at_idx (received_at, requisition_id)` | thẻ hồ sơ trong tuần, biểu đồ tuần, sau này là cohort phễu/nguồn |
+| `recruitment_requisitions_open_needed_by_idx (needed_by, id) WHERE status IN ('APPROVED','PAUSED') AND needed_by IS NOT NULL` | danh sách trễ hạn và tổng số |
+| `requisition_workflow_events_closed_at_idx (occurred_at, requisition_id) WHERE event_type IN ('FILLED','CANCELLED')` | biểu đồ vị trí đóng theo tháng |
+| `offers_sent_deadline_idx (response_deadline, application_id) WHERE status = 'SENT'` | thẻ offer chờ phản hồi |
+
+Đo thực tế (test `DashboardPerformanceIntegrationTest`, PostgreSQL nhúng trên máy phát triển Windows đang chạy song
+song các bộ test khác; gọi HTTP thật `GET /api/v1/reports/dashboard?from=2025-10-16&to=2026-10-15`, 3 lần khởi động
+rồi đo 10 lần cho mỗi người xem). Dữ liệu: 400 yêu cầu, 160.002 hồ sơ (40.000 trong 400 ngày gần nhất có lịch sử giai
+đoạn, 120.000 hồ sơ cũ tới 5 năm), 74.285 sự kiện giai đoạn, 17.143 buổi phỏng vấn, 5.714 offer.
+
+| Người xem | Trước V67 (trung vị / chậm nhất) | Sau V67 + điều kiện TRUE (trung vị / chậm nhất) |
+| --- | --- | --- |
+| HR_MANAGER (ALL) | 388 ms / 598 ms | 368 ms / 528 ms |
+| RECRUITER (SCOPED) | 453 ms / 530 ms | 301 ms / 500 ms |
+| HIRING_MANAGER (SCOPED) | 451 ms / 540 ms | 317 ms / 380 ms |
+| Tham chiếu `GET /api/v1/auth/me` (lời gọi đơn giản nhất có xác thực) | trung vị 176 ms | trung vị 160 ms |
+
+Hai lớp test:
+
+- `DashboardQueryPlanIntegrationTest` (chạy trong bộ test mặc định): kiểm tra bốn index tồn tại, rồi trên dữ liệu nhỏ
+  (5.000 yêu cầu, 5.000 hồ sơ trong hai năm, 3.000 sự kiện đóng, sau `ANALYZE`) chạy `EXPLAIN (FORMAT JSON)` trên
+  **đúng** các câu SQL của repository với tham số thật và khẳng định PostgreSQL dùng index V67 cho thẻ hồ sơ trong
+  tuần, biểu đồ tuần, danh sách trễ hạn và số vị trí đóng trong tháng.
+- `DashboardPerformanceIntegrationTest` (gắn `@Tag("performance")`, bộ test mặc định bỏ qua vì tốn thời gian và phụ
+  thuộc tải máy): đo HTTP trên khối lượng lớn. Chạy bằng
+  `./mvnw -o -q test -Pperformance -Dtest=DashboardPerformanceIntegrationTest`.
+
+Thời gian thực thi trong PostgreSQL (`EXPLAIN ANALYZE`, cùng dữ liệu): đếm hồ sơ trong tuần 44,7 ms (Parallel Seq Scan)
+→ 0,75 ms (Index Only Scan); biểu đồ 53 tuần 31,8 ms → 17,2 ms (Bitmap Index Scan); danh sách trễ hạn chuyển sang
+Index Scan trên index mới (≈0,8 ms). Kết luận trung thực: ngay cả trước khi tối ưu, API đã dưới 2 giây ở khối lượng
+này; phần lớn thời gian còn lại là chi phí chung của mọi request (xác thực, đọc quyền, HTTP) như lời gọi tham chiếu cho
+thấy. Index giữ cho thời gian các câu SQL tỷ lệ với cửa sổ được xem thay vì toàn bộ lịch sử. Test hiệu năng khẳng định
+mỗi lần gọi dưới 2.000 ms. Trên máy đang chạy song song nhiều bộ test, một lần chạy sau đó đo được trung vị 414–751 ms và
+chậm nhất 1.277 ms (lời gọi tham chiếu 257 ms): con số phụ thuộc tải máy, nên test này không nằm trong bộ test mặc định.
+Đây là thời gian backend (database + service + JSON), không gồm thời gian trình duyệt vẽ trang.
+
+Ghi chú cho frontend: gọi đúng một API `GET /api/v1/reports/dashboard` cho cả trang; không gọi lặp cho từng thẻ. Khi đổi
+khoảng ngày của biểu đồ chỉ cần gọi lại với `from`/`to` mới.

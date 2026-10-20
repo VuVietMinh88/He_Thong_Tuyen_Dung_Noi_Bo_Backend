@@ -19,6 +19,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Task 558: volume timing tests (@Tag("performance")) run only with -Pperformance. -->
+        <excludedGroups>performance</excludedGroups>
     </properties>
 
     <dependencyManagement>
@@ -172,4 +174,15 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- ./mvnw -o -q test -Pperformance -Dtest=DashboardPerformanceIntegrationTest -->
+        <profile>
+            <id>performance</id>
+            <properties>
+                <excludedGroups></excludedGroups>
+                <groups>performance</groups>
+            </properties>
+        </profile>
+    </profiles>
 </project>
