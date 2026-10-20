@@ -24,6 +24,10 @@ abstract class ManualApplicationTestSupport extends ScreeningTestSupport {
         source = applications.source("Hội chợ việc làm");
     }
 
+    UUID postingOf(UUID requisitionId) {
+        return jdbc.queryForObject("SELECT id FROM job_postings WHERE requisition_id = ?", UUID.class, requisitionId);
+    }
+
     static String manualPath(UUID requisitionId) {
         return "/api/v1/requisitions/" + requisitionId + "/manual-applications";
     }

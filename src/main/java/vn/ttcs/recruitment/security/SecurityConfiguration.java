@@ -525,7 +525,8 @@ public class SecurityConfiguration {
                         // Story S5-08 (tasks 407-408): entering a candidate by hand is a CANDIDATES write, like a stage
                         // change. The service reads the read and write codes again, then the requisition scope (a SCOPED
                         // writer must be assigned to it) after every lock wait.
-                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/manual-applications")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/requisitions/*/manual-applications",
+                                "/api/v1/requisitions/*/manual-applications/duplicate-check")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.

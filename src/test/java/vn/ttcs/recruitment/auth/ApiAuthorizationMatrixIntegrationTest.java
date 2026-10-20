@@ -370,6 +370,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Story S5-08 (tasks 407-408): the manual intake is multipart only, so the JSON sample stops at 415 before
             // readiness, the form or any lock.
             endpoint("POST", "/api/v1/requisitions/{id}/manual-applications", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 415),
+            // Task 408: the duplicate check; the empty body fails validation before the requisition is looked up.
+            endpoint("POST", "/api/v1/requisitions/{id}/manual-applications/duplicate-check", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
