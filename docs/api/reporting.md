@@ -501,3 +501,72 @@ Cách xác định:
 Ghi chú cho frontend: tô nổi cột `largestDrop.stage` trên biểu đồ phễu và hiển thị câu giải thích, ví dụ "Sàng lọc làm
 rơi 4/5 hồ sơ (80%), chiếm 80% tổng số hồ sơ rơi; lý do chính: Thiếu kinh nghiệm (2)". Khi `largestDrop = null` hiển thị
 "Chưa có hồ sơ nào bị loại hoặc rút trong kỳ".
+
+## TKNHTTDNB1-573 — Lưu chi phí tuyển dụng nhập thủ công
+
+Bảng mới `recruitment_costs` (migration `V67_1__create_recruitment_costs.sql`). Mỗi khoản là một dòng sổ chi phí của
+một yêu cầu tuyển dụng: loại, số tiền VND, ngày phát sinh, mô tả, người nhập và thời điểm nhập. Một khoản **không bao
+giờ bị sửa hay xóa**; nhập sai thì **hủy** (ghi người hủy, thời điểm, lý do) rồi nhập lại. Trigger trong database từ
+chối mọi UPDATE khác việc hủy một lần và mọi DELETE; yêu cầu tuyển dụng có chi phí không xóa được (khóa ngoại
+RESTRICT); không có API xóa.
+
+Quyền: ghi cần `REPORTS_WRITE_*` cùng `REPORTS_READ_*` và `REQUISITIONS_READ_*` (seed: HR_MANAGER, ADMIN). Người ghi
+SCOPED (nếu sau này được cấp) chỉ ghi cho yêu cầu trong phạm vi của mình. Đọc danh sách như mọi báo cáo (phần chung).
+Ghi theo thứ tự khóa chung: tài khoản → phiên → yêu cầu tuyển dụng (`FOR SHARE`) → dòng chi phí; quyền và phiên được
+kiểm tra lại sau khi khóa, nên thu hồi quyền có hiệu lực ngay ở request kế tiếp.
+
+### Ghi một khoản — `POST /api/v1/reports/costs` (201)
+
+```json
+{
+  "requisitionId": "UUID_YEU_CAU",
+  "costType": "ADVERTISING",
+  "amountVnd": 5000000,
+  "incurredOn": "2026-10-10",
+  "description": "Đăng tin TopCV 30 ngày"
+}
+```
+
+| Trường | Quy tắc |
+| --- | --- |
+| `costType` | `ADVERTISING` (chi phí đăng tin) hoặc `REFERRAL_BONUS` (thưởng giới thiệu) |
+| `amountVnd` | số nguyên JSON (1.5, "1000" → 400 `INVALID_JSON`), từ 1 đến 100.000.000.000 |
+| `incurredOn` | yyyy-MM-dd, từ 2000-01-01 đến hôm nay (ngày nghiệp vụ); không nhận ngày tương lai |
+| `description` | tùy chọn, ≤ 500 ký tự, văn bản thuần (không HTML/ký tự điều khiển); chỉ có khoảng trắng → lưu `null` |
+
+Không gửi người nhập hay thời gian: server lấy từ token và đồng hồ. Trường lạ → 400 `INVALID_JSON`.
+
+Response: `id, requisitionId, positionId, positionName, departmentId, departmentName, costType, amountVnd, incurredOn,
+description, recordedBy, recordedByName, recordedAt, voided, voidedAt, voidedBy, voidedByName, voidReason`.
+
+Lỗi: 400 `VALIDATION_ERROR` (kèm `fieldErrors`), 400 `INVALID_JSON`, 401, 403 (không có quyền ghi hoặc yêu cầu ngoài
+phạm vi), 404 `REQUISITION_NOT_FOUND`, 409 `COST_REQUISITION_NOT_APPROVED` (chỉ ghi cho yêu cầu đã từng được **duyệt
+cuối**: lịch sử phê duyệt có sự kiện `APPROVED` làm yêu cầu thành `APPROVED`; trạng thái hiện tại có thể là `APPROVED`,
+`PAUSED`, `FILLED` hay `CANCELLED`, nhưng yêu cầu bị hủy khi còn nháp/chờ duyệt thì không), 503 `COST_BUSY` (chờ khóa quá
+2 giây hoặc quá thời gian xử lý; thử lại sau ít giây).
+
+### Hủy một khoản — `POST /api/v1/reports/costs/{id}/void` (200)
+
+```json
+{"reason": "Nhập trùng hóa đơn"}
+```
+
+`reason` bắt buộc, ≤ 500 ký tự văn bản thuần. Lỗi: 404 `COST_NOT_FOUND`, 409 `COST_ALREADY_VOIDED` (một khoản chỉ hủy
+được một lần), 503 `COST_BUSY`, 400, 401, 403 như trên. Người ghi SCOPED chỉ hủy được khoản của yêu cầu trong phạm vi. Khoản đã hủy vẫn nằm trong sổ nhưng không được tính vào tổng hay chi phí/người.
+
+### Danh sách — `GET /api/v1/reports/costs`
+
+Tham số: `requisitionId`, `departmentId`, `positionId` (kiểm tra 404/403 như task 557), `from`/`to` (theo
+`incurredOn`, nhập cả hai hoặc bỏ cả hai, tối đa 366 ngày; bỏ trống = mọi ngày), `costType`, `includeVoided` (mặc định
+`false`), `page`, `size` (1–100, mặc định 20). Sắp theo `incurredOn` mới nhất, rồi thời điểm nhập, rồi id.
+
+Response: `scope, filters, from, to, costType, includeVoided, activeEntries, activeTotalVnd, items[], page, size,
+totalElements, totalPages`. `activeEntries`/`activeTotalVnd` là số khoản và tổng tiền **chưa hủy** của mọi khoản khớp bộ
+lọc (không chỉ trang hiện tại); `totalElements` đếm các khoản được liệt kê (gồm khoản đã hủy khi `includeVoided=true`).
+
+Câu hỏi BA/PO: có cần chặn nhập trùng (cùng yêu cầu, loại, số tiền, ngày) hay cho phép và để HR tự hủy? Hiện backend cho
+phép và lưu vết đầy đủ; frontend nên khóa nút Lưu trong lúc chờ phản hồi.
+
+Ghi chú cho frontend: màn hình "Chi phí tuyển dụng" chỉ hiện nút Thêm/Hủy khi `/api/v1/auth/permissions` có
+`REPORTS_WRITE_ALL` hoặc `REPORTS_WRITE_SCOPED`; khoản `voided = true` hiển thị gạch ngang kèm lý do; số tiền hiển thị
+định dạng `5.000.000 ₫`.

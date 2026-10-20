@@ -656,11 +656,18 @@ public class SecurityConfiguration {
                         // SCOPED viewer to the requisitions assigned to them or of the departments they manage.
                         .requestMatchers(HttpMethod.GET, "/api/v1/reports/dashboard", "/api/v1/reports/dashboard/charts",
                                 "/api/v1/reports/requisitions/*/progress", "/api/v1/reports/requisition-progress",
-                                "/api/v1/reports/funnel")
+                                "/api/v1/reports/funnel", "/api/v1/reports/costs")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_READ_ALL", "PERM_REPORTS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
+                        // Task 573: entering or voiding a cost is a REPORTS write (seeded: HR_MANAGER, ADMIN), with the
+                        // REPORTS and REQUISITIONS reads; RecruitmentCostService checks them again after its locks.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/reports/costs", "/api/v1/reports/costs/*/void")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_WRITE_ALL", "PERM_REPORTS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_READ_ALL", "PERM_REPORTS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

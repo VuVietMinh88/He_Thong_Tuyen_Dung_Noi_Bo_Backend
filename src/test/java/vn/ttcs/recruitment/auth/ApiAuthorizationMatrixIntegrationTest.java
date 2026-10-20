@@ -120,6 +120,10 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final Rule REPORT_READER = new Rule(List.of("REPORTS_READ_ALL", "REPORTS_READ_SCOPED"), true, false,
             false, List.of(List.of(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED),
                     List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of());
+    // Task 573: entering or voiding a cost needs a REPORTS write grant plus the REPORTS and REQUISITIONS reads.
+    private static final Rule COST_WRITER = new Rule(List.of("REPORTS_WRITE_ALL", "REPORTS_WRITE_SCOPED"), true, false,
+            false, List.of(List.of("REPORTS_READ_ALL", "REPORTS_READ_SCOPED"),
+                    List.of(REQUISITIONS_READ_ALL, REQUISITIONS_READ_SCOPED)), Set.of());
 
     // One row per handler mapping. Path variables get an unknown id, and write samples carry an invalid body,
     // so a call that passes authorization stops at 404 or validation instead of changing data.
@@ -441,7 +445,11 @@ class ApiAuthorizationMatrixIntegrationTest {
             // The unknown requisition stops every permitted caller at 404 before the scope check.
             endpoint("GET", "/api/v1/reports/requisitions/{id}/progress", REPORT_READER, null, 404),
             endpoint("GET", "/api/v1/reports/requisition-progress", REPORT_READER, null, 200),
-            endpoint("GET", "/api/v1/reports/funnel", REPORT_READER, null, 200));
+            endpoint("GET", "/api/v1/reports/funnel", REPORT_READER, null, 200),
+            endpoint("GET", "/api/v1/reports/costs", REPORT_READER, null, 200),
+            // The empty body stops a permitted write at 400 before any lock or lookup.
+            endpoint("POST", "/api/v1/reports/costs", COST_WRITER, INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/reports/costs/{id}/void", COST_WRITER, INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
