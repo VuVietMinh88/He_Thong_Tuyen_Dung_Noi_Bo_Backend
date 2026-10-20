@@ -53,7 +53,7 @@ public class ApplicationStorageService {
                 (row, number) -> row.getObject(1, UUID.class), postingId);
         if (sources.isEmpty()) throw unavailable();
         UUID requisitionId = sources.getFirst();
-        var statuses = jdbc.query("SELECT status FROM recruitment_requisitions WHERE id = ? FOR SHARE",
+        var statuses = jdbc.query("SELECT status FROM recruitment_requisitions WHERE id = ? FOR NO KEY UPDATE",
                 (row, number) -> row.getString(1), requisitionId);
         if (statuses.isEmpty() || !"APPROVED".equals(statuses.getFirst())) throw unavailable();
         var postings = jdbc.query("""

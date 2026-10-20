@@ -51,6 +51,22 @@ class JobPostingSourceRepository {
                 .stream().findFirst();
     }
 
+    // Task 321 (story S4-02): the requisition's status, locked FOR NO KEY UPDATE until commit, for
+    // JobPostingApplicationGate: the lock of every requisition write (a pause, a closure as filled or cancelled) and of
+    // every posting writer (lockSource), so a change committed while this waited is seen, and none can commit before
+    // the caller does. Not FOR SHARE: while a row holds only share locks, PostgreSQL grants another share lock at once,
+    // ahead of a write already waiting, so overlapping applications could keep every such write waiting indefinitely.
+    // With FOR NO KEY UPDATE the waiters are served in arrival order: applications to one requisition run one after
+    // another, and a write never waits for an application that arrived after it. Foreign key checks (FOR KEY SHARE)
+    // and plain reads are not blocked. FOR KEY SHARE would not conflict with the status change
+    // (RequisitionPipelineSource). The requisition table alone, like lockSource: after a wait PostgreSQL reads the
+    // locked row again. Read-write transactions only. The status is read by name.
+    Optional<RequisitionStatus> lockStatusForApplication(UUID id) {
+        return jdbc.query("SELECT r.status FROM recruitment_requisitions r WHERE r.id = :id FOR NO KEY UPDATE",
+                new MapSqlParameterSource("id", id),
+                (row, number) -> RequisitionStatus.valueOf(row.getString("status"))).stream().findFirst();
+    }
+
     // The requisitions a posting may be made from: status in statuses, no posting yet, and for SCOPED callers only
     // those they are assigned to (RecruiterAssignmentAccess; the filter is part of the SQL query). Newest first; the id
     // keeps the order stable. The statuses are bound by name: PgJDBC cannot bind a Java enum.

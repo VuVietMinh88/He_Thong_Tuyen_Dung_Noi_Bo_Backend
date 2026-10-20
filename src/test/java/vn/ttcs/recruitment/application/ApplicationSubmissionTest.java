@@ -20,4 +20,21 @@ class ApplicationSubmissionTest {
                     .hasSize(4);
         }
     }
+
+    // Task 339: the lookup normalizes a typed email with the very rule the intake stored it with. Special characters
+    // are built from code points: NBSP, ZWSP, BOM and the dotted capital I, whose Locale.ROOT lower case is two chars.
+    @Test
+    void theLookupNormalizesAnEmailExactlyLikeTheStoredApplication() {
+        String nbsp = Character.toString(0x00A0), zwsp = Character.toString(0x200B), bom = Character.toString(0xFEFF);
+        String dottedI = Character.toString(0x0130);
+        for (String email : new String[] {"a@example.test", nbsp + "A@Example.TEST" + zwsp, bom + " a@example.test" + nbsp,
+                zwsp + "MIXED.Case+Tag@Example.test", dottedI + "stanbul@example.test"}) {
+            var stored = new ApplicationSubmission("Nguyen Van A", email, "0123456789", null, null);
+            assertThat(ApplicationSubmission.normalizeEmail(email)).as(email).isEqualTo(stored.normalizedEmail());
+        }
+        assertThat(ApplicationSubmission.normalizeEmail(dottedI + "@example.test"))
+                .isEqualTo("i" + Character.toString(0x0307) + "@example.test");
+        assertThat(ApplicationSubmission.normalizeEmail(nbsp + zwsp + bom)).isNull();
+        assertThat(ApplicationSubmission.normalizeEmail(null)).isNull();
+    }
 }

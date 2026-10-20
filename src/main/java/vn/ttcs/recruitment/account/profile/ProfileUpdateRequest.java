@@ -13,7 +13,7 @@ public record ProfileUpdateRequest(
         @Size(max = 120) String displayTitle) {
 
     public ProfileUpdateRequest {
-        fullName = fullName == null ? null : fullName.trim();
+        fullName = ProfileValidation.requiredText(fullName);
         phone = ProfileValidation.normalizePhone(phone);
         displayTitle = ProfileValidation.optionalText(displayTitle);
     }

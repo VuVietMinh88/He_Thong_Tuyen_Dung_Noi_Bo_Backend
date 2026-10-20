@@ -4,6 +4,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import vn.ttcs.recruitment.catalog.RecruitmentCatalogType;
 import vn.ttcs.recruitment.requisition.RequisitionRecruiterRole;
 import vn.ttcs.recruitment.requisition.RequisitionStatus;
@@ -32,6 +33,8 @@ final class JobPostingTestSupport {
     static final String REQUIREMENTS = "Tối thiểu 2 năm kinh nghiệm Java.\nĐọc hiểu tài liệu tiếng Anh.";
     static final String FORM_MESSAGE = "Vui lòng kiểm tra dữ liệu đã nhập.";
     static final String DEADLINE = "2026-11-30";
+    // Task 320: 00:00 on the day after DEADLINE in Vietnam, when applications close.
+    static final String CLOSES_AT = "2026-11-30T17:00:00Z";
 
     final ApprovalTestSupport api;
     private final JdbcTemplate jdbc;
@@ -203,6 +206,19 @@ final class JobPostingTestSupport {
         return api.request("POST", POSTINGS + "/" + posting + "/publish", json.writeValueAsString(body), token);
     }
 
+    // Task 355: expectedRevision and reason are left out of the body when null.
+    HttpResponse<String> unpublish(UUID posting, Integer expectedRevision, String reason, String token)
+            throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (expectedRevision != null) {
+            body.put("expectedRevision", expectedRevision);
+        }
+        if (reason != null) {
+            body.put("reason", reason);
+        }
+        return api.request("POST", POSTINGS + "/" + posting + "/unpublish", json.writeValueAsString(body), token);
+    }
+
     // Task 309: the authors' preview, and the public portal called the way candidates call it, without a token.
     HttpResponse<String> preview(UUID posting, String token) throws Exception {
         return api.request("GET", POSTINGS + "/" + posting + "/preview", null, token);
@@ -212,8 +228,38 @@ final class JobPostingTestSupport {
         return api.request("GET", PUBLIC_POSTINGS + "/" + posting, null, null);
     }
 
+    // Task 320 (story S4-02): the public detail is the preview's content followed by applicationOpen and
+    // applicationClosesAt. This is the detail without those two keys (they must be there), to compare with the
+    // preview; the caller asserts their values on its own.
+    static JsonNode withoutApplicationState(JsonNode detail) {
+        assertThat(detail.has("applicationOpen")).as(detail.toString()).isTrue();
+        assertThat(detail.has("applicationClosesAt")).as(detail.toString()).isTrue();
+        ObjectNode content = (ObjectNode) detail.deepCopy();
+        content.remove("applicationOpen");
+        content.remove("applicationClosesAt");
+        return content;
+    }
+
+    // Task 320: the application state of a detail whose deadline is DEADLINE: open or not, and applications close at
+    // 00:00 on 1 Dec 2026 in Vietnam.
+    static void assertApplicationState(JsonNode detail, boolean open) {
+        assertThat(detail.path("applicationOpen").isBoolean()).as(detail.toString()).isTrue();
+        assertThat(detail.path("applicationOpen").asBoolean()).as(detail.toString()).isEqualTo(open);
+        assertThat(detail.path("applicationClosesAt").asText()).isEqualTo(CLOSES_AT);
+    }
+
     HttpResponse<String> publicList(int page, int size) throws Exception {
         return api.request("GET", PUBLIC_POSTINGS + "?page=" + page + "&size=" + size, null, null);
+    }
+
+    // Task 315: the public list with a raw query string ("" or starting with "?", values already URL-encoded), and the
+    // values of its filters, both without a token.
+    HttpResponse<String> publicList(String rawQuery) throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + rawQuery, null, null);
+    }
+
+    HttpResponse<String> publicFilters() throws Exception {
+        return api.request("GET", PUBLIC_POSTINGS + "/filters", null, null);
     }
 
     // Task 310: the review and publication history, newest step first.

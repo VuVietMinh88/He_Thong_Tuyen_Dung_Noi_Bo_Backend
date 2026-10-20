@@ -20,6 +20,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.position.PositionRequest;
 
 import javax.sql.DataSource;
 import java.net.URI;
@@ -70,6 +71,7 @@ class PositionManagementIntegrationTest {
     @Autowired private AuthIntegrationTest.MutableClock clock;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID adminId;
     private String adminToken;
     // Only HR_MANAGER holds SALARY_RANGES_*_ALL, so the HR manager is the account that creates positions.
@@ -482,6 +484,95 @@ class PositionManagementIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(2);
     }
 
+    @Test
+    void removesInvisibleCharactersAroundCodeNameAndLevelAndRefusesValuesWithoutAVisibleCharacter() throws Exception {
+        // An HR manager writes, a role that may write positions whatever other roles may.
+        account("invisible@example.test", Set.of(Role.HR_MANAGER));
+        String token = login("invisible@example.test").path("accessToken").asText();
+        // trim() and @NotBlank kept these, so they were stored around a code, name or level, or alone as an invisible
+        // one: non-breaking spaces (U+00A0, U+2007, U+202F, often pasted from Word or a web page), U+0085, U+180E, the
+        // ideographic and em spaces at the ends, and zero-width characters (U+200B, U+FEFF, U+2060). The characters are
+        // built from code points, so the source shows which one each case sends.
+        int number = 0;
+        for (int invisible : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E, 0x3000, 0x2003, 0x200B, 0xFEFF, 0x2060}) {
+            String character = Character.toString(invisible);
+            number++;
+            JsonNode created = expect(create(payload(character + "DEV" + number + character,
+                    character + "Lập trình viên " + number + character, character + "Junior" + character, 1L, 2L, true),
+                    token), 201);
+            UUID id = UUID.fromString(created.path("id").asText());
+            assertThat(created.path("code").asText()).as("U+%04X", invisible).isEqualTo("DEV" + number);
+            assertThat(created.path("name").asText()).as("U+%04X", invisible).isEqualTo("Lập trình viên " + number);
+            assertThat(created.path("level").asText()).as("U+%04X", invisible).isEqualTo("Junior");
+            JsonNode updated = expect(update(id, payload(character + "QA" + number + character,
+                    character + "Kiểm thử " + number + character, character + "Senior" + character, 1L, 2L, true),
+                    token), 200);
+            assertThat(updated.path("code").asText()).as("U+%04X", invisible).isEqualTo("QA" + number);
+            assertThat(updated.path("name").asText()).as("U+%04X", invisible).isEqualTo("Kiểm thử " + number);
+            assertThat(updated.path("level").asText()).as("U+%04X", invisible).isEqualTo("Senior");
+            assertThat(jdbc.queryForMap("SELECT code, name, level FROM positions WHERE id = ?", id))
+                    .containsEntry("code", "QA" + number).containsEntry("name", "Kiểm thử " + number)
+                    .containsEntry("level", "Senior");
+        }
+        // A code that only differs from an existing one by such a character is the same code.
+        String nbsp = Character.toString(0x00A0);
+        error(create(payload("QA1" + nbsp, "Bản sao", "Junior", 1L, 2L, true), token), 409, "POSITION_CODE_EXISTS");
+        // Characters inside a text belong to it and are kept; the length limits count the text without its ends.
+        JsonNode inner = expect(create(payload(nbsp + "c".repeat(50) + nbsp, "Lập" + nbsp + "trình",
+                nbsp + "l".repeat(50) + nbsp, 1L, 2L, true), token), 201);
+        assertThat(inner.path("code").asText()).isEqualTo("c".repeat(50));
+        assertThat(inner.path("name").asText()).isEqualTo("Lập" + nbsp + "trình");
+        assertThat(inner.path("level").asText()).isEqualTo("l".repeat(50));
+
+        // Without a visible character the text counts as empty, on POST and on PUT.
+        UUID target = UUID.fromString(expect(create(payload("KEEP", "Giữ nguyên", "Junior", 1L, 2L, true), token), 201)
+                .path("id").asText());
+        Map<String, Object> before = jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", target);
+        int count = jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class);
+        Map<String, String> messages = Map.of("code", "Mã chức danh không được để trống.",
+                "name", "Tên chức danh không được để trống.", "level", "Cấp bậc không được để trống.");
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060}, new int[]{0x3000, 0x200B})) {
+            String invisible = new String(codePoints, 0, codePoints.length);
+            for (String field : List.of("code", "name", "level")) {
+                Map<String, Object> created = payload("NEW", "Mới", "Junior", 1L, 2L, true);
+                created.put(field, invisible);
+                JsonNode refused = expect(create(created, token), 400);
+                assertThat(refused.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+                assertThat(refused.path("fieldErrors").path(field).asText()).as("%s %s", field, invisible.codePoints()
+                        .mapToObj(Integer::toHexString).toList()).isEqualTo(messages.get(field));
+                Map<String, Object> updated = payload("KEEP", "Giữ nguyên", "Junior", 1L, 2L, true);
+                updated.put(field, invisible);
+                refused = expect(update(target, updated, token), 400);
+                assertThat(refused.path("fieldErrors").path(field).asText()).isEqualTo(messages.get(field));
+            }
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM positions", Integer.class)).isEqualTo(count);
+        assertThat(jdbc.queryForMap("SELECT * FROM positions WHERE id = ?", target)).isEqualTo(before);
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundCodeNameAndLevel() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            PositionRequest request = new PositionRequest(character + "DEV" + character,
+                    character + "Lập trình viên" + character, character + "Junior" + character, 1L, 2L, true);
+            assertThat(request.code()).as("U+%04X", space).isEqualTo("DEV");
+            assertThat(request.name()).as("U+%04X", space).isEqualTo("Lập trình viên");
+            assertThat(request.level()).as("U+%04X", space).isEqualTo("Junior");
+            PositionRequest invisible = new PositionRequest(character, character, character, 1L, 2L, true);
+            assertThat(invisible.code()).as("U+%04X", space).isNull();
+            assertThat(invisible.name()).as("U+%04X", space).isNull();
+            assertThat(invisible.level()).as("U+%04X", space).isNull();
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"create", "update"})
     void codeCommittedByAnotherTransactionWhileTheWriteWaitsReturnsConflict(String operation) throws Exception {
@@ -601,6 +692,9 @@ class PositionManagementIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

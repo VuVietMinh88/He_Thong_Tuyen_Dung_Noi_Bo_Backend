@@ -79,7 +79,8 @@ Khi đủ adapter thật, thành công trả **201**, `Cache-Control: no-store`:
 Mã/link nhạy cảm không xuất hiện trong `toString` của DTO. Link HTTPS (HTTP chỉ loopback
 cho phát triển), không userinfo/query, mã nằm trong fragment. Link do cấu hình 329 tạo.
 Không trả email, phone, nội dung CV hay hash. Không thêm API tra cứu S4-05 trong task này;
-status NEW/Đã nhận là duy nhất ở lúc nộp, chưa quyết định mapping các stage tiếp theo.
+status/statusName lấy từ [ánh xạ trạng thái công khai](application-tracking.md#trạng-thái-công-khai-task-340)
+của task 340: hồ sơ vừa nộp ở stage NEW nên luôn là RECEIVED/Đã nhận.
 
 ## Nguồn biết tin
 

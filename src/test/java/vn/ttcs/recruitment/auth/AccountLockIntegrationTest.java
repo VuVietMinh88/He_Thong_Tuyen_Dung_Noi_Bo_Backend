@@ -24,6 +24,7 @@ import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.BootstrapAdmin;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.account.lock.AccountLockRequest;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 
 import javax.sql.DataSource;
@@ -74,6 +75,7 @@ class AccountLockIntegrationTest {
     @Autowired @Qualifier("passwordResetExecutor") private ThreadPoolTaskExecutor mailExecutor;
 
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final String deviceId = UUID.randomUUID().toString();
     private UUID adminId;
     private String adminToken;
     private String fixturePasswordHash;
@@ -212,16 +214,14 @@ class AccountLockIntegrationTest {
     }
 
     @Test
-    void unlockDoesNotClearBruteForceLockOrFailedAttemptCounter() throws Exception {
+    void unlockAllowsLoginDespitePreservedLegacyLockAndFailedAttemptCounter() throws Exception {
         UUID target = account("bruteforce@example.test", Set.of(Role.RECRUITER));
         jdbc.update("UPDATE user_accounts SET failed_login_attempts = 5, locked_until = ? WHERE id = ?",
                 Timestamp.from(START.plus(Duration.ofMinutes(15))), target);
         Map<String, Object> before = accountData(target);
         ok(lock(target, "Manual hold", adminToken));
-        assertThat(ok(unlock(target, adminToken)).path("status").asText()).isEqualTo("TEMPORARILY_LOCKED");
+        assertThat(ok(unlock(target, adminToken)).path("status").asText()).isEqualTo("ACTIVE");
         assertThat(accountData(target)).isEqualTo(before);
-        assertThat(loginResponse("bruteforce@example.test").statusCode()).isEqualTo(401);
-        clock.set(START.plus(Duration.ofMinutes(15)));
         login("bruteforce@example.test");
     }
 
@@ -276,6 +276,58 @@ class AccountLockIntegrationTest {
         assertThat(unknownField.statusCode()).isEqualTo(400);
         assertThat(body(unknownField).path("code").asText()).isEqualTo("INVALID_JSON");
         assertThat(ok(lock(target, "x".repeat(500), adminToken)).path("lockReason").asText()).hasSize(500);
+    }
+
+    @Test
+    void removesUnicodeSpacesAroundTheReasonAndRefusesAReasonWithoutAVisibleCharacter() throws Exception {
+        UUID target = account("unicode@example.test", Set.of(Role.INTERVIEWER));
+        // PostgreSQL counts these as spaces ([[:space:]]) but String.strip() keeps them, so V6 refused such a reason (500).
+        // The characters are built from code points, so the source shows which one each case sends.
+        for (int space : new int[]{0x00A0, 0x2007, 0x202F, 0x0085, 0x180E}) {
+            String character = Character.toString(space);
+            JsonNode result = ok(lock(target, character + " Nghỉ việc" + character + character, adminToken));
+            assertThat(result.path("lockReason").asText()).as("U+%04X", space).isEqualTo("Nghỉ việc");
+            assertThat(jdbc.queryForObject("SELECT admin_lock_reason FROM user_accounts WHERE id = ?", String.class, target))
+                    .isEqualTo("Nghỉ việc");
+            ok(unlock(target, adminToken));
+        }
+        // A space between two words belongs to the reason and is kept.
+        String nbsp = Character.toString(0x00A0);
+        assertThat(ok(lock(target, "Nghỉ" + nbsp + "việc", adminToken)).path("lockReason").asText())
+                .isEqualTo("Nghỉ" + nbsp + "việc");
+        ok(unlock(target, adminToken));
+        // The 500 character limit counts the reason without the spaces around it.
+        assertThat(ok(lock(target, nbsp + "x".repeat(500) + nbsp, adminToken)).path("lockReason").asText())
+                .isEqualTo("x".repeat(500));
+        ok(unlock(target, adminToken));
+
+        // Without a visible character the reason counts as empty; zero-width characters (U+200B, U+FEFF, U+2060) show nothing.
+        for (int[] codePoints : List.of(new int[]{0x00A0}, new int[]{0x2007, 0x202F}, new int[]{0x0085, 0x180E, 0x3000},
+                new int[]{0x200B}, new int[]{0xFEFF, 0x00A0, 0x2060})) {
+            var response = lock(target, new String(codePoints, 0, codePoints.length), adminToken);
+            assertThat(response.statusCode()).isEqualTo(400);
+            assertThat(body(response).path("code").asText()).isEqualTo("VALIDATION_ERROR");
+            assertThat(body(response).path("fieldErrors").path("reason").asText()).isEqualTo("Lý do khóa không được để trống.");
+        }
+        assertThat(jdbc.queryForObject("SELECT admin_locked_at FROM user_accounts WHERE id = ?", Timestamp.class, target)).isNull();
+    }
+
+    @Test
+    void removesEveryCharacterPostgresqlCountsAsASpaceAroundTheReason() {
+        // The database is asked, not a fixed list: which characters [[:space:]] matches depends on its locale.
+        List<Integer> spaces = jdbc.queryForList("""
+                SELECT code_point FROM generate_series(1, 1114111) AS code_point
+                WHERE code_point NOT BETWEEN 55296 AND 57343 AND chr(code_point) ~ '[[:space:]]'
+                """, Integer.class);
+        assertThat(spaces).contains(0x09, 0x20);
+        for (int space : spaces) {
+            String character = Character.toString(space);
+            assertThat(new AccountLockRequest(character + "Review" + character).reason()).as("U+%04X", space)
+                    .isEqualTo("Review");
+        }
+        for (int space : spaces) {
+            assertThat(new AccountLockRequest(Character.toString(space)).reason()).as("U+%04X", space).isNull();
+        }
     }
 
     @ParameterizedTest
@@ -576,6 +628,9 @@ class AccountLockIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, content == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(content));
+        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+            builder.header("X-Device-Id", deviceId);
+        }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }

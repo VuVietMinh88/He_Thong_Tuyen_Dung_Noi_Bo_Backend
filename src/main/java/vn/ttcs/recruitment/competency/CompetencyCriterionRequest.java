@@ -26,12 +26,13 @@ public record CompetencyCriterionRequest(
         @Digits(integer = 3, fraction = 2, message = "Trọng số là phần trăm có tối đa 2 chữ số thập phân.")
         @JsonDeserialize(using = WeightDeserializer.class) BigDecimal weight) {
 
-    // The name is trimmed like other names. A blank description becomes null, because V8 stores "no description"
-    // as NULL and rejects an empty text. Trailing zeros are dropped from the weight (40.000 is 40), so @Digits
-    // only fails when a third decimal really matters, such as 33.335.
+    // The name loses the invisible characters around it and becomes null without a visible character, so @NotBlank
+    // refuses it (CompetencyText). A description without a visible character becomes null, because V8 stores "no
+    // description" as NULL and rejects an empty text. Trailing zeros are dropped from the weight (40.000 is 40), so
+    // @Digits only fails when a third decimal really matters, such as 33.335.
     public CompetencyCriterionRequest {
-        name = name == null ? null : name.trim();
-        description = description == null || description.isBlank() ? null : description.strip();
+        name = CompetencyText.codeOrName(name);
+        description = CompetencyText.description(description);
         weight = weight == null ? null : weight.stripTrailingZeros();
     }
 

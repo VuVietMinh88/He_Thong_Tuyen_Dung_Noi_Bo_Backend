@@ -40,7 +40,7 @@ Trả **200**, `Cache-Control: no-store`:
 {"message":"Đặt lại mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới."}
 ```
 
-Một transaction đổi BCrypt hash, xóa bộ đếm sai/khóa đăng nhập, vô hiệu hóa mọi reset token còn lại và thu hồi mọi phiên của đúng tài khoản đó. Các tài khoản khác không bị ảnh hưởng. Response không tự cấp access/refresh token: client quay về đăng nhập.
+Một transaction đổi BCrypt hash, xóa hai trường bộ đếm/khóa cũ trên tài khoản, vô hiệu hóa mọi reset token còn lại và thu hồi mọi phiên của đúng tài khoản đó. Thời gian chặn trình duyệt trong `login_devices` vẫn giữ nguyên; có thể đăng nhập từ trình duyệt khác hoặc chờ hết hạn. Các tài khoản khác không bị ảnh hưởng. Response không tự cấp access/refresh token: client quay về đăng nhập.
 
 Token sai, đã dùng, hết hạn hoặc tài khoản bị vô hiệu hóa trả **400**:
 

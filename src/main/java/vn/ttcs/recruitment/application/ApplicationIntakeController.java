@@ -21,9 +21,11 @@ public class ApplicationIntakeController {
     @PostMapping(value = ApplicationIntakeRoutes.SUBMISSION, consumes = "multipart/form-data")
     public ResponseEntity<AcceptedApplication> submit(@PathVariable UUID id, HttpServletRequest request) {
         var receipt = service.submit(id, request);
+        // Task 340: a stored application is NEW; its public status comes from the one shared mapping (RECEIVED).
+        var status = PublicApplicationStatus.of(ApplicationStage.NEW);
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
-                .body(new AcceptedApplication(receipt.applicationId(), "RECEIVED", "Đã nhận", receipt.receivedAt(),
-                        receipt.trackingCode(), receipt.trackingUrl()));
+                .body(new AcceptedApplication(receipt.applicationId(), status.name(), status.displayName(),
+                        receipt.receivedAt(), receipt.trackingCode(), receipt.trackingUrl()));
     }
 
     @GetMapping(ApplicationIntakeRoutes.SOURCES)

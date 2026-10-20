@@ -244,7 +244,7 @@ class ApplicationStorageIntegrationTest {
     @ParameterizedTest
     @EnumSource(value = JobPostingStatus.class, names = "PUBLISHED", mode = EnumSource.Mode.EXCLUDE)
     void refusesEveryNonPublishedPosting(JobPostingStatus status) {
-        if (status == JobPostingStatus.CLOSED) {
+        if (status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
             jdbc.update("UPDATE job_postings SET status=? WHERE id=?",status.name(),posting);
         } else {
             jdbc.update("UPDATE job_postings SET status=?, published_by=null, published_at=null WHERE id=?",status.name(),posting);
