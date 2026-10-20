@@ -362,6 +362,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Interview scopes are checked again against the application or invited panel in the service.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interview-participants")
+                                .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interviews",
                                 "/api/v1/interviews/me", "/api/v1/interviews/*", "/api/v1/interviews/*/invitation")
                                 .hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED")

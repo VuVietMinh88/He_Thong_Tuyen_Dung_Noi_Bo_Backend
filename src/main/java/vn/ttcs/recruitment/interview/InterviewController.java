@@ -40,6 +40,13 @@ public class InterviewController {
         return ok(service.mine(jwt, page, size));
     }
 
+    @GetMapping("/api/v1/applications/{id}/interview-participants")
+    public ResponseEntity<InterviewParticipantPage> participants(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @RequestParam(defaultValue = "") String q, @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ok(service.participants(jwt, id, q, page, size));
+    }
+
     @GetMapping("/api/v1/interviews/{id}")
     public ResponseEntity<InterviewView> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.get(jwt, id)); }
 

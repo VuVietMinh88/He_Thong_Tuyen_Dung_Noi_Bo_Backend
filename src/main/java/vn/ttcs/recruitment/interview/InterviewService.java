@@ -110,6 +110,17 @@ public class InterviewService {
         });
     }
 
+    public InterviewParticipantPage participants(Jwt jwt, UUID applicationId, String query, int page, int size) {
+        return read(() -> {
+            reader(jwt); paging(page, size);
+            ApplicationAccess application = candidate(jwt, applicationId, true);
+            String normalizedQuery = text(query, 120, false, "q");
+            InterviewParticipantPage result = data.eligibleParticipants(normalizedQuery == null ? "" : normalizedQuery, page, size);
+            audit(jwt, application, true);
+            return result;
+        });
+    }
+
     public InterviewView create(Jwt jwt, UUID applicationId, InterviewScheduleRequest raw) {
         InterviewScheduleRequest request = normalized(raw);
         if (request.expectedVersion() != null) throw invalid("expectedVersion", "Chỉ gửi phiên bản khi sửa lịch.");
