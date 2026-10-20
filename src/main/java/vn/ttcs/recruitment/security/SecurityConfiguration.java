@@ -612,6 +612,14 @@ public class SecurityConfiguration {
                                                 "PERM_CANDIDATES_WRITE_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
                                                 "PERM_CANDIDATES_READ_SCOPED")))
+                        // Story S7-09 (tasks 526-527): bulk rejection letters. RejectionBatchService checks every
+                        // selected application's candidate scope again before showing or queueing anything.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/messaging/rejections/preview")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_READ_ALL",
+                                                "PERM_NOTIFICATIONS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
+                                                "PERM_CANDIDATES_READ_SCOPED")))
                         .anyRequest().denyAll())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, exception) -> errors.unauthorized(response))

@@ -410,7 +410,11 @@ class ApiAuthorizationMatrixIntegrationTest {
                     true, false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404),
             endpoint("POST", "/api/v1/messaging/emails/{id}/retry", new Rule(List.of(NOTIFICATIONS_WRITE_ALL,
                     NOTIFICATIONS_WRITE_SCOPED), true, false, false, List.of(List.of(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED),
-                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404));
+                    List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), null, 404),
+            // Story S7-09 (tasks 526-527): bulk rejection letters; the empty body stops a permitted call at 400.
+            endpoint("POST", "/api/v1/messaging/rejections/preview", new Rule(List.of(NOTIFICATIONS_READ_ALL,
+                    NOTIFICATIONS_READ_SCOPED), true, false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)),
+                    Set.of()), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
