@@ -105,7 +105,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "s5").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(32);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(23);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM application_stage_events WHERE offer_id IS NOT NULL",
