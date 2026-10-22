@@ -56,7 +56,11 @@ class CvSuggestionIntegrationTest {
 
     @BeforeEach void fixture() throws Exception {
         clock.set(NOW);
+        // TRUNCATE ... CASCADE also empties email_templates (updated_by references user_accounts); keep the rows V66
+        // seeded, which every application receipt reads, across the reset.
+        String templates=jdbc.queryForObject("SELECT coalesce(jsonb_agg(to_jsonb(t)-'updated_by'),'[]') FROM email_templates t",String.class);
         jdbc.execute("TRUNCATE user_accounts,departments,positions,recruitment_catalog_items,recruitment_requisitions,job_postings CASCADE");
+        jdbc.update("INSERT INTO email_templates SELECT * FROM jsonb_populate_recordset(NULL::email_templates,CAST(? AS jsonb))",templates);
         api=new ApprovalTestSupport(jdbc,json,manager,Integer.parseInt(environment.getRequiredProperty("local.server.port")));
         tx=new TransactionTemplate(manager);tx.setTimeout(5);
         String password=encoder.encode(ApprovalTestSupport.PASSWORD);

@@ -74,7 +74,7 @@ giữ lịch sử attempt cũ. Không tự retry OCR, kể cả worker bị cras
 
 ## Triển khai và phạm vi
 
-Migration V29 tạo `cv_extraction_jobs` và `cv_extraction_attempts`, cascade khi xóa hồ sơ.
+Migration V68 (`database/migrations-shared`) tạo `cv_extraction_jobs` và `cv_extraction_attempts`, cascade khi xóa hồ sơ.
 Không sao chép CV vào queue; job tham chiếu hash, worker đọc đúng phiên bản CV khi claim.
 Kết quả và attempt không bị xóa chỉ vì tin tuyển dụng đóng. Dữ liệu tồn tại cùng hồ sơ.
 

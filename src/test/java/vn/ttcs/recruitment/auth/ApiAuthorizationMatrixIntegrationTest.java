@@ -346,6 +346,12 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
+            // Task 334 (TRAN DUC LUONG): CV contact suggestions are internal application operations; an unknown
+            // application id stops queueing and reading at 404.
+            endpoint("POST", "/api/v1/applications/{applicationId}/cv-extractions",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 345: a candidate's withdrawal, guarded and counted like the lookup; the empty body fails validation
             // (code, email and confirm missing) before the quota or any lock.
             endpoint("POST", "/api/v1/public/applications/withdraw", PUBLIC, INVALID_BODY, 400),
@@ -466,7 +472,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             "offer_response_tokens", "offer_delivery_outbox", "offer_negotiations", "onboarding_templates",
             "onboarding_template_items", "onboarding_checklists", "onboarding_checklist_items",
             // Story S8-01: email templates.
-            "email_templates");
+            "email_templates",
+            // Task 334: CV contact suggestion jobs.
+            "cv_extraction_jobs", "cv_extraction_attempts");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -1294,7 +1302,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString())
                     .replace("{questionId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
                     .replace("{type}", CATALOG_TYPE).replace("{applicationId}", UNKNOWN_ID.toString())
-                    .replace("{itemId}", UNKNOWN_ID.toString()).replace("{stage}", "NEW");
+                    .replace("{itemId}", UNKNOWN_ID.toString()).replace("{stage}", "NEW")
+                    .replace("{extractionId}", UNKNOWN_ID.toString());
         }
 
         @Override
