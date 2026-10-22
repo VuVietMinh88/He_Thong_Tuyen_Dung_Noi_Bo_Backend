@@ -26,9 +26,11 @@ Task 381 thêm V40 vào `application_stage_events` (V34) cho lần chuyển giai
 
 Task 386 thêm V41: loại danh mục `CANDIDATE_TAG` và ba bảng `application_screening_tags`, `application_screening_ratings`, `application_screening_notes`. Mỗi lần ứng tuyển có nhiều nhãn, một điểm nguyên 1–5 gần nhất và ghi chú kèm tác giả/thời gian. Khóa ngoại kép giữ đúng loại danh mục nhãn; trigger chặn sửa nội dung ghi chú. Dữ liệu sàng lọc đi theo lần ứng tuyển khi xóa hồ sơ. Xem [API sàng lọc](../api/application-screening.md). Bộ Sprint 5 cần V40 trước V41; Kanban không cần migration riêng.
 
+V29/V30 của PR #130 chưa được áp dụng ở bất kỳ database nào theo xác nhận của nhóm ngày 2026-10-21. Hai migration này giữ nguyên nội dung SQL nhưng chuyển thành V68/V68_1 trong `database/migrations-shared/`, dùng chung cho S5 và feedback. Số 59–64 đã thuộc lịch phỏng vấn, câu hỏi đã hỏi, quyết định tuyển, offer và onboarding, đã áp dụng trên VPS ngày 2026-10-21; 65–67 thuộc các PR Sprint 5–8 đang mở. Không thêm migration số thấp vào database đã lên V56, không bật outOfOrder, baseline hoặc repair và không tạo lại dữ liệu để né lịch sử. Xem [lineage và thứ tự phát hành](migration-lineages.md).
+
 SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/` trong backend JAR, nên JAR chạy migration được trên máy khác. Không có bản SQL thứ hai trong `src/main/resources`.
 
-`database/seeds/` dành cho script tạo dữ liệu mẫu theo cấu trúc chung của nhóm; hiện chỉ có `.gitkeep` để giữ thư mục trong Git. Khi bổ sung seed, cần hướng dẫn chạy riêng. Flyway hiện chỉ nạp các migration được Maven đóng gói từ `database/migrations/`.
+`database/seeds/` dành cho script tạo dữ liệu mẫu theo cấu trúc chung của nhóm; hiện chỉ có `.gitkeep` để giữ thư mục trong Git. Khi bổ sung seed, cần hướng dẫn chạy riêng. Flyway nạp đúng một lineage S5/feedback cùng `database/migrations-shared/`.
 
 | Bảng | Nội dung |
 |---|---|
