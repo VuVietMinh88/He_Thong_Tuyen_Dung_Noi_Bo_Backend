@@ -402,6 +402,13 @@ public class SecurityConfiguration {
                         // compares and lists readable applications only (403 when the candidate has none, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/duplicates")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Task 368: the side by side preview is a read of both candidates (403 when one has no
+                        // readable application, logged); the merge is a candidate write over every application of both
+                        // (CandidateMergeService checks read and write again under its locks).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/merge-preview")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidates/*/merge")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Kanban applies the same record scope and logs the profiles disclosed by its cards.
                         .requestMatchers(HttpMethod.GET, "/api/v1/application-board", "/api/v1/application-board/positions")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
