@@ -346,20 +346,19 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
-            // Task 334 (TRAN DUC LUONG): CV contact suggestions are internal application operations; an unknown
-            // application id stops queueing and reading at 404.
+            // CV processing and contact confirmation are internal application operations. Unknown application
+            // IDs stop reads/queueing at 404; invalid confirmation JSON stops at 400 before any write.
+            // Writers also need candidate READ in the service; all seeded writers have that paired grant.
             endpoint("POST", "/api/v1/applications/{applicationId}/cv-extractions",
-                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
+                    anyOf("CANDIDATES_WRITE_ALL", "CANDIDATES_WRITE_SCOPED"), null, 404),
             endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
-                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
-            // Task 335 (TRAN DUC LUONG): the contact a recruiter confirmed for an application, its history and its
-            // change; an unknown id stops reads at 404 and the invalid body stops the change at 400.
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
             endpoint("GET", "/api/v1/applications/{id}/confirmed-contact",
-                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
             endpoint("GET", "/api/v1/applications/{id}/confirmed-contact/history",
-                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
             endpoint("PUT", "/api/v1/applications/{id}/confirmed-contact",
-                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
+                    anyOf("CANDIDATES_WRITE_ALL", "CANDIDATES_WRITE_SCOPED"), INVALID_BODY, 400),
             // Task 345: a candidate's withdrawal, guarded and counted like the lookup; the empty body fails validation
             // (code, email and confirm missing) before the quota or any lock.
             endpoint("POST", "/api/v1/public/applications/withdraw", PUBLIC, INVALID_BODY, 400),
@@ -493,7 +492,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             "application_confirmed_contacts", "application_contact_history",
             // Story S5-01 (task 369): candidate profiles and the merge trail.
             "candidates", "candidate_applications", "candidate_merges", "candidate_merge_applications",
-            "candidate_merge_redirects");
+            "candidate_merge_redirects",
+            "job_applications", "application_cvs", "application_email_outbox");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
