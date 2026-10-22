@@ -244,6 +244,19 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
+            // CV processing and contact confirmation are internal application operations. Unknown application
+            // IDs stop reads/queueing at 404; invalid confirmation JSON stops at 400 before any write.
+            // Writers also need candidate READ in the service; all seeded writers have that paired grant.
+            endpoint("POST", "/api/v1/applications/{applicationId}/cv-extractions",
+                    anyOf("CANDIDATES_WRITE_ALL", "CANDIDATES_WRITE_SCOPED"), null, 404),
+            endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact/history",
+                    anyOf("CANDIDATES_READ_ALL", "CANDIDATES_READ_SCOPED"), null, 404),
+            endpoint("PUT", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf("CANDIDATES_WRITE_ALL", "CANDIDATES_WRITE_SCOPED"), INVALID_BODY, 400),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             // Task 361: the unified candidate profile; both CANDIDATES read scopes pass (APPROVER is SCOPED from
@@ -256,7 +269,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             "company_profile", "company_profile_images", "user_avatars", "headcount_plans",
             "requisition_headcount_overrides", "requisition_recruiters",
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
-            "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events");
+            "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events",
+            "job_applications", "application_cvs", "application_email_outbox", "cv_extraction_jobs",
+            "cv_extraction_attempts", "application_confirmed_contacts", "application_contact_history");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -987,6 +1002,7 @@ class ApiAuthorizationMatrixIntegrationTest {
 
         String samplePath() {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+                    .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{type}", CATALOG_TYPE);
         }
 
