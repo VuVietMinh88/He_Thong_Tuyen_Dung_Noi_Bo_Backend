@@ -352,6 +352,14 @@ class ApiAuthorizationMatrixIntegrationTest {
                     anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
             endpoint("GET", "/api/v1/applications/{applicationId}/cv-extractions/{extractionId}",
                     anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Task 335 (TRAN DUC LUONG): the contact a recruiter confirmed for an application, its history and its
+            // change; an unknown id stops reads at 404 and the invalid body stops the change at 400.
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/applications/{id}/confirmed-contact/history",
+                    anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("PUT", "/api/v1/applications/{id}/confirmed-contact",
+                    anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 345: a candidate's withdrawal, guarded and counted like the lookup; the empty body fails validation
             // (code, email and confirm missing) before the quota or any lock.
             endpoint("POST", "/api/v1/public/applications/withdraw", PUBLIC, INVALID_BODY, 400),
@@ -474,7 +482,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Story S8-01: email templates.
             "email_templates",
             // Task 334: CV contact suggestion jobs.
-            "cv_extraction_jobs", "cv_extraction_attempts");
+            "cv_extraction_jobs", "cv_extraction_attempts",
+            // Task 335: confirmed application contacts.
+            "application_confirmed_contacts", "application_contact_history");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
