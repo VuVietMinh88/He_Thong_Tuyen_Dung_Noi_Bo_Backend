@@ -41,7 +41,12 @@ class DashboardQueryPlanIntegrationTest extends ReportingTestSupport {
         Map<String, String> plans = DashboardQueryPlans.plans(dashboards, named, NOW, LocalDate.of(2026, 10, 15));
         assertThat(indexes(plans.get("week card"))).contains("job_applications_received_at_idx");
         assertThat(indexes(plans.get("weekly chart"))).contains("job_applications_received_at_idx");
-        assertThat(indexes(plans.get("overdue count"))).contains("recruitment_requisitions_open_needed_by_idx");
+        // The overdue count reads only the few open requisitions. recruitment_requisitions_open_needed_by_idx (V67)
+        // answers it, but recruitment_requisitions_status_idx reaches the same rows at nearly the same cost, and which
+        // of the two PostgreSQL picks depends on the run (CI picked the status index once the suite grew). Either is
+        // fine; reading the whole table is not.
+        assertThat(indexes(plans.get("overdue count"))).isNotEmpty();
+        assertThat(nodes(plans.get("overdue count"))).doesNotContain("Seq Scan recruitment_requisitions");
         assertThat(indexes(plans.get("monthly closures"))).contains("requisition_workflow_events_closed_at_idx");
         // The page sorts by a computed key (fully staffed last), so PostgreSQL may reach the few open rows through any
         // index of recruitment_requisitions; it must never read the whole table.
