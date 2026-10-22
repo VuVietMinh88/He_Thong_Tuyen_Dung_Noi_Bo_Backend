@@ -60,6 +60,7 @@ Xem [bảng đối chiếu và cách nâng cấp database](docs/database/migrati
 - [application-referrals](docs/api/application-referrals.md)
 - [cv-suggestions](docs/api/cv-suggestions.md)
 - [confirmed-contacts](docs/api/confirmed-contacts.md)
+- [candidate-merge](docs/api/candidate-merge.md)
 - [approval-flows](docs/api/approval-flows.md)
 - [accounts](docs/api/accounts.md)
 - [auth](docs/api/auth.md)
