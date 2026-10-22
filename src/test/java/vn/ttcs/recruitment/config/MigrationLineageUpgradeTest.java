@@ -62,7 +62,7 @@ class MigrationLineageUpgradeTest {
         DataSource feedback = newDatabase();
         for (var entry : Map.of("s5", s5, "feedback", feedback).entrySet()) {
             Flyway flyway = configured(entry.getValue(), entry.getKey()).load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(78);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(79);
             flyway.validate();
             assertThat(flyway.migrate().migrationsExecuted).isZero();
         }
@@ -105,7 +105,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "s5").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(38);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(39);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM application_stage_events WHERE offer_id IS NOT NULL",
@@ -133,7 +133,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "feedback").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(47);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(48);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertUnifiedFeatures(jdbc);
@@ -241,7 +241,7 @@ class MigrationLineageUpgradeTest {
         // This edit is deliberate test fixture setup. Production requires staff to resolve the duplicate first.
         jdbc.update("UPDATE user_accounts SET phone=NULL WHERE id=?", first);
         Flyway retry = configured(dataSource, "s5").load();
-        assertThat(retry.migrate().migrationsExecuted).isEqualTo(36);
+        assertThat(retry.migrate().migrationsExecuted).isEqualTo(37);
         retry.validate();
         assertThat(retry.migrate().migrationsExecuted).isZero();
     }
@@ -293,8 +293,19 @@ class MigrationLineageUpgradeTest {
     }
 
     private static List<String> rows(JdbcTemplate jdbc, String table) {
-        // V62 adds a nullable offer link. Compare every pre-existing event field; verify the new link separately.
-        String projection = table.equals("application_stage_events") ? "(to_jsonb(t)-'offer_id')::text" : "t::text";
+        // V62 adds a nullable offer link and V68_2 (task 369) a candidate's merge columns, null for every existing
+        // candidate. Compare every pre-existing field; the merge columns are checked to be null.
+        String projection = switch (table) {
+            case "application_stage_events" -> "(to_jsonb(t)-'offer_id')::text";
+            case "candidates" -> "(to_jsonb(t)-'merged_into'-'merged_at')::text";
+            default -> "t::text";
+        };
+        if (table.equals("candidates") && Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM"
+                + " information_schema.columns WHERE table_name = 'candidates' AND column_name = 'merged_into')",
+                Boolean.class))) {
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM candidates WHERE merged_into IS NOT NULL"
+                    + " OR merged_at IS NOT NULL", Integer.class)).as("existing candidates are not merged").isZero();
+        }
         return jdbc.queryForList("SELECT " + projection + " FROM \"" + table.replace("\"", "\"\"")
                 + "\" t ORDER BY 1", String.class);
     }

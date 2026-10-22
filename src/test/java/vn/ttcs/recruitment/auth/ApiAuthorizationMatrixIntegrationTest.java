@@ -487,7 +487,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 334: CV contact suggestion jobs.
             "cv_extraction_jobs", "cv_extraction_attempts",
             // Task 335: confirmed application contacts.
-            "application_confirmed_contacts", "application_contact_history");
+            "application_confirmed_contacts", "application_contact_history",
+            // Story S5-01 (task 369): candidate profiles and the merge trail.
+            "candidates", "candidate_applications", "candidate_merges", "candidate_merge_applications",
+            "candidate_merge_redirects");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;

@@ -7,7 +7,7 @@ Tiêu chí của story:
 - "Phát hiện trùng theo email và số điện thoại khi có hồ sơ mới": task 367, [Gợi ý ứng viên trùng](#gợi-ý-ứng-viên-trùng-task-367).
 - "Hiển thị so sánh cạnh nhau trước khi gộp": chưa có (task 368).
 - "Gộp giữ lại toàn bộ lịch sử ứng tuyển của cả hai hồ sơ": chưa có (task 368).
-- "Gộp nhầm có thể hoàn tác trong 24 giờ": chưa có (task 369 lưu dấu vết, task 370 hoàn tác).
+- "Gộp nhầm có thể hoàn tác trong 24 giờ": dấu vết và dữ liệu hoàn tác có từ task 369, [Dấu vết gộp](#dấu-vết-gộp-và-dữ-liệu-hoàn-tác-task-369); API hoàn tác chưa có (task 370).
 
 ## Gợi ý ứng viên trùng (task 367)
 
@@ -72,3 +72,20 @@ Response 200 (`Cache-Control: no-store`):
 ### Hiệu năng
 
 Câu SQL đọc toàn bộ `job_applications` nối liên hệ đã xác nhận (biểu thức hiệu lực đi qua phép nối nên không dùng được chỉ mục V65_2), như kiểm tra trùng khi nhập tay đọc theo email. Với quy mô tuyển dụng nội bộ thì đủ; nếu bảng lớn lên, tách phần không có liên hệ xác nhận để dùng chỉ mục V65_2 và thêm chỉ mục cho `job_applications.normalized_email`.
+
+## Dấu vết gộp và dữ liệu hoàn tác (task 369)
+
+Task 369 chỉ thêm phần dữ liệu (migration V68_2) và lớp đọc/ghi `CandidateMergeRecords`; chưa có API. Gộp hồ sơ ứng viên **nguồn** vào hồ sơ **đích** là chuyển các dòng `candidate_applications` của nguồn sang đích (task 368): mỗi lần ứng tuyển giữ nguyên dòng `job_applications`, CV, lịch sử giai đoạn, đánh giá, offer… của chính nó, nên lịch sử ứng tuyển của cả hai hồ sơ còn đủ. Dấu vết lưu đúng những gì cần để đặt mọi liên kết về như cũ, không lưu bản chụp JSON của hồ sơ.
+
+### Schema (V68_2)
+
+| Bảng / cột | Nội dung |
+|---|---|
+| `candidates.merged_into`, `merged_at` | Hồ sơ đã bị gộp vẫn giữ dòng của nó và chỉ tới hồ sơ đích, cùng thời điểm gộp. Cả hai cùng có hoặc cùng trống (CHECK `candidates_merge_complete`), không bao giờ chỉ vào chính nó (`candidates_not_merged_into_itself`). Email chuẩn hóa của nó vẫn unique, nên một hồ sơ nộp sau với email đó vẫn tìm thấy dòng này rồi đi theo `merged_into` (task 368). Gộp một hồ sơ cũng chuyển hướng các hồ sơ đã gộp vào nó sang đích mới, nên `merged_into` luôn chỉ một bước. |
+| `candidate_merges` | Một dòng cho mỗi lần gộp: `target_candidate_id`, `source_candidate_id` (khác nhau), `reason` (tùy chọn, tối đa 1000 ký tự, có ký tự hiển thị), `merged_by`, `merged_at`, `undo_deadline` (sau `merged_at`), `undone_by`, `undone_at` (cùng có hoặc cùng trống; `merged_at ≤ undone_at < undo_deadline`). Chỉ mục unique một phần `candidate_merges_live_source_idx`: một hồ sơ chỉ bị gộp đi một lần tại một thời điểm, hoàn tác thì được gộp lại. Khóa tới nhân viên và hồ sơ ứng viên là `RESTRICT`. |
+| `candidate_merge_applications` | Các lần ứng tuyển lần gộp đã chuyển, mỗi lần kèm `linked_at` cũ (thời điểm nó được liên kết với nguồn), để hoàn tác chuyển đúng những lần đó về và trả lại thời điểm liên kết. Chỉ lưu id, không khóa ngoại: lần ứng tuyển bị xóa sau đó (liên kết bị xóa theo, V32) vẫn để lại id trong lịch sử và hoàn tác bỏ qua nó. |
+| `candidate_merge_redirects` | Các hồ sơ đã gộp vào nguồn trước đó và được chuyển hướng sang đích, mỗi hồ sơ kèm `merged_at` của lần gộp của chính nó, để hoàn tác chỉ chúng về lại nguồn. |
+
+**Chỉ ghi thêm.** Trigger chặn mọi `UPDATE`/`DELETE` trên ba bảng, trừ đúng một thay đổi: lần hoàn tác duy nhất điền `undone_by` và `undone_at` của một lần gộp chưa hoàn tác, mọi cột khác giữ nguyên (như V67_1 và các lịch sử chỉ ghi thêm của V20, V33). Lỗi dùng mã `23514`. Test làm rỗng bảng bằng `TRUNCATE` (không kích hoạt trigger theo dòng).
+
+`CandidateMergeRecords` (mọi phương thức `MANDATORY`, chạy trong transaction của người gọi): `record` ghi lần gộp cùng chi tiết (không lặp id), `find` / `lock` (`FOR UPDATE`, để hai lần hoàn tác cùng một lần gộp chạy lần lượt), `movedApplications`, `redirects`, `markUndone` (trả `false` nếu đã hoàn tác) và `involving` (các lần gộp có hồ sơ là đích hoặc nguồn, mới nhất trước). `CandidateMerge.undoableAt(t)` đúng khi chưa hoàn tác và `t` còn trước hạn; đúng hạn là đã muộn.
