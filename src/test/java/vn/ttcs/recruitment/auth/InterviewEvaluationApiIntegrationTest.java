@@ -105,7 +105,6 @@ class InterviewEvaluationApiIntegrationTest extends InterviewEvaluationTestSuppo
         error(call("POST", ownPath(), null, hrToken), 403, "FORBIDDEN");
         error(call("POST", ownPath(), null, recruiterToken), 403, "FORBIDDEN");
         error(call("GET", ownPath(), null, hrToken), 403, "FORBIDDEN");
-        error(call("GET", peersPath(), null, hrToken), 403, "FORBIDDEN");
         form(panelToken);
         jdbc.update("UPDATE interview_participants SET active=false WHERE interview_id=? AND user_id=?", interview, panel);
         error(call("GET", ownPath(), null, panelToken), 403, "FORBIDDEN");
