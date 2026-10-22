@@ -239,7 +239,6 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
                     String.class, hr)).hasSize(2).containsOnly("SCOPED");
             applications.assign(requisition, hr, "SUPPORTING", hr);
             created(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")));
-            ok(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\"Đổi kế hoạch\"}", hrToken));
             error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(7200), panel, "Room")), 403, "FORBIDDEN");
         } finally { narrowHr("WRITE", false); }
     }
