@@ -1,0 +1,4 @@
+<configuration>
+    <!-- Parser/OCR diagnostics can contain CV text. The command returns only allowlisted error codes. -->
+    <root level="OFF"/>
+</configuration>
