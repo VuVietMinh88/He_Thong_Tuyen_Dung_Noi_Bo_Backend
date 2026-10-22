@@ -78,6 +78,19 @@ abstract class CandidateMergeTestSupport extends ScreeningTestSupport {
         return call("POST", candidatePath(target) + "/merge", "{\"sourceCandidateId\":\"" + source + "\"}", token);
     }
 
+    HttpResponse<String> undoOf(UUID merge, String token) throws Exception {
+        return call("POST", "/api/v1/candidate-merges/" + merge + "/undo", null, token);
+    }
+
+    HttpResponse<String> historyOf(UUID candidate, String token) throws Exception {
+        return call("GET", candidatePath(candidate) + "/merges", null, token);
+    }
+
+    // Merges with HR's token and returns the merge's id.
+    UUID merged(UUID target, UUID source) throws Exception {
+        return UUID.fromString(ok(mergeOf(target, source, token(hr))).path("mergeId").asText());
+    }
+
     // The candidate an application is linked to now (candidate_applications).
     UUID linkOf(UUID application) {
         return jdbc.queryForObject("SELECT candidate_id FROM candidate_applications WHERE application_id = ?", UUID.class,

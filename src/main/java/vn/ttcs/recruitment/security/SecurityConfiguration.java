@@ -409,6 +409,12 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/candidates/*/merge")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        // Task 370: the undo is the same candidate write over the target's applications; the history
+                        // is read like the preview (403 without a readable application, logged).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/candidate-merges/*/undo")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/merges")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Kanban applies the same record scope and logs the profiles disclosed by its cards.
                         .requestMatchers(HttpMethod.GET, "/api/v1/application-board", "/api/v1/application-board/positions")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
