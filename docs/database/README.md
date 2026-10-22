@@ -16,9 +16,11 @@ Task 346 thêm V35: `application_notice_outbox`, hàng đợi email gửi sau kh
 
 V29 và V30 được để trống có chủ ý. Chuỗi PR cổng việc làm (#123–#129) dùng V26/V27, trùng số với V26–V28 của module hồ sơ ứng tuyển (task 325–329), nên khi gộp một bên được đánh lại số (cổng việc làm thành V29–V30, hoặc module hồ sơ thành V28–V30). Các migration từ V31 của module ứng viên chỉ được gộp vào develop **sau** khi cả hai bên đã gộp với số cuối cùng không quá V30: `application.properties` không bật `outOfOrder`, nên Flyway từ chối một migration có số nhỏ hơn migration lớn nhất đã chạy, và job deploy của CI áp develop lên VPS. Nếu chuỗi này buộc phải gộp trước, bên gộp sau được đánh lại số lớn hơn migration cuối của chuỗi này, không dùng V29–V30. Database cục bộ hoặc demo đã chạy V31 trước khi có V29/V30 cần tạo lại (hoặc chạy một lần với `outOfOrder`).
 
+V29/V30 của PR #130 chưa được áp dụng ở bất kỳ database nào theo xác nhận của nhóm ngày 2026-10-21. Hai migration này giữ nguyên nội dung SQL nhưng chuyển thành V68/V68_1 trong `database/migrations-shared/`, dùng chung cho S5 và feedback. Số 59–64 đã thuộc lịch phỏng vấn, câu hỏi đã hỏi, quyết định tuyển, offer và onboarding, đã áp dụng trên VPS ngày 2026-10-21; 65–67 thuộc các PR Sprint 5–8 đang mở. Không thêm migration số thấp vào database đã lên V56, không bật outOfOrder, baseline hoặc repair và không tạo lại dữ liệu để né lịch sử. Xem [lineage và thứ tự phát hành](migration-lineages.md).
+
 SQL gốc ở `database/migrations/`. Maven đóng gói SQL vào `db/migration/` trong backend JAR, nên JAR chạy migration được trên máy khác. Không có bản SQL thứ hai trong `src/main/resources`.
 
-`database/seeds/` dành cho script tạo dữ liệu mẫu theo cấu trúc chung của nhóm; hiện chỉ có `.gitkeep` để giữ thư mục trong Git. Khi bổ sung seed, cần hướng dẫn chạy riêng. Flyway hiện chỉ nạp các migration được Maven đóng gói từ `database/migrations/`.
+`database/seeds/` dành cho script tạo dữ liệu mẫu theo cấu trúc chung của nhóm; hiện chỉ có `.gitkeep` để giữ thư mục trong Git. Khi bổ sung seed, cần hướng dẫn chạy riêng. Flyway nạp đúng một lineage S5/feedback cùng `database/migrations-shared/`.
 
 | Bảng | Nội dung |
 |---|---|
