@@ -1,0 +1,7 @@
+**
+!target/
+!target/ttcs-backend-0.0.1-SNAPSHOT.jar
+!devops/
+!devops/cv-extraction/
+!devops/cv-extraction/Dockerfile
+!devops/cv-extraction/logback.xml
