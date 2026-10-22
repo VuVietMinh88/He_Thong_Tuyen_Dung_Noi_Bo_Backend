@@ -112,11 +112,15 @@ final class ApplicationTestSupport {
     }
 
     Stored stored(UUID posting, ApplicationSubmission submission) {
+        return stored(posting, submission, pdf());
+    }
+
+    Stored stored(UUID posting, ApplicationSubmission submission, ValidatedCv cv) {
         byte[] token = new byte[32];
         random.nextBytes(token);
         try {
             String code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(token);
-            var saved = storage.store(posting, submission, pdf(), MessageDigest.getInstance("SHA-256").digest(token));
+            var saved = storage.store(posting, submission, cv, MessageDigest.getInstance("SHA-256").digest(token));
             return new Stored(saved.id(), code);
         } catch (java.security.NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
@@ -133,10 +137,14 @@ final class ApplicationTestSupport {
     }
 
     ValidatedCv pdf() {
+        return pdf("cv.pdf");
+    }
+
+    ValidatedCv pdf(String filename) {
         try (var document = new PDDocument(); var output = new ByteArrayOutputStream()) {
             document.addPage(new PDPage());
             document.save(output);
-            return validator.validate("cv.pdf", new ByteArrayInputStream(output.toByteArray()));
+            return validator.validate(filename, new ByteArrayInputStream(output.toByteArray()));
         } catch (java.io.IOException exception) {
             throw new IllegalStateException(exception);
         }
@@ -150,6 +158,33 @@ final class ApplicationTestSupport {
         } catch (java.io.IOException exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    UUID requisitionOf(UUID posting) {
+        return jdbc.queryForObject("SELECT requisition_id FROM job_postings WHERE id = ?", UUID.class, posting);
+    }
+
+    // An enabled staff account with this name and email (SQL, no role): enough to be a requisition's creator, a
+    // department's manager or an assigned recruiter.
+    UUID staff(String fullName, String email) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO user_accounts(id,email,password_hash,full_name,enabled,created_at) VALUES (?,?,'test-only',?,true,?)",
+                id, email, fullName, Timestamp.from(NOW));
+        return id;
+    }
+
+    // A recruiter of the requisition (V16), PRIMARY or SUPPORTING, assigned by `by`.
+    void assign(UUID requisition, UUID recruiter, String role, UUID by) {
+        jdbc.update("INSERT INTO requisition_recruiters(requisition_id,recruiter_id,assignment_role,assigned_by,assigned_at) VALUES (?,?,?,?,?)",
+                requisition, recruiter, role, by, Timestamp.from(NOW));
+    }
+
+    // An active CANDIDATE_SOURCE catalog value with this name, as the public form offers it.
+    UUID source(String name) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO recruitment_catalog_items(id,catalog_type,code,name,sort_order,active,created_at,updated_at) VALUES (?,'CANDIDATE_SOURCE',?,?,0,true,?,?)",
+                id, id.toString(), name, Timestamp.from(NOW), Timestamp.from(NOW));
+        return id;
     }
 
     // Sprint 4 has no stage API (S5-02): tests move an application with SQL.

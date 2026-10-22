@@ -1,12 +1,12 @@
 # Theo dõi hồ sơ ứng tuyển
 
-Phạm vi TKNHTTDNB1-340 (ánh xạ trạng thái nội bộ thành trạng thái công khai) và TKNHTTDNB1-339 (tra cứu bằng mã tra cứu và email), story TKNHTTDNB1-44 (S4-05): ứng viên tra cứu trạng thái hồ sơ của mình bằng mã tra cứu, để biết hồ sơ đã được xem chưa mà không phải gọi điện hỏi. Task 340 thêm quy tắc ánh xạ dùng chung `PublicApplicationStatus` (mục "Trạng thái công khai (task 340)"), không thêm API, migration hay mã quyền. Task 339 thêm API công khai `POST /api/v1/public/applications/lookup` (mục "Tra cứu hồ sơ (task 339)") và migration V31 cho hạn mức theo IP, không thêm mã quyền. Hồ sơ được nộp qua [API nhận hồ sơ công khai](public-applications.md) (task 326); mã tra cứu được trả trong response nộp hồ sơ và gửi trong [email xác nhận](application-confirmation.md) (task 329).
+Phạm vi TKNHTTDNB1-340 (ánh xạ trạng thái nội bộ thành trạng thái công khai), TKNHTTDNB1-339 (tra cứu bằng mã tra cứu và email) và TKNHTTDNB1-341 (không tiết lộ nhận xét nội bộ, đánh giá hay tên người phỏng vấn), story TKNHTTDNB1-44 (S4-05): ứng viên tra cứu trạng thái hồ sơ của mình bằng mã tra cứu, để biết hồ sơ đã được xem chưa mà không phải gọi điện hỏi. Task 340 thêm quy tắc ánh xạ dùng chung `PublicApplicationStatus` (mục "Trạng thái công khai (task 340)"), không thêm API, migration hay mã quyền. Task 339 thêm API công khai `POST /api/v1/public/applications/lookup` (mục "Tra cứu hồ sơ (task 339)") và migration V31 cho hạn mức theo IP, không thêm mã quyền. Task 341 không đổi API: ghim bằng test và tài liệu rằng API công khai chỉ trả bốn trường được phép (mục "Dữ liệu công khai (task 341)"). Hồ sơ được nộp qua [API nhận hồ sơ công khai](public-applications.md) (task 326); mã tra cứu được trả trong response nộp hồ sơ và gửi trong [email xác nhận](application-confirmation.md) (task 329).
 
 Tiêu chí của story S4-05:
 
 - "Nhập mã tra cứu và email để xem trạng thái": đã có (339). Ứng viên gửi mã tra cứu và email đã dùng khi nộp hồ sơ trong thân một yêu cầu POST, không cần tài khoản.
 - "Chỉ hiển thị trạng thái ở mức tổng quát: Đã nhận, Đang xem xét, Mời phỏng vấn, Kết thúc": quy tắc đã có (340): mỗi giai đoạn nội bộ hiện ra đúng một trong bốn trạng thái này. API nộp hồ sơ và API tra cứu (339) đều lấy trạng thái từ quy tắc này.
-- "Không tiết lộ nhận xét nội bộ hay tên người phỏng vấn": API tra cứu chỉ trả tên vị trí, thời điểm nộp và trạng thái công khai (339); test ghim điều này là task 341.
+- "Không tiết lộ nhận xét nội bộ hay tên người phỏng vấn": đã có (339, 341). API tra cứu chỉ trả tên vị trí, thời điểm nộp và trạng thái công khai (339); task 341 ghim điều này bằng test, kể cả cho các bảng nhận xét, đánh giá, phỏng vấn mà Sprint 5, 6 sẽ thêm.
 
 ## Trạng thái công khai (task 340)
 
@@ -149,3 +149,57 @@ Sau đó tra cứu (và rút hồ sơ, task 345) bằng mã đó trả 404 như 
 - Không lưu mã hay email vào `localStorage`/`sessionStorage`; phục vụ trang tra cứu với `Content-Security-Policy: frame-ancestors 'none'`.
 
 Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 24, ý (5)–(10).
+
+## Dữ liệu công khai (task 341)
+
+Tiêu chí thứ ba của story S4-05: "Không tiết lộ nhận xét nội bộ hay tên người phỏng vấn". API tra cứu của task 339 đã chỉ trả bốn trường, nên task 341 không đổi API, migration hay mã quyền. Task này viết quy tắc thành hợp đồng trong code (Javadoc của `PublicApplicationView` và `PublicApplicationReader`), ghim nó bằng test và đặt quy tắc cho các bảng mà Sprint 5, 6 sẽ thêm (nhận xét, đánh giá, phỏng vấn, người phỏng vấn; tới migration V31 chưa có bảng nào như vậy).
+
+### Danh sách cho phép
+
+Ứng viên chỉ nhận dữ liệu hồ sơ qua API tra cứu bằng record `PublicApplicationView`, và chỉ `PublicApplicationReader` điền record này:
+
+| Trường | Lấy từ | Vì sao ứng viên được thấy |
+|---|---|---|
+| `postingTitle` | `job_applications.posting_title` (bản chụp lúc nộp) | Ứng viên đã thấy tên này trên tin lúc nộp |
+| `receivedAt` | `job_applications.received_at` | Thời điểm của chính lần nộp |
+| `status`, `statusName` | `job_applications.stage`, chỉ qua `PublicApplicationStatus.of` (task 340) | Tiêu chí thứ hai của story; giai đoạn nội bộ không ra ngoài |
+
+Câu SQL chỉ đọc bảng `job_applications`: ba cột trên, cộng `tracking_code_hash`, `normalized_email`, `tracking_revoked_at` để tìm đúng dòng. Nó không nối (join) bảng nào khác: tài khoản nhân viên, yêu cầu tuyển dụng, nhóm recruiter, phòng ban, tin, danh mục, CV, hàng đợi email, các bảng lịch sử. Response là một record riêng chỉ có trường công khai (danh sách cho phép), không phải dòng dữ liệu nội bộ bị ẩn bớt trường (danh sách cấm), nên một cột mới của bảng nội bộ không tự xuất hiện trong response.
+
+Ngoài API tra cứu, ứng viên nhận dữ liệu hồ sơ ở đúng hai chỗ có chủ đích, đều là biên nhận của chính lần nộp:
+
+- Response 201 của API nộp hồ sơ (`AcceptedApplication`, task 326): `applicationId` (mã hồ sơ nội bộ), `status`, `statusName`, `receivedAt`, `trackingCode`, `trackingUrl`, chỉ trả một lần cho người vừa nộp.
+- [Email xác nhận](application-confirmation.md) (task 329), gửi tới email đã nộp: họ tên đã nộp, tên vị trí (bản chụp), thời điểm tiếp nhận, mã tra cứu và liên kết tra cứu.
+
+API tra cứu không trả lại các dữ liệu đó.
+
+### Không bao giờ trả cho ứng viên qua API tra cứu
+
+Danh sách dưới đây áp dụng cho API tra cứu. Hai biên nhận ở mục trên là ngoại lệ có chủ đích: response 201 có `applicationId`, email xác nhận có họ tên đã nộp.
+
+- Nhận xét, ghi chú, lý do và giải trình nội bộ. Hiện có: nhận xét duyệt yêu cầu tuyển dụng và lý do tạm dừng, đóng, hủy yêu cầu (`requisition_workflow_events.comment`), nhận xét duyệt tin (`job_posting_events.comment`), ghi chú phân công recruiter (`requisition_recruiter_changes.note`), lý do Trưởng phòng Nhân sự xác nhận vượt định biên (`requisition_headcount_overrides.reason`), giải trình lương của yêu cầu (`recruitment_requisitions.salary_justification`), lý do khóa tài khoản nhân viên (`user_accounts.admin_lock_reason`). Về sau: nhãn và ghi chú hồ sơ (S5-04).
+- Phiếu đánh giá, điểm, xếp hạng, kết quả phỏng vấn, người phỏng vấn (Sprint 6); đã có ngân hàng câu hỏi phỏng vấn và gợi ý trả lời (`interview_questions.content`, `answer_hint`, V9).
+- Tên, email, id của bất kỳ nhân viên nào: recruiter chính, recruiter hỗ trợ, trưởng phòng ban, người tạo yêu cầu, người duyệt, người phỏng vấn.
+- Giai đoạn nội bộ (`stage`) và tên nội bộ của nó ("Hồ sơ mới", "Sàng lọc", "Phỏng vấn", "Đề xuất offer", "Nhận việc", "Loại", "Ứng viên rút").
+- Mã hồ sơ, mã yêu cầu tuyển dụng, mã tin, mã phòng ban hay bất kỳ id nội bộ nào.
+- Dữ liệu đã nộp: họ tên, email, số điện thoại, nguồn biết tin, thư giới thiệu, CV và tên tệp CV; dữ liệu giới thiệu nội bộ (S4-07); lý do rút hồ sơ (task 345).
+- Lỗi cũng vậy: thân lỗi chỉ có `code`, `message`, `fieldErrors`, không lặp lại email hay mã đã gửi; 404 của một mã đúng với email sai không cho biết gì về hồ sơ của mã đó (không có tên vị trí).
+
+### Quy tắc cho các bảng của Sprint 5 và 6
+
+- Bảng nhận xét, đánh giá, phỏng vấn, người phỏng vấn, và mọi bảng khác, không bao giờ được nối vào `PublicApplicationReader`. Test `theLookupReadsNoTableButTheApplicationAndItsQuota` khóa độc quyền (`ACCESS EXCLUSIVE`) mọi bảng trong schema, trừ `job_applications` và hai bảng hạn mức của V31, rồi tra cứu: phải trả 200 ngay, cùng thân như khi không khóa. Bảng mới tự nằm trong danh sách bị khóa, nên ai nối thêm một bảng, kể cả chỉ trong một truy vấn con không hiện ra trong response, là test đỏ (câu truy vấn chờ khóa rồi hết 3 giây, trả 503).
+- Dòng thời gian (S5-07), nếu có, chỉ gồm các mục trạng thái công khai và thời điểm, lấy từ `PublicApplicationStatus.of`; không có nhận xét, lý do hay người thực hiện.
+- Thêm một trường công khai là đổi hợp đồng: sửa `PublicApplicationView`, các test ghim (`PublicApplicationResponsesTest`, `PublicApplicationPrivacyIntegrationTest`) và mục này, ghi rõ vì sao ứng viên được thấy, rồi báo frontend.
+- `PublicResponseContract` (test) từ chối mọi thành phần record có tên giống dữ liệu nội bộ (chứa `note`, `comment`, `evaluat`, `score`, `rating`, `interview`, `recruiter`, `manager`, `staff`, `actor`, `requisition`, `reason`, `email`, `phone`, `cv`, `file`, `stage`, `source`, `referr`, `hash`, `tracking`, `candidate`, `applicationid`, `postingid`; hoặc tên là `id`, kết thúc bằng `Id`), mọi thành phần kiểu `UUID` và mọi thành phần nhắc tới `ApplicationStage`, kể cả trong record lồng nhau, `List`, `Optional`, `Map` hay mảng. Ngoại lệ phải ghi tên từng thành phần, và một ngoại lệ không còn ứng với thành phần nào cũng làm test đỏ. Danh sách hồ sơ đã giới thiệu (task 352) dùng cùng công cụ này.
+
+### Kiểm thử (task 341)
+
+- `PublicApplicationResponsesTest` (unit): `PublicApplicationView` đúng bốn thành phần, không thành phần nào giống dữ liệu nội bộ; `AcceptedApplication` đúng sáu thành phần, chỉ `applicationId`, `trackingCode`, `trackingUrl` là ngoại lệ; mỗi giai đoạn cho đúng mã và tên công khai, không bao giờ mã hay tên nội bộ; JSON đúng bốn khóa. Phần còn lại tự kiểm `PublicResponseContract`: ghi chú, giai đoạn (cả danh sách giai đoạn), người phỏng vấn trong `Optional`, nhận xét trong dòng thời gian (`List`, mảng, `Map`), id dạng chuỗi, `UUID`, điểm, recruiter đều bị từ chối và được gọi đúng đường dẫn (`next.interviewerName`); dòng thời gian chỉ có trạng thái và thời điểm được nhận; ngoại lệ thừa hoặc sai đường dẫn bị từ chối.
+- `PublicApplicationPrivacyIntegrationTest` (HTTP thật, `max-attempts=3`): hồ sơ có recruiter chính, recruiter hỗ trợ, trưởng phòng, người tạo yêu cầu với tên dễ nhận ra, nhận xét duyệt yêu cầu, nhận xét duyệt tin, ghi chú phân công, lý do vượt định biên, giải trình lương, lý do khóa tài khoản của recruiter hỗ trợ, nguồn "Nguồn Bí Mật", thư giới thiệu, số điện thoại, CV "cv-bi-mat.pdf". Với mỗi giai đoạn: đúng bốn khóa, giá trị đúng như task 340; thân và mọi header không chứa tên, email hay id của nhân viên, nhận xét, ghi chú, lý do, giải trình, nguồn, tên tệp, số điện thoại, email và tên ứng viên, id hồ sơ, yêu cầu, tin, phòng ban, mã hay tên giai đoạn nội bộ. Khi mọi bảng khác bị khóa: tra cứu vẫn 200 với cùng thân, dưới 2,5 giây. Lỗi 400, 404, 429: đúng ba khóa, không lặp lại email, mã hay phần nào của mã đã gửi, không có tên vị trí.
+
+### Ghi chú cho frontend (task 341)
+
+- Trang tra cứu đang hiện `timeline[].note` (`src/pages/CareerPage/ApplicationLookupPage.tsx`, dòng 347 và 363) và tự thêm lý do rút vào dòng thời gian (dòng 405). Backend không gửi dòng thời gian; bỏ phần hiện ghi chú khỏi trang công khai.
+- `sanitizePublicApplicationResult` (`src/services/applicationLookupService.ts`) lọc dữ liệu ở trình duyệt, nhưng lọc ở trình duyệt không bảo vệ được gì: dữ liệu đã nằm trong response mà ai cũng xem được bằng công cụ của trình duyệt. Bảo đảm nằm ở server (danh sách cho phép ở trên); frontend chỉ cần hiện đúng bốn trường.
+
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 24, ý (11).
