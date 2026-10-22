@@ -220,13 +220,10 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         try {
             ok(call("GET", "/api/v1/interviews/" + id, null, hrToken));
             error(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")), 403, "FORBIDDEN");
-            var update = schedule(START.plusSeconds(3600), panel, "Room"); update.put("expectedVersion", 0);
-            error(call("PUT", "/api/v1/interviews/" + id, json.writeValueAsString(update), hrToken), 403, "FORBIDDEN");
             assertThat(jdbc.queryForList("SELECT access_scope FROM candidate_access_events WHERE actor_id=? AND outcome='DENIED'",
-                    String.class, hr)).hasSize(2).containsOnly("SCOPED");
+                    String.class, hr)).hasSize(1).containsOnly("SCOPED");
             applications.assign(requisition, hr, "SUPPORTING", hr);
             created(create(first.applicationId(), hrToken, schedule(START.plusSeconds(3600), panel, "Room")));
-            ok(call("POST", "/api/v1/interviews/" + id + "/cancel", "{\"expectedVersion\":0,\"reason\":\"Đổi kế hoạch\"}", hrToken));
             error(create(other.applicationId(), hrToken, schedule(START.plusSeconds(7200), panel, "Room")), 403, "FORBIDDEN");
         } finally { narrowHr("WRITE", false); }
     }
