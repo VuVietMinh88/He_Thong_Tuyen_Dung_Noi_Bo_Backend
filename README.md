@@ -49,6 +49,8 @@ Xem [bảng đối chiếu và cách nâng cấp database](docs/database/migrati
 - [application-duplicates](docs/api/application-duplicates.md)
 - [application-ip-quota](docs/api/application-ip-quota.md)
 - [application-confirmation](docs/api/application-confirmation.md)
+- [cv-suggestions](docs/api/cv-suggestions.md)
+- [confirmed-contacts](docs/api/confirmed-contacts.md)
 - [application-tracking](docs/api/application-tracking.md)
 - [candidate-profiles](docs/api/candidate-profiles.md)
 - [application-referrals](docs/api/application-referrals.md)

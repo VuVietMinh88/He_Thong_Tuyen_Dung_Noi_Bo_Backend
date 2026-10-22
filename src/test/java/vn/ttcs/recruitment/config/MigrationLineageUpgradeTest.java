@@ -62,7 +62,7 @@ class MigrationLineageUpgradeTest {
         DataSource feedback = newDatabase();
         for (var entry : Map.of("s5", s5, "feedback", feedback).entrySet()) {
             Flyway flyway = configured(entry.getValue(), entry.getKey()).load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(44);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(46);
             flyway.validate();
             assertThat(flyway.migrate().migrationsExecuted).isZero();
         }
@@ -105,7 +105,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "s5").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(6);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertThat(jdbc.queryForObject("SELECT content FROM application_cvs WHERE application_id=?", byte[].class,
@@ -131,7 +131,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "feedback").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(13);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(15);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertUnifiedFeatures(jdbc);
@@ -239,7 +239,7 @@ class MigrationLineageUpgradeTest {
         // This edit is deliberate test fixture setup. Production requires staff to resolve the duplicate first.
         jdbc.update("UPDATE user_accounts SET phone=NULL WHERE id=?", first);
         Flyway retry = configured(dataSource, "s5").load();
-        assertThat(retry.migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(retry.migrate().migrationsExecuted).isEqualTo(4);
         retry.validate();
         assertThat(retry.migrate().migrationsExecuted).isZero();
     }
