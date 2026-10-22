@@ -23,6 +23,11 @@ class MigrationLineageConfigurationTest {
             application.getBean(FlywayConfigurationCustomizer.class).customize(configuration);
             assertThat(configuration.getLocations()).extracting(Location::getDescriptor)
                     .containsExactly(location, "classpath:db/migration-shared");
+            assertThat(configuration.isOutOfOrder()).isFalse();
+            assertThat(configuration.isBaselineOnMigrate()).isFalse();
+            assertThat(configuration.isCleanDisabled()).isTrue();
+            assertThat(configuration.isValidateOnMigrate()).isTrue();
+            assertThat(configuration.getIgnoreMigrationPatterns()).isEmpty();
         });
     }
 
