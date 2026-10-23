@@ -425,3 +425,63 @@ Ghi chú cho frontend:
   hồ sơ hợp nhất `/candidates/{candidateId}`; người dùng xác nhận rồi mới gửi form nhập.
 - Trùng số điện thoại chỉ là **gợi ý**, không chặn lưu; hệ thống không tự gộp hai email khác nhau.
 - Câu hỏi BA/PO: có cần chức năng gộp thủ công hai hồ sơ ứng viên khác email nhưng cùng người không (hiện chưa có).
+
+## 412 — Chuẩn hóa tiêu chí bắt buộc của vị trí
+
+Migration: `V65_3__create_position_required_criteria.sql` (bảng `position_required_criteria`: số năm kinh nghiệm tối
+thiểu, trình độ tối thiểu, version, người/thời điểm sửa; bảng `position_required_skills`: kỹ năng bắt buộc theo thứ tự,
+khóa so khớp không phân biệt hoa thường/dấu).
+
+Tiêu chí gắn với **vị trí trong danh mục** (`positions`), dùng chung cho mọi requisition của vị trí đó.
+
+| Method | Path | Quyền |
+|---|---|---|
+| GET | `/api/v1/positions/{id}/required-criteria` | `ORGANIZATION_READ_ALL` (mọi vai trò nội bộ) |
+| PUT | `/api/v1/positions/{id}/required-criteria` | `ORGANIZATION_WRITE_ALL` (ADMIN, HR_MANAGER) |
+
+Request PUT:
+
+```json
+{
+  "minExperienceYears": 3,
+  "requiredEducation": "BACHELOR",
+  "requiredSkills": ["Java", "Spring Boot"],
+  "expectedVersion": 0
+}
+```
+
+- `minExperienceYears`: số nguyên JSON 0..50 hoặc `null` (không yêu cầu). `2.5`, `"3"` → 400 `INVALID_JSON`.
+- `requiredEducation`: `HIGH_SCHOOL`, `COLLEGE`, `BACHELOR`, `MASTER`, `DOCTORATE` hoặc `null`. Bậc cao hơn đáp ứng bậc thấp hơn.
+- `requiredSkills`: tối đa 20 kỹ năng khác nhau, mỗi kỹ năng 1..60 ký tự văn bản thuần; khoảng trắng thừa bị gộp; trùng
+  (không phân biệt hoa thường và dấu: "Kế toán" = "ke toan") chỉ giữ cách viết đầu tiên. `null` hoặc `[]` = không yêu cầu.
+  Khoảng trắng không ngắt dòng/khoảng trắng rộng 0 ở hai đầu bị bỏ, khoảng trắng liền nhau bên trong gộp làm một; kỹ năng
+  chỉ gồm ký tự ẩn bị từ chối (400).
+- `expectedVersion`: bắt buộc, là `version` vừa đọc (0 nếu chưa từng lưu).
+- Gửi mọi giá trị `null`/rỗng là xóa tiêu chí (version vẫn tăng, `configured=false`).
+
+Response 200 (GET và PUT):
+
+```json
+{
+  "positionId": "19e0…",
+  "configured": true,
+  "minExperienceYears": 3,
+  "requiredEducation": "BACHELOR",
+  "requiredEducationName": "Đại học",
+  "requiredSkills": ["Java", "Spring Boot"],
+  "version": 1,
+  "updatedAt": "2026-10-15T03:00:00Z",
+  "updatedBy": { "id": "a1b2…", "fullName": "HR Nội Bộ" }
+}
+```
+
+Chưa cấu hình: `configured=false`, `version=0`, các giá trị `null`/rỗng, `updatedBy=null`.
+
+Lỗi: 400 `VALIDATION_ERROR`, 400 `INVALID_JSON` (sai kiểu, enum lạ, trường lạ), 401, 403 `FORBIDDEN`,
+404 `POSITION_NOT_FOUND`, 409 `FIT_CRITERIA_CHANGED` (version cũ), 503 `FIT_CRITERIA_BUSY`.
+
+Ghi chú cho frontend:
+
+- Màn hình "Tiêu chí bắt buộc" trong chi tiết vị trí: input số năm, dropdown trình độ (hiển thị `requiredEducationName`),
+  ô nhập kỹ năng dạng tag. Chỉ HR/Admin thấy nút Lưu.
+- Luôn gửi `expectedVersion` lấy từ lần GET gần nhất; khi 409 thì tải lại và cho sửa lại.
