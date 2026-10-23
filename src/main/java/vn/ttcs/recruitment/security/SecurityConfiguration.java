@@ -354,6 +354,9 @@ public class SecurityConfiguration {
                         // again before any lookup, then the scope of that application (403 outside it, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Internal timeline uses the same application scope and PROFILE access audit.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/timeline")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Task 380 (story S5-03): moving an application to another stage is a CANDIDATES write, ALL
                         // (HR_MANAGER, ADMIN) or SCOPED (RECRUITER: the requisitions it is assigned to).
                         // ApplicationStageChangeService checks the write and the read code again after locking the
