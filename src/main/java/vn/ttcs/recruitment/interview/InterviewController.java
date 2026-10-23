@@ -47,6 +47,10 @@ public class InterviewController {
     public ResponseEntity<InterviewView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
             @Valid @RequestBody InterviewScheduleRequest request) { return ok(service.update(jwt, id, request)); }
 
+    @PostMapping("/api/v1/interviews/{id}/cancel")
+    public ResponseEntity<InterviewView> cancel(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @Valid @RequestBody InterviewCancelRequest request) { return ok(service.cancel(jwt, id, request)); }
+
     @PostMapping("/api/v1/interviews/conflicts")
     public ResponseEntity<List<InterviewConflict>> conflicts(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody InterviewConflictRequest request) { return ok(service.conflicts(jwt, request)); }
