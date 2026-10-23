@@ -114,6 +114,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/applications/{id}/interviews", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/interviews/me", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 200),
+            endpoint("POST", "/api/v1/interviews/conflicts", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/health", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/health", PUBLIC, null, 200),
             endpoint("POST", "/api/v1/auth/login", PUBLIC, INVALID_BODY, 400),

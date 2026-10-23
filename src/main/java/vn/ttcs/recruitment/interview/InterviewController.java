@@ -43,5 +43,9 @@ public class InterviewController {
     @GetMapping("/api/v1/interviews/{id}")
     public ResponseEntity<InterviewView> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.get(jwt, id)); }
 
+    @PostMapping("/api/v1/interviews/conflicts")
+    public ResponseEntity<List<InterviewConflict>> conflicts(@AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody InterviewConflictRequest request) { return ok(service.conflicts(jwt, request)); }
+
     private static <T> ResponseEntity<T> ok(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }

@@ -120,6 +120,15 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
     }
 
 
+    @Test
+    void previewReturnsOnlyResourceConflictsAndDoesNotSave() throws Exception {
+        created(create(other.applicationId(), hrToken, schedule(START, panel, "Room")));
+        Map<String, Object> preview = schedule(START, panel, "Room"); preview.put("applicationId", first.applicationId());
+        var response = ok(call("POST", "/api/v1/interviews/conflicts", json.writeValueAsString(preview), recruiterToken));
+        assertThat(response.size()).isEqualTo(2);
+        assertThat(response.toString()).doesNotContain("applicationId", "candidate", "email", "roundName", "meetingUrl", "Finance");
+        assertThat(count("interview_sessions")).isEqualTo(1);
+    }
 
 
 
