@@ -354,6 +354,34 @@ public class SecurityConfiguration {
                         // again before any lookup, then the scope of that application (403 outside it, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Interview scopes are checked again against the application or invited panel in the service.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interviews",
+                                "/api/v1/interviews/me", "/api/v1/interviews/*")
+                                .hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/interviews",
+                                "/api/v1/interviews/conflicts", "/api/v1/interviews/*/cancel")
+                                .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/interviews/*")
+                                .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interviews/*/evaluations/me",
+                                "/api/v1/interviews/*/evaluations")
+                                .hasAnyAuthority("PERM_EVALUATIONS_READ_ALL", "PERM_EVALUATIONS_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/interviews/*/evaluations/me",
+                                "/api/v1/interviews/*/evaluations/me/submit")
+                                .hasAnyAuthority("PERM_EVALUATIONS_WRITE_ALL", "PERM_EVALUATIONS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/interviews/*/evaluations/me")
+                                .hasAnyAuthority("PERM_EVALUATIONS_WRITE_ALL", "PERM_EVALUATIONS_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/interviews/*/evaluations/*/reopen")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("RECRUITER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority(
+                                                "PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")))
+                        // Recruiters can obtain the version needed to reopen without seeing the assessment answers.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interviews/*/evaluations/*/status")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasRole("RECRUITER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority(
+                                                "PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")))
                         // Internal timeline uses the same application scope and PROFILE access audit.
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/timeline")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")

@@ -96,6 +96,14 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String CANDIDATES_READ_SCOPED = "CANDIDATES_READ_SCOPED";
     private static final String CANDIDATES_WRITE_ALL = "CANDIDATES_WRITE_ALL";
     private static final String CANDIDATES_WRITE_SCOPED = "CANDIDATES_WRITE_SCOPED";
+    private static final String INTERVIEWS_READ_ALL = "INTERVIEWS_READ_ALL";
+    private static final String INTERVIEWS_READ_SCOPED = "INTERVIEWS_READ_SCOPED";
+    private static final String INTERVIEWS_WRITE_ALL = "INTERVIEWS_WRITE_ALL";
+    private static final String INTERVIEWS_WRITE_SCOPED = "INTERVIEWS_WRITE_SCOPED";
+    private static final String EVALUATIONS_READ_ALL = "EVALUATIONS_READ_ALL";
+    private static final String EVALUATIONS_READ_SCOPED = "EVALUATIONS_READ_SCOPED";
+    private static final String EVALUATIONS_WRITE_ALL = "EVALUATIONS_WRITE_ALL";
+    private static final String EVALUATIONS_WRITE_SCOPED = "EVALUATIONS_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -250,8 +258,6 @@ class ApiAuthorizationMatrixIntegrationTest {
             // integrations are complete. Admission refuses before JSON/multipart parsing for every role.
             endpoint("POST", "/api/v1/public/job-postings/{id}/applications", PUBLIC, INVALID_BODY, 503),
             endpoint("GET", "/api/v1/public/application-sources", PUBLIC, null, 200),
-            // Task 315: the values of the portal's filter lists, public like the list; empty lists to everyone here.
-            endpoint("GET", "/api/v1/public/job-postings/filters", PUBLIC, null, 200),
             // Task 339: a candidate's lookup by tracking code and email; anonymous, a stale bearer is ignored, and the
             // empty body fails validation before the tracking quota counts anything.
             endpoint("POST", "/api/v1/public/applications/lookup", PUBLIC, INVALID_BODY, 400),
@@ -271,6 +277,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 345: a candidate's withdrawal, guarded and counted like the lookup; the empty body fails validation
             // (code, email and confirm missing) before the quota or any lock.
             endpoint("POST", "/api/v1/public/applications/withdraw", PUBLIC, INVALID_BODY, 400),
+            // Task 315: the values of the portal's filter lists, public like the list; empty lists to everyone here.
+            endpoint("GET", "/api/v1/public/job-postings/filters", PUBLIC, null, 200),
             // Task 310: the review and publication history is read like the posting; the unknown id stops it at 404.
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             // Task 361: the unified candidate profile; both CANDIDATES read scopes pass (APPROVER is SCOPED from
@@ -860,8 +868,6 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "GET /api/v1/job-requisitions/" + UNKNOWN_ID + "/active-candidates-count",
                 // Task 292: a posting is closed only with its requisition; there is no route to close one by hand.
                 "POST /api/v1/job-postings/" + UNKNOWN_ID + "/close",
-                // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
-                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
                 // Task 339: the frontend's current lookup puts the secret in the query; only the POST exists.
                 "GET /api/v1/public/applications/lookup",
                 // Task 345: the frontend's current withdrawal puts the code in the path; only the POST with the
@@ -1063,19 +1069,25 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Rule adminWithAll(String... codes) { return new Rule(List.of(codes), false, true); }
 
     // PUBLIC has no codes. Otherwise the caller needs every code (any one with anyOf), plus ROLE_ADMIN when required.
-    private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {
+    private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole, boolean requiresRecruiterRole) {
+        Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {
+            this(permissions, anyOf, requiresAdminRole, false);
+        }
         boolean isPublic() { return permissions.isEmpty(); }
 
         boolean allows(Set<String> roles, Set<String> granted) {
             if (isPublic()) { return true; }
             boolean permitted = anyOf ? permissions.stream().anyMatch(granted::contains) : granted.containsAll(permissions);
-            return permitted && (!requiresAdminRole || roles.contains("ADMIN"));
+            return permitted && (!requiresAdminRole || roles.contains("ADMIN"))
+                    && (!requiresRecruiterRole || roles.contains("RECRUITER"));
         }
 
         @Override
         public String toString() {
             if (isPublic()) { return "PUBLIC"; }
-            return (requiresAdminRole ? "ROLE_ADMIN + " : "") + String.join(anyOf ? " | " : " + ", permissions);
+            return (requiresAdminRole ? "ROLE_ADMIN + " : "")
+                    + (requiresRecruiterRole ? "ROLE_RECRUITER + " : "")
+                    + String.join(anyOf ? " | " : " + ", permissions);
         }
     }
 
@@ -1083,7 +1095,7 @@ class ApiAuthorizationMatrixIntegrationTest {
         String key() { return method + " " + template; }
 
         String samplePath() {
-            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
                     .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{type}", CATALOG_TYPE);
         }
