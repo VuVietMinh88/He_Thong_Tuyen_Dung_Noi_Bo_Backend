@@ -94,6 +94,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String HEADCOUNT_PLANS_WRITE_ALL = "HEADCOUNT_PLANS_WRITE_ALL";
     private static final String CANDIDATES_READ_ALL = "CANDIDATES_READ_ALL";
     private static final String CANDIDATES_READ_SCOPED = "CANDIDATES_READ_SCOPED";
+    private static final String CANDIDATES_WRITE_ALL = "CANDIDATES_WRITE_ALL";
+    private static final String CANDIDATES_WRITE_SCOPED = "CANDIDATES_WRITE_SCOPED";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -270,6 +272,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
             // scope check.
             endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Task 380: a stage change is a CANDIDATES write (ALL or SCOPED); the empty body fails validation before
+            // any lock or lookup. "/stage-changes" falls under stageHistoryHasNoEditOrDeleteRoute.
+            endpoint("POST", "/api/v1/applications/{id}/stage-changes", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
@@ -391,6 +396,23 @@ class ApiAuthorizationMatrixIntegrationTest {
             }
         });
         assertThat(editing).as("job posting trail routes that edit or delete").isEmpty();
+    }
+
+    @Test
+    void stageHistoryHasNoEditOrDeleteRoute() {
+        // Task 380: every stage change adds one row to the application's history (V34), which is never edited.
+        Set<String> editing = new TreeSet<>();
+        handlerMapping.getHandlerMethods().forEach((info, handler) -> {
+            for (String pattern : info.getPatternValues()) {
+                boolean history = pattern.contains("/stage-changes") || pattern.contains("/stage-history");
+                info.getMethodsCondition().getMethods().stream()
+                        .filter(method -> method == RequestMethod.PUT || method == RequestMethod.PATCH
+                                || method == RequestMethod.DELETE)
+                        .filter(method -> history)
+                        .forEach(method -> editing.add(method.name() + " " + pattern));
+            }
+        });
+        assertThat(editing).as("stage history routes that edit or delete").isEmpty();
     }
 
     @Test
@@ -830,7 +852,12 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "PUT /api/v1/candidates/" + UNKNOWN_ID + "/tags",
                 "PATCH /api/v1/candidates/" + UNKNOWN_ID + "/rating",
                 // Task 352: a referrer reads only their own list; there is no list of every referral.
-                "GET /api/v1/referrals")) {
+                "GET /api/v1/referrals",
+                // Task 380: a stage is changed only by POST .../stage-changes; a recorded change is never edited.
+                "PATCH /api/v1/applications/" + UNKNOWN_ID + "/stage",
+                "PUT /api/v1/applications/" + UNKNOWN_ID + "/stage",
+                "PUT /api/v1/applications/" + UNKNOWN_ID + "/stage-changes",
+                "DELETE /api/v1/applications/" + UNKNOWN_ID + "/stage-changes")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
