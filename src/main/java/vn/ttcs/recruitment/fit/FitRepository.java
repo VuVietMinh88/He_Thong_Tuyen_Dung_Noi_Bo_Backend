@@ -12,7 +12,11 @@ import vn.ttcs.recruitment.candidate.CandidateLabels;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -102,6 +106,37 @@ class FitRepository {
                     .addValue("key", skills.get(index).key()).addValue("display", skills.get(index).display())
                     .addValue("order", index));
         }
+    }
+
+    // Task 414: the recorded qualifications of many applications at once (two statements per chunk of 500 ids), for
+    // the ranking's live evaluation of stale results. Applications without qualifications are absent from the map.
+    Map<UUID, Qualifications> qualificationsOf(Collection<UUID> applicationIds) {
+        Map<UUID, Qualifications> found = new HashMap<>();
+        List<UUID> ids = List.copyOf(applicationIds);
+        for (int start = 0; start < ids.size(); start += 500) {
+            var parameters = new MapSqlParameterSource("ids", ids.subList(start, Math.min(ids.size(), start + 500)));
+            Map<UUID, List<CandidateLabels.Label>> skills = new HashMap<>();
+            jdbc.query("SELECT application_id, display_name, skill_key FROM application_skills"
+                    + " WHERE application_id IN (:ids) ORDER BY application_id, sort_order", parameters, row -> {
+                        skills.computeIfAbsent(row.getObject("application_id", UUID.class), id -> new ArrayList<>())
+                                .add(new CandidateLabels.Label(row.getString("display_name"), row.getString("skill_key")));
+                    });
+            jdbc.query("""
+                    SELECT q.application_id, q.experience_years, q.education_level, q.skills_recorded, q.version,
+                           q.recorded_at, q.recorded_by, u.full_name AS recorded_by_name
+                    FROM application_qualifications q JOIN user_accounts u ON u.id = q.recorded_by
+                    WHERE q.application_id IN (:ids)
+                    """, parameters, row -> {
+                        UUID id = row.getObject("application_id", UUID.class);
+                        found.put(id, new Qualifications(row.getBigDecimal("experience_years"),
+                                row.getString("education_level") == null ? null
+                                        : EducationLevel.valueOf(row.getString("education_level")),
+                                skills.getOrDefault(id, List.of()), row.getBoolean("skills_recorded"),
+                                row.getLong("version"), row.getTimestamp("recorded_at").toInstant(),
+                                row.getObject("recorded_by", UUID.class), row.getString("recorded_by_name")));
+                    });
+        }
+        return found;
     }
 
     // A newer computation never loses to an older one: the row changes only when the versions it was computed from

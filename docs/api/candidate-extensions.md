@@ -589,3 +589,63 @@ Ghi chú cho frontend:
   điểm/điểm tối đa, kỹ năng thiếu).
 - Luôn ghi rõ "Điểm chỉ để tham khảo, không tự loại ứng viên". Không đặt nút đổi giai đoạn dựa trên điểm.
 - Câu hỏi BA/PO: trọng số đang chia đều giữa các tiêu chí; nếu cần trọng số riêng (ví dụ kỹ năng 50%), cần bổ sung cấu hình.
+
+## 414 — API gợi ý xếp hạng ứng viên
+
+`GET /api/v1/requisitions/{id}/fit-ranking`
+
+Quyền: `CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED`; requisition không tồn tại → 404 `REQUISITION_NOT_FOUND`, ngoài
+phạm vi → 403. Chỉ đọc: không ghi kết quả, không đổi giai đoạn, không từ chối ai.
+
+Tham số:
+
+| Tham số | Mặc định | Ý nghĩa |
+|---|---|---|
+| `stage` (lặp) | `NEW, SCREENING, INTERVIEW, OFFER` | Giai đoạn được xếp hạng |
+| `requiredMetOnly` | `false` | `true`: chỉ hồ sơ đạt mọi tiêu chí bắt buộc |
+| `page` | 0 | 0..1000000 |
+| `size` | 20 | 1..100 |
+
+Thứ tự: hồ sơ **đạt tiêu chí bắt buộc** trước, rồi **điểm** cao → thấp, rồi nộp sớm hơn trước. Dùng kết quả đã lưu
+(413) khi nó còn khớp version tiêu chí và thông tin năng lực hiện tại; dòng cũ (ví dụ vừa đổi tiêu chí, worker chưa chạy)
+hoặc chưa có được tính trực tiếp từ dữ liệu hiện tại (`fit.current=false`), nên thứ hạng luôn đúng ngay sau khi đổi tiêu
+chí. Việc xếp hạng làm trong bộ nhớ cho toàn bộ hồ sơ của **một** requisition (đủ nhỏ), tiêu chí chỉ đọc một lần.
+
+Response 200:
+
+```json
+{
+  "requisitionId": "77aa…",
+  "positionId": "19e0…",
+  "criteria": { "...": "tiêu chí của vị trí (412)" },
+  "advice": "Điểm phù hợp chỉ để gợi ý thứ tự xem hồ sơ; hệ thống không tự loại hay chuyển giai đoạn ứng viên.",
+  "items": [
+    {
+      "rank": 1,
+      "applicationId": "4b8f…",
+      "candidateId": "0c1d…",
+      "fullName": "Nguyễn Văn A",
+      "stage": "NEW",
+      "stageName": "Hồ sơ mới",
+      "receivedAt": "2026-10-15T03:00:00Z",
+      "fit": { "status": "MET", "statusName": "Đạt tiêu chí bắt buộc", "requiredMet": true, "score": 100,
+               "criteria": [ "..." ], "evaluatedAt": "…", "current": true }
+    }
+  ],
+  "total": 4,
+  "page": 0,
+  "size": 20,
+  "hasNext": false
+}
+```
+
+`rank` là thứ hạng trong toàn bộ danh sách (không chỉ trong trang). Item không chứa email, điện thoại, CV, thư giới thiệu
+hay ghi chú. Mỗi hồ sơ hiện ra được ghi nhật ký `PROFILE`.
+
+Lỗi: 400 `VALIDATION_ERROR` (trang, giai đoạn, `requiredMetOnly` không phải true/false), 401, 403, 404.
+
+Ghi chú cho frontend:
+
+- Màn hình "Gợi ý xếp hạng" trong requisition: bảng hạng, tên, giai đoạn, điểm, cờ Đạt/Không đạt, nút xem chi tiết tiêu chí
+  (`fit.criteria`). Luôn hiển thị `advice`.
+- Không có hành động hàng loạt "loại các hồ sơ không đạt" trên màn hình này; chuyển giai đoạn vẫn dùng API giai đoạn như cũ.
