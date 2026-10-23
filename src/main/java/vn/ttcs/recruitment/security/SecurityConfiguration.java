@@ -338,6 +338,13 @@ public class SecurityConfiguration {
                         // account and the session, then the scope of that application under the requisition lock.
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/stage-changes")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        // S5-04 assessments are application-scoped. Service checks read + write and fresh assignment.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/screening")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/applications/*/screening/tags", "/api/v1/applications/*/screening/rating")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/screening/notes")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
                         // Not in the bearer exemption: a stale bearer is 401. The referrer comes from the JWT.
