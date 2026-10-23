@@ -378,6 +378,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/candidate-search/saved-filters", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Story S6-01 (tasks 423-424): the export of the search; every permitted caller gets a workbook without rows.
+            endpoint("GET", "/api/v1/candidate-search/export", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),

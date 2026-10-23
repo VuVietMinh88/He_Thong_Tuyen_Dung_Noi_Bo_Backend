@@ -1,5 +1,6 @@
 package vn.ttcs.recruitment.candidatesearch;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -11,6 +12,7 @@ import vn.ttcs.recruitment.candidate.CandidateAccess;
 import vn.ttcs.recruitment.candidate.CandidateAccessKind;
 import vn.ttcs.recruitment.candidate.CandidateReader;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.security.AccessScope;
 
 import java.util.List;
@@ -27,6 +29,12 @@ import java.util.stream.Collectors;
  * Order: 401/403 before any lookup; 400 for invalid criteria or paging; 404/403 for a requisition or position filter
  * that does not exist or is outside the scope (like the board); 400 for a source or tag id that is not such a catalog
  * value; then the rows.
+ * <p>
+ * Task 423 (story S6-01, "Xuất theo bộ lọc đang áp dụng"): the export takes the same criteria through the same checks
+ * and the same page query (offset 0), so it holds exactly the rows the list would show, in the list's order, and logs
+ * them the same way. At most app.candidate-export.max-rows rows (default 5000, 1..10000): a larger result is refused
+ * (400 CANDIDATE_EXPORT_TOO_LARGE) instead of being cut silently. The rows are read and logged in the transaction; the
+ * workbook is written after it, so no connection is held while POI works.
  */
 @Service
 public class CandidateSearchService {
@@ -34,15 +42,30 @@ public class CandidateSearchService {
     static final int MAX_SIZE = 100;
     private final CandidateAccess access;
     private final CandidateSearchRepository repository;
+    private final CandidateExportWorkbook workbook;
+    private final BusinessCalendar calendar;
+    private final int maxExportRows;
     private final TransactionTemplate reads;
+    private final TransactionTemplate exports;
 
     CandidateSearchService(CandidateAccess access, CandidateSearchRepository repository,
+                           CandidateExportWorkbook workbook, BusinessCalendar calendar,
+                           @Value("${app.candidate-export.max-rows:5000}") int maxExportRows,
                            PlatformTransactionManager transactions) {
+        if (maxExportRows < 1 || maxExportRows > 10_000) {
+            throw new IllegalArgumentException("app.candidate-export.max-rows must be 1..10000");
+        }
         this.access = access;
         this.repository = repository;
+        this.workbook = workbook;
+        this.calendar = calendar;
+        this.maxExportRows = maxExportRows;
         reads = new TransactionTemplate(transactions);
         reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         reads.setTimeout(10);
+        exports = new TransactionTemplate(transactions);
+        exports.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        exports.setTimeout(30);
     }
 
     public CandidateSearchView search(Jwt jwt, CandidateSearchCriteria criteria, int page, int size) {
@@ -61,6 +84,27 @@ public class CandidateSearchService {
             recordDisclosed(reader, items);
             return new CandidateSearchView(items, total, page, size, offset + items.size() < total);
         }));
+    }
+
+    public CandidateExport export(Jwt jwt, CandidateSearchCriteria criteria) {
+        CandidateReader reader = access.requireReader(jwt);
+        criteria.requireValid();
+        List<CandidateSearchView.Item> rows = Objects.requireNonNull(exports.execute(status -> {
+            requireFilters(reader, criteria);
+            // One row more than allowed tells an oversized result from an exact fit without counting first.
+            List<CandidateSearchView.Item> found = repository.page(reader, criteria, 0, maxExportRows + 1);
+            if (found.size() > maxExportRows) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "CANDIDATE_EXPORT_TOO_LARGE",
+                        "Tệp xuất tối đa " + maxExportRows + " hồ sơ. Vui lòng thu hẹp bộ lọc.");
+            }
+            recordDisclosed(reader, found);
+            return found;
+        }));
+        return new CandidateExport(CandidateExportWorkbook.filename(calendar.today()), workbook.write(rows), rows.size());
+    }
+
+    public record CandidateExport(String filename, byte[] content, int rows) {
+        @Override public String toString() { return "CandidateExport[" + filename + ", " + rows + " rows]"; }
     }
 
     // The filters that name records: 404 for an unknown requisition or position, 403 outside the scope (before any
