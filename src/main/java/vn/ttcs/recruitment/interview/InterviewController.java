@@ -28,5 +28,20 @@ public class InterviewController {
         return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore()).body(service.create(jwt, id, request));
     }
 
+    @GetMapping("/api/v1/applications/{id}/interviews")
+    public ResponseEntity<InterviewPage> list(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return ok(service.list(jwt, id, page, size));
+    }
+
+    @GetMapping("/api/v1/interviews/me")
+    public ResponseEntity<InterviewPage> mine(@AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
+        return ok(service.mine(jwt, page, size));
+    }
+
+    @GetMapping("/api/v1/interviews/{id}")
+    public ResponseEntity<InterviewView> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.get(jwt, id)); }
+
     private static <T> ResponseEntity<T> ok(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }
