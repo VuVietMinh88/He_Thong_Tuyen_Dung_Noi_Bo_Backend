@@ -1,6 +1,7 @@
 package vn.ttcs.recruitment.candidate;
 
 import vn.ttcs.recruitment.application.ApplicationStage;
+import vn.ttcs.recruitment.screening.ScreeningView;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -44,10 +45,14 @@ record ReadableApplication(
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     ApplicationDetail detail(boolean current) {
+        return detail(current, null);
+    }
+
+    ApplicationDetail detail(boolean current, ScreeningView screening) {
         return new ApplicationDetail(id, current, jobPostingId, postingTitle, departmentName, receivedAt, stage,
                 stage.displayName(), withdrawnAt, withdrawalReason, fullName, email, phone, source(),
                 primaryRecruiterId, primaryRecruiterName, managerId, managerName, coverLetter, cvFilename,
-                cvFileType(cvContentType), cvSizeBytes);
+                cvFileType(cvContentType), cvSizeBytes, screening != null && screening.hasAssessment() ? screening : null);
     }
 
     // Task 350: a referral row makes the application an internal referral; otherwise it came through the career page.

@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Map;
+import java.util.Comparator;
+import vn.ttcs.recruitment.screening.ScreeningView;
 
 /**
  * Task 361 (story S4-09): the body of GET /api/v1/candidates/{id}/unified-profile, with the frontend's UnifiedCandidate
@@ -16,7 +19,8 @@ import java.util.UUID;
  * contactMismatch is true. email is the email the newest returned application typed (they all share one normalized
  * form, which is never shown). currentApplicationId is that newest application; createdAt and updatedAt are the
  * earliest and the newest appliedAt of the returned applications, never the profile's own creation time, which may
- * date an application outside the scope. tags and notes are always empty until S5-04. toString shows ids only.
+ * date an application outside the scope. S5-04 tags/notes aggregate readable applications only and retain applicationId.
+ * Per-application screening holds the latest shared rating and a bounded notes preview. toString shows ids only.
  * Task 345: updatedAt also counts the withdrawnAt of the returned applications (a withdrawal is the only change of an
  * application after its receipt in Sprint 4), still never anything of an application outside the scope.
  */
@@ -29,8 +33,8 @@ public record CandidateProfileView(
         UUID currentApplicationId,
         Instant createdAt,
         Instant updatedAt,
-        List<Object> tags,
-        List<Object> notes,
+        List<ScreeningView.Tag> tags,
+        List<ScreeningView.Note> notes,
         List<ApplicationDetail> applications) {
 
     public CandidateProfileView {
@@ -42,13 +46,14 @@ public record CandidateProfileView(
     // Built from the readable applications, newest first (the repository's order: received_at, then id), and from
     // nothing else. The caller never passes an empty list: a reader with nothing readable is refused before a view
     // exists.
-    static CandidateProfileView of(UUID candidateId, List<ReadableApplication> readable) {
+    static CandidateProfileView of(UUID candidateId, List<ReadableApplication> readable,
+                                   Map<UUID, ScreeningView> screening) {
         if (readable.isEmpty()) {
             throw new IllegalArgumentException("A profile shows at least one readable application");
         }
         List<ApplicationDetail> applications = new ArrayList<>(readable.size());
         for (int index = 0; index < readable.size(); index++) {
-            applications.add(readable.get(index).detail(index == 0));
+            applications.add(readable.get(index).detail(index == 0, screening.get(readable.get(index).id())));
         }
         ApplicationDetail newest = applications.getFirst();
         // Never promote one application's contact data over another's: one difference blanks both.
@@ -59,8 +64,15 @@ public record CandidateProfileView(
         // Task 345: a withdrawal is the newest change of an application in Sprint 4.
         Instant updatedAt = applications.stream().map(CandidateProfileView::lastChange).max(Instant::compareTo)
                 .orElseThrow();
+        var tags = applications.stream().filter(a -> a.screening() != null)
+                .flatMap(a -> a.screening().tags().stream()).toList();
+        // A small preview only. Each application's screening endpoint pages its entire internal note history.
+        var notes = applications.stream().filter(a -> a.screening() != null)
+                .flatMap(a -> a.screening().notes().stream())
+                .sorted(Comparator.comparing(ScreeningView.Note::createdAt).thenComparing(ScreeningView.Note::id).reversed())
+                .limit(20).toList();
         return new CandidateProfileView(candidateId, mismatch ? null : newest.fullName(), newest.email(),
-                mismatch ? null : newest.phone(), mismatch, newest.id(), createdAt, updatedAt, List.of(), List.of(),
+                mismatch ? null : newest.phone(), mismatch, newest.id(), createdAt, updatedAt, tags, notes,
                 applications);
     }
 
