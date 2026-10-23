@@ -186,7 +186,7 @@ class RecruitmentCatalogMigrationTest {
                     WHERE contype = 'f' AND confrelid = 'recruitment_catalog_items'::regclass
                     ORDER BY conname
                     """, String.class))
-                    .containsExactly("application_stage_events_rejection_reason_id_fkey",
+                    .containsExactly("application_screening_tags_tag_id_catalog_type_fkey", "application_stage_events_rejection_reason_id_fkey",
                             "job_applications_source_id_fkey", "job_postings_employment_type_id_fkey",
                             "job_postings_work_location_id_fkey");
 

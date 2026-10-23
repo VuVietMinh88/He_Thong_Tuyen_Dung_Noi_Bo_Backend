@@ -295,7 +295,7 @@ class RecruitmentCatalogManagementIntegrationTest {
                 assertThat(body.path("code").asText()).as(type).isEqualTo("RECRUITMENT_CATALOG_TYPE_NOT_FOUND");
                 assertThat(body.path("message").asText()).as(type).isEqualTo(
                         "Không có loại danh mục tuyển dụng này. Loại hợp lệ: "
-                                + "CANDIDATE_SOURCE, REJECTION_REASON, WORK_LOCATION, EMPLOYMENT_TYPE.");
+                                + "CANDIDATE_SOURCE, REJECTION_REASON, WORK_LOCATION, EMPLOYMENT_TYPE, CANDIDATE_TAG.");
                 noStore(response);
             }
         }
