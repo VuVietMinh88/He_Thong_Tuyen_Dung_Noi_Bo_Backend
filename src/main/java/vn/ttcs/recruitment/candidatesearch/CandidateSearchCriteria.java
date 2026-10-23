@@ -19,7 +19,8 @@ import java.util.UUID;
 
 /**
  * Task 392 (story S5-05, "Lọc theo vị trí, giai đoạn, nguồn, nhãn, khoảng thời gian nộp, mức đánh giá; tìm theo tên,
- * email, số điện thoại"): the conditions of one candidate search. Every condition applies to the same application row,
+ * email, số điện thoại"): the conditions of one candidate search. Task 393 adds coverLetterKeyword, searched in the
+ * application's own cover letter and combined (AND) with keyword and every filter. Every condition applies to the same application row,
  * so a keyword found in one application never combines with the stage of another application of the same person.
  * <p>
  * An empty list means "no condition". Without an explicit stage list WITHDRAWN applications are left out, like the
@@ -28,7 +29,7 @@ import java.util.UUID;
 public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<ApplicationStage> stages,
                                       List<UUID> sourceIds, List<UUID> tagIds, TagMatch tagMatch,
                                       LocalDate submittedFrom, LocalDate submittedTo, Integer minRating,
-                                      Integer maxRating, String keyword) {
+                                      Integer maxRating, String keyword, String coverLetterKeyword) {
     static final int MAX_LIST = 20;
     static final int MIN_KEYWORD = 2;
     static final int MAX_KEYWORD = 100;
@@ -42,6 +43,7 @@ public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<
         tagIds = copy(tagIds);
         tagMatch = tagMatch == null ? TagMatch.ANY : tagMatch;
         keyword = blankToNull(keyword);
+        coverLetterKeyword = blankToNull(coverLetterKeyword);
     }
 
     // Saved filters (task 394) are read as JSON: a field this record does not have is refused, never ignored.
@@ -69,6 +71,7 @@ public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<
             errors.put("maxRating", "Mức đánh giá tối đa phải lớn hơn hoặc bằng mức tối thiểu.");
         }
         text(errors, "keyword", keyword);
+        text(errors, "coverLetterKeyword", coverLetterKeyword);
         return errors;
     }
 
@@ -137,6 +140,7 @@ public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<
     @Override
     public String toString() {
         return "CandidateSearchCriteria[requisition=" + requisitionId + ", position=" + positionId
-                + ", keyword " + (keyword == null ? "none" : "redacted") + "]";
+                + ", keyword " + (keyword == null ? "none" : "redacted")
+                + ", cover letter keyword " + (coverLetterKeyword == null ? "none" : "redacted") + "]";
     }
 }

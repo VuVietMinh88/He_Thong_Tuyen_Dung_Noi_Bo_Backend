@@ -26,6 +26,10 @@ import java.util.UUID;
  * Task 392 (story S5-05): the SQL of the candidate search. The WHERE clause is assembled only from constant fragments;
  * every value, the keyword included, is a bound parameter. The scope is CandidateAccess.READABLE on the same row the
  * filters test, so a page and its count can never disagree with the single-record checks.
+ * <p>
+ * Task 393: a keyword is normalised (NFC, folded, lower case) once per candidate row: the matching ids are kept in a
+ * materialised CTE that gives both the total and the page, and only the page's rows are joined to their details. Which
+ * fields held the keyword (matchedIn) is worked out in Java on those rows, with the same rules.
  */
 @Repository
 @Transactional(propagation = Propagation.MANDATORY)
@@ -43,14 +47,18 @@ public class CandidateSearchRepository {
     private static final String EMAIL = "a.normalized_email LIKE :emailPattern ESCAPE '!'";
     private static final String PHONE = "(a.phone LIKE :phonePattern ESCAPE '!' OR " + NATIONAL_PHONE
             + " LIKE :nationalPhonePattern ESCAPE '!')";
-    private static final String FROM = """
-             FROM job_applications a
+    // Task 393: a NULL cover letter makes the condition NULL, so an application without one never matches.
+    private static final String COVER_LETTER = CandidateSearchText.folded("a.cover_letter")
+            + " LIKE :coverLetterPattern ESCAPE '!'";
+    private static final String JOINS = """
              JOIN recruitment_requisitions r ON r.id = a.requisition_id
              JOIN positions p ON p.id = r.position_id
              JOIN candidate_applications ca ON ca.application_id = a.id
              LEFT JOIN application_screening_ratings sr ON sr.application_id = a.id
              LEFT JOIN recruitment_catalog_items src ON src.id = a.source_id
             """;
+    private static final String FROM = " FROM job_applications a" + JOINS;
+    private static final String NEWEST_FIRST = " ORDER BY received_at DESC, id DESC";
     private static final String COLUMNS = """
             SELECT a.id, ca.candidate_id, a.requisition_id, r.position_id, p.code AS position_code,
                    p.name AS position_name, a.posting_title, a.full_name, a.email, a.phone, a.stage,
@@ -105,12 +113,33 @@ public class CandidateSearchRepository {
         return total == null ? 0 : total;
     }
 
+    record Found(List<CandidateSearchView.Item> items, long total) { }
+
+    // One page and the total in one statement. A page past the end has no row to carry the total, so it is counted.
+    Found search(CandidateReader reader, CandidateSearchCriteria criteria, long offset, int size) {
+        Query query = query(reader, criteria);
+        String sql = "WITH matching AS MATERIALIZED (SELECT a.id, a.received_at" + FROM + query.where() + "),"
+                + " page AS (SELECT id, received_at FROM matching" + NEWEST_FIRST + " LIMIT :limit OFFSET :offset) "
+                + COLUMNS + ", (SELECT count(*) FROM matching) AS total"
+                + " FROM page JOIN job_applications a ON a.id = page.id" + JOINS
+                + " ORDER BY a.received_at DESC, a.id DESC";
+        List<Long> totals = new ArrayList<>();
+        List<CandidateSearchView.Item> items = jdbc.query(sql,
+                query.parameters().addValue("limit", size).addValue("offset", offset), (row, index) -> {
+                    totals.add(row.getLong("total"));
+                    return item(row, criteria);
+                });
+        return new Found(items, totals.isEmpty() ? (offset == 0 ? 0 : count(reader, criteria)) : totals.getFirst());
+    }
+
+    // At most size rows from offset, in the list's order, without the total (the export).
     List<CandidateSearchView.Item> page(CandidateReader reader, CandidateSearchCriteria criteria, long offset, int size) {
         Query query = query(reader, criteria);
-        String sql = COLUMNS + ", " + query.matchColumns() + FROM + query.where()
-                + " ORDER BY a.received_at DESC, a.id DESC LIMIT :limit OFFSET :offset";
+        String sql = "WITH page AS (SELECT a.id, a.received_at" + FROM + query.where() + NEWEST_FIRST
+                + " LIMIT :limit OFFSET :offset) " + COLUMNS + " FROM page JOIN job_applications a ON a.id = page.id"
+                + JOINS + " ORDER BY a.received_at DESC, a.id DESC";
         return jdbc.query(sql, query.parameters().addValue("limit", size).addValue("offset", offset),
-                (row, index) -> item(row));
+                (row, index) -> item(row, criteria));
     }
 
     private Query query(CandidateReader reader, CandidateSearchCriteria criteria) {
@@ -155,10 +184,9 @@ public class CandidateSearchRepository {
             where.append(" AND sr.rating <= :maxRating");
             parameters.addValue("maxRating", criteria.maxRating());
         }
-        boolean phone = false;
         if (criteria.keyword() != null) {
             String digits = CandidateSearchText.phoneDigits(criteria.keyword());
-            phone = digits != null;
+            boolean phone = digits != null;
             if (phone) {
                 parameters.addValue("nationalPhonePattern",
                         CandidateSearchText.contains(CandidateSearchText.nationalPhone(criteria.keyword())));
@@ -175,22 +203,49 @@ public class CandidateSearchRepository {
             }
             where.append(")");
         }
-        return new Query(where.toString(), parameters, criteria.keyword() != null, phone);
+        if (criteria.coverLetterKeyword() != null) {
+            parameters.addValue(CandidateSearchText.FROM_PARAMETER, CandidateSearchText.FOLD_FROM)
+                    .addValue(CandidateSearchText.TO_PARAMETER, CandidateSearchText.FOLD_TO)
+                    .addValue("coverLetterPattern", CandidateSearchText.contains(
+                            CandidateSearchText.fold(criteria.coverLetterKeyword())));
+            where.append(" AND ").append(COVER_LETTER);
+        }
+        return new Query(where.toString(), parameters);
     }
 
-    private static CandidateSearchView.Item item(ResultSet row) throws SQLException {
-        List<String> matched = new ArrayList<>();
-        if (row.getBoolean("match_name")) matched.add("NAME");
-        if (row.getBoolean("match_email")) matched.add("EMAIL");
-        if (row.getBoolean("match_phone")) matched.add("PHONE");
+    private static CandidateSearchView.Item item(ResultSet row, CandidateSearchCriteria criteria) throws SQLException {
         ApplicationStage stage = ApplicationStage.valueOf(row.getString("stage"));
+        String fullName = row.getString("full_name");
+        String email = row.getString("email");
+        String phone = row.getString("phone");
         return new CandidateSearchView.Item(row.getObject("id", UUID.class), row.getObject("candidate_id", UUID.class),
                 row.getObject("requisition_id", UUID.class), row.getObject("position_id", UUID.class),
                 row.getString("position_code"), row.getString("position_name"), row.getString("posting_title"),
-                row.getString("full_name"), row.getString("email"), row.getString("phone"), stage,
-                stage.displayName(), row.getString("source_name"), strings(row.getArray("tag_names")),
-                row.getObject("rating", Integer.class), row.getTimestamp("received_at").toInstant(),
-                List.copyOf(matched));
+                fullName, email, phone, stage, stage.displayName(), row.getString("source_name"),
+                strings(row.getArray("tag_names")), row.getObject("rating", Integer.class),
+                row.getTimestamp("received_at").toInstant(), matchedIn(criteria, fullName, email, phone));
+    }
+
+    // The fields of a shown row that hold the keyword, by the rules of the SQL conditions: the folded name, the email
+    // in lower case (normalized_email is the trimmed email in lower case), the phone digits or its national form.
+    // Every shown row matched coverLetterKeyword, which is a condition of its own.
+    static List<String> matchedIn(CandidateSearchCriteria criteria, String fullName, String email, String phone) {
+        List<String> matched = new ArrayList<>();
+        String keyword = criteria.keyword();
+        if (keyword != null) {
+            if (CandidateSearchText.fold(fullName).contains(CandidateSearchText.fold(keyword))) matched.add("NAME");
+            if (email.toLowerCase(java.util.Locale.ROOT).contains(keyword.toLowerCase(java.util.Locale.ROOT))) {
+                matched.add("EMAIL");
+            }
+            String digits = CandidateSearchText.phoneDigits(keyword);
+            String storedNational = CandidateSearchText.nationalPhone(phone);
+            if (digits != null && (phone.contains(digits) || storedNational != null
+                    && storedNational.contains(CandidateSearchText.nationalPhone(keyword)))) {
+                matched.add("PHONE");
+            }
+        }
+        if (criteria.coverLetterKeyword() != null) matched.add("COVER_LETTER");
+        return List.copyOf(matched);
     }
 
     private static List<String> strings(Array array) throws SQLException {
@@ -202,12 +257,5 @@ public class CandidateSearchRepository {
         }
     }
 
-    private record Query(String where, MapSqlParameterSource parameters, boolean keyword, boolean phone) {
-        // Which of the keyword conditions held for the row; all false without a keyword.
-        String matchColumns() {
-            return (keyword ? NAME : "false") + " AS match_name, "
-                    + (keyword ? EMAIL : "false") + " AS match_email, "
-                    + (phone ? PHONE : "false") + " AS match_phone";
-        }
-    }
+    private record Query(String where, MapSqlParameterSource parameters) { }
 }

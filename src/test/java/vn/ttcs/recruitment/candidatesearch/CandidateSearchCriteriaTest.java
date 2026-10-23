@@ -17,7 +17,7 @@ class CandidateSearchCriteriaTest {
     private static CandidateSearchCriteria criteria(List<ApplicationStage> stages, List<UUID> sources, List<UUID> tags,
                                                     LocalDate from, LocalDate to, Integer min, Integer max,
                                                     String keyword) {
-        return new CandidateSearchCriteria(null, null, stages, sources, tags, null, from, to, min, max, keyword);
+        return new CandidateSearchCriteria(null, null, stages, sources, tags, null, from, to, min, max, keyword, null);
     }
 
     @Test
@@ -58,8 +58,22 @@ class CandidateSearchCriteriaTest {
     }
 
     @Test
+    void coverLetterKeywordFollowsTheKeywordRules() {
+        var blank = new CandidateSearchCriteria(null, null, null, null, null, null, null, null, null, null, null, " ");
+        assertThat(blank.coverLetterKeyword()).isNull();
+        var tooShort = new CandidateSearchCriteria(null, null, null, null, null, null, null, null, null, null, null, "j");
+        assertThat(tooShort.problems()).containsOnlyKeys("coverLetterKeyword");
+        var valid = new CandidateSearchCriteria(null, null, null, null, null, null, null, null, null, null, "an",
+                "  Spring Boot ");
+        assertThat(valid.problems()).isEmpty();
+        assertThat(valid.coverLetterKeyword()).isEqualTo("Spring Boot");
+    }
+
+    @Test
     void toStringNeverShowsTheKeyword() {
         assertThat(criteria(null, null, null, null, null, null, null, "0912345678").toString())
                 .doesNotContain("0912345678").contains("redacted");
+        assertThat(new CandidateSearchCriteria(null, null, null, null, null, null, null, null, null, null, null,
+                "kinh nghiệm Java").toString()).doesNotContain("Java");
     }
 }

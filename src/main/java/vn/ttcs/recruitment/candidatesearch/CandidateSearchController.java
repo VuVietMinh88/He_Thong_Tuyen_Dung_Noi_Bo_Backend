@@ -34,10 +34,11 @@ public class CandidateSearchController {
             @RequestParam(required = false) Integer minRating,
             @RequestParam(required = false) Integer maxRating,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String coverLetterKeyword,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         var criteria = new CandidateSearchCriteria(requisitionId, positionId, stages, sourceIds, tagIds, tagMatch,
-                submittedFrom, submittedTo, minRating, maxRating, keyword);
+                submittedFrom, submittedTo, minRating, maxRating, keyword, coverLetterKeyword);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.search(jwt, criteria, page, size));
     }
 }

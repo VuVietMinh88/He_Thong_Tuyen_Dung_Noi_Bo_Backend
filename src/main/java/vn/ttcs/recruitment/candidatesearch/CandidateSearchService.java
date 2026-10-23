@@ -54,9 +54,10 @@ public class CandidateSearchService {
         }
         return Objects.requireNonNull(searching(reads, status -> {
             requireFilters(reader, criteria);
-            long total = repository.count(reader, criteria);
             long offset = (long) page * size;
-            List<CandidateSearchView.Item> items = repository.page(reader, criteria, offset, size);
+            CandidateSearchRepository.Found found = repository.search(reader, criteria, offset, size);
+            long total = found.total();
+            List<CandidateSearchView.Item> items = found.items();
             recordDisclosed(reader, items);
             return new CandidateSearchView(items, total, page, size, offset + items.size() < total);
         }));
