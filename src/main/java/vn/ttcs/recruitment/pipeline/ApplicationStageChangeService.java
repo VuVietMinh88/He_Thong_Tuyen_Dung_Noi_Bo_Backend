@@ -69,7 +69,9 @@ import java.util.UUID;
  * <li>task 381, a rejection: its REJECTION_REASON value FOR SHARE, the caller and the scope again, then 400
  * INVALID_REJECTION_REASON (unknown, or a value of another catalog) or 400 REJECTION_REASON_INACTIVE;</li>
  * <li>the clock, read after the last lock; the stage, only from the locked stage, and one STAFF history row (V34) in
- * this transaction, with the rejection's reason id and current name and whether the interview was skipped (V40).</li>
+ * this transaction, with the rejection's reason id and current name and whether the interview was skipped (V40), and
+ * (task 382) the caller's optional note. That row is the history of task 382: before and after, who, when, why (the
+ * catalog reason and the note) and the HR exception, never edited afterwards (V34's trigger).</li>
  * </ol>
  * A refusal writes nothing. A lock or statement timeout answers 503 APPLICATION_STAGE_BUSY, and then nothing of the
  * change is kept. A stage change and a withdrawal of one application run one after the other on the requisition lock;
@@ -189,9 +191,9 @@ public class ApplicationStageChangeService {
         // 7. After the last lock wait: the change happens when its locks were granted.
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         stages.move(applicationId, current, target);
-        stages.record(applicationId, current, target, writer.id(), now, reason, interviewSkipped);
+        stages.record(applicationId, current, target, writer.id(), now, request.note(), reason, interviewSkipped);
         return ApplicationStageChangeView.of(applicationId, current, target, now, writer.id(), writer.fullName(),
-                reason, interviewSkipped);
+                request.note(), reason, interviewSkipped);
     }
 
     // Task 381: a rejection names its reason, and only a rejection does. Checked before any lock, like the reason of a

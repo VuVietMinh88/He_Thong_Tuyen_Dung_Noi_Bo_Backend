@@ -3,8 +3,10 @@ package vn.ttcs.recruitment.pipeline;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import tools.jackson.databind.annotation.JsonDeserialize;
 import vn.ttcs.recruitment.application.ApplicationStage;
+import vn.ttcs.recruitment.companyprofile.PlainText;
 
 import java.util.UUID;
 
@@ -18,7 +20,13 @@ import java.util.UUID;
  * Task 381: rejectionReasonId names the REJECTION_REASON catalog value of a rejection: required with targetStage
  * REJECTED, refused with any other target (both 400 before any lock). confirmSkipInterview is an HR_MANAGER's
  * confirmation of moving SCREENING straight to OFFER; it must be the JSON value true (StrictBooleanDeserializer);
- * absent, null and false are no confirmation, and it is ignored when the move skips nothing. Four fields, no others.
+ * absent, null and false are no confirmation, and it is ignored when the move skips nothing.
+ * <p>
+ * Task 382: note is the staff member's own reason for the change ("lý do"), optional for every change (the
+ * rejection's catalog reason, the HR exception's justification, anything else): at most 500 characters, plain text
+ * with line breaks; Windows line breaks become \n and a note without any visible character counts as none
+ * (StageChangeText, the withdrawal reason's rules). It is internal: stored in the history row's reason (V34), never
+ * shown to the candidate. Five fields, no others.
  */
 public record ApplicationStageChangeRequest(
         @NotNull(message = "Vui lòng chọn giai đoạn mới.")
@@ -29,11 +37,19 @@ public record ApplicationStageChangeRequest(
         String expectedCurrentStage,
         UUID rejectionReasonId,
         @JsonDeserialize(using = StrictBooleanDeserializer.class)
-        Boolean confirmSkipInterview) {
+        Boolean confirmSkipInterview,
+        @Size(max = 500, message = "Ghi chú tối đa 500 ký tự.")
+        @PlainText(multiline = true, message = "Ghi chú chỉ được là văn bản thuần, không chứa thẻ HTML hoặc ký tự "
+                + "điều khiển.")
+        String note) {
 
     // Every ApplicationStage name; ApplicationStageTransitionsTest fails when the enum and this list differ.
     static final String STAGES = "NEW|SCREENING|INTERVIEW|OFFER|HIRED|REJECTED|WITHDRAWN";
     private static final String INVALID_STAGE = "Giai đoạn không hợp lệ.";
+
+    public ApplicationStageChangeRequest {
+        note = StageChangeText.invisibleToNull(StageChangeText.normalizeLineBreaks(note));
+    }
 
     // Only call them after @Valid has accepted the request: both are then stage names.
     ApplicationStage target() {
@@ -54,4 +70,6 @@ public record ApplicationStageChangeRequest(
     public void rejectUnknownField(String field, Object value) {
         throw new IllegalArgumentException("Unsupported application stage change field");
     }
+
+    @Override public String toString() { return "ApplicationStageChangeRequest[" + targetStage + ", note redacted]"; }
 }
