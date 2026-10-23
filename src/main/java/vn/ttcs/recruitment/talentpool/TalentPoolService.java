@@ -36,6 +36,11 @@ import java.util.UUID;
  * <p>
  * Reading an entry follows the candidate profile rule on its source application: 404 unknown, 403 outside the scope
  * (logged as a refused PROFILE read), one granted PROFILE row otherwise.
+ * <p>
+ * Task 399 (story S5-06, "Kho tìm kiếm được theo chức danh quan tâm và kỹ năng"): the search lists the active entries
+ * whose source application the reader may read, logging each one shown. A removal is the same candidate write as an
+ * addition, on the entry's source application; it keeps the entry with who removed it and when (409
+ * TALENT_POOL_ENTRY_REMOVED when already removed), so the candidate may be added again later.
  */
 @Service
 public class TalentPoolService {
@@ -95,6 +100,38 @@ public class TalentPoolService {
             CandidateReader reader = guard.freshScopes(jwt, writer).reader(writer.id());
             access.recordGranted(reader, CandidateAccessKind.PROFILE, found.candidateId(), List.of(application));
             return pool.find(entry).orElseThrow();
+        });
+    }
+
+    public TalentPoolPage list(Jwt jwt, String title, List<String> skills, int page, int size) {
+        CandidateReader reader = access.requireReader(jwt);
+        TalentPoolSearch search = TalentPoolSearch.of(title, skills, page, size);
+        return Objects.requireNonNull(reads.execute(status -> {
+            long total = pool.count(reader, search);
+            List<TalentPoolEntryView> items = pool.page(reader, search);
+            items.stream().collect(java.util.stream.Collectors.groupingBy(TalentPoolEntryView::candidateId))
+                    .forEach((candidate, shown) -> access.recordGranted(reader, CandidateAccessKind.PROFILE, candidate,
+                            shown.stream().map(TalentPoolEntryView::sourceApplicationId).distinct().toList()));
+            return new TalentPoolPage(items, total, page, size, search.offset() + items.size() < total);
+        }));
+    }
+
+    public void remove(Jwt jwt, UUID entryId) {
+        write(() -> {
+            CandidateWriteGuard.Writer writer = guard.lockWriter(jwt);
+            guard.freshScopes(jwt, writer);
+            UUID application = pool.sourceOf(entryId).orElseThrow(TalentPoolService::notFound);
+            UUID requisition = guard.lockRequisitionOf(application);
+            guard.requireWritable(jwt, writer, requisition, application);
+            guard.lockApplication(application);
+            guard.requireWritable(jwt, writer, requisition, application);
+            if (!pool.lockActive(entryId)) {
+                throw new ApiException(HttpStatus.CONFLICT, "TALENT_POOL_ENTRY_REMOVED",
+                        "Hồ sơ này đã được gỡ khỏi kho tiềm năng.");
+            }
+            guard.requireWritable(jwt, writer, requisition, application);
+            pool.remove(entryId, writer.id(), clock.instant().truncatedTo(ChronoUnit.MICROS));
+            return Boolean.TRUE;
         });
     }
 

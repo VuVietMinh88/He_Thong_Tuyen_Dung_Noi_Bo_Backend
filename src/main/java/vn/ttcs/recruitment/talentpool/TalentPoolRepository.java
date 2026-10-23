@@ -116,6 +116,59 @@ public class TalentPoolRepository {
         }
     }
 
+    // Task 399: the active entries the reader may see, filtered by title of interest and skills, newest first.
+    long count(CandidateReader reader, TalentPoolSearch search) {
+        Long total = jdbc.queryForObject("SELECT count(*)" + FROM + searchWhere(search), searchParameters(reader, search),
+                Long.class);
+        return total == null ? 0 : total;
+    }
+
+    List<TalentPoolEntryView> page(CandidateReader reader, TalentPoolSearch search) {
+        return jdbc.query(COLUMNS + FROM + searchWhere(search) + " ORDER BY e.added_at DESC, e.id DESC"
+                        + " LIMIT :limit OFFSET :offset", searchParameters(reader, search)
+                .addValue("limit", search.size()).addValue("offset", search.offset()), (row, index) -> view(row));
+    }
+
+    private static String searchWhere(TalentPoolSearch search) {
+        StringBuilder where = new StringBuilder(" WHERE e.removed_at IS NULL AND ").append(CandidateAccess.READABLE);
+        if (search.titleKey() != null) {
+            where.append(" AND EXISTS (SELECT 1 FROM talent_pool_interests t WHERE t.entry_id = e.id AND t.kind = 'TITLE'"
+                    + " AND t.interest_key LIKE :title ESCAPE '!')");
+        }
+        if (!search.skillKeys().isEmpty()) {
+            where.append(" AND (SELECT count(*) FROM talent_pool_interests s WHERE s.entry_id = e.id AND s.kind = 'SKILL'"
+                    + " AND s.interest_key IN (:skills)) = :skillCount");
+        }
+        return where.toString();
+    }
+
+    private MapSqlParameterSource searchParameters(CandidateReader reader, TalentPoolSearch search) {
+        MapSqlParameterSource parameters = access.parameters(reader);
+        if (search.titleKey() != null) parameters.addValue("title", search.titlePattern());
+        if (!search.skillKeys().isEmpty()) {
+            parameters.addValue("skills", search.skillKeys()).addValue("skillCount", search.skillKeys().size());
+        }
+        return parameters;
+    }
+
+    // Task 399: the entry's source application (it never changes), read before any lock; empty for an unknown entry.
+    Optional<UUID> sourceOf(UUID entryId) {
+        return jdbc.query("SELECT source_application_id FROM talent_pool_entries WHERE id = :id",
+                new MapSqlParameterSource("id", entryId), (row, index) -> row.getObject(1, UUID.class)).stream().findFirst();
+    }
+
+    // The entry row FOR UPDATE, after its requisition and application; true while it is still active.
+    boolean lockActive(UUID entryId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT removed_at IS NULL FROM talent_pool_entries WHERE id = :id"
+                + " FOR UPDATE", new MapSqlParameterSource("id", entryId), Boolean.class));
+    }
+
+    void remove(UUID entryId, UUID actor, Instant now) {
+        jdbc.update("UPDATE talent_pool_entries SET removed_by = :actor, removed_at = GREATEST(:now, added_at)"
+                        + " WHERE id = :id AND removed_at IS NULL",
+                new MapSqlParameterSource("id", entryId).addValue("actor", actor).addValue("now", Timestamp.from(now)));
+    }
+
     static TalentPoolEntryView view(ResultSet row) throws SQLException {
         TalentPoolEvidence evidence = TalentPoolEvidence.valueOf(row.getString("evidence"));
         TalentPoolCandidateStatus status = TalentPoolCandidateStatus.valueOf(row.getString("candidate_status"));

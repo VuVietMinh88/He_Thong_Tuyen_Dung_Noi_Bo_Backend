@@ -736,3 +736,47 @@ Ghi chú cho frontend:
   tab "Đánh giá phù hợp").
 - Câu hỏi BA/PO: recruiter có được xem ứng viên trong kho thuộc requisition mình không phụ trách không (hiện **không**:
   mục theo phạm vi của hồ sơ nguồn; HR/Admin xem tất cả).
+
+## 399 — API kho ứng viên tiềm năng
+
+Bổ sung cho 398: tìm kiếm và gỡ khỏi kho.
+
+### Tìm trong kho
+
+`GET /api/v1/talent-pool?title=&skill=&skill=&page=&size=`
+
+Quyền: đọc ứng viên. Chỉ trả mục **đang hoạt động** mà người gọi đọc được hồ sơ nguồn (HR/Admin: tất cả; recruiter:
+requisition mình phụ trách; trưởng phòng: phòng ban mình quản lý). Mới thêm trước.
+
+| Tham số | Ý nghĩa |
+|---|---|
+| `title` | 2..100 ký tự; tìm chức danh quan tâm **chứa** chuỗi này, không phân biệt hoa thường/dấu (`lap trinh` khớp `Lập trình viên Java`); `%`, `_`, `!` là ký tự thường |
+| `skill` (lặp, ≤ 10) | mục phải có **đủ mọi** kỹ năng đã chọn (so khớp không phân biệt hoa thường/dấu) |
+| `page`, `size` | 0..1000000, 1..100 (mặc định 0, 20) |
+
+Response 200:
+
+```json
+{ "items": [ { "...": "như một mục ở 398" } ], "total": 3, "page": 0, "size": 20, "hasNext": false }
+```
+
+Mỗi mục hiện ra được ghi nhật ký `PROFILE`. Lỗi: 400 `VALIDATION_ERROR`, 401, 403.
+
+Danh sách **đánh dấu** chứ không ẩn ứng viên đã nhận việc hoặc đang có hồ sơ khác đang xử lý: mỗi mục có
+`candidateStatus`/`candidateStatusName` (xem 398) để người dùng tự quyết định có liên hệ hay không.
+
+### Gỡ khỏi kho
+
+`DELETE /api/v1/talent-pool/{entryId}` → 204
+
+Quyền và khóa như khi thêm (ghi ứng viên trên hồ sơ nguồn, recruiter SCOPED phải đang phụ trách). Mục **không bị xóa**:
+lưu `removedAt`, `removedBy` (xem lại được bằng `GET /api/v1/talent-pool/{entryId}`), không còn trong kết quả tìm kiếm,
+và ứng viên có thể được thêm lại sau (mục mới).
+
+Lỗi: 401, 403, 404 `TALENT_POOL_ENTRY_NOT_FOUND`, 409 `TALENT_POOL_ENTRY_REMOVED` (đã gỡ trước đó), 503 `TALENT_POOL_BUSY`.
+
+Ghi chú cho frontend:
+
+- Màn hình "Kho ứng viên tiềm năng": ô tìm chức danh, bộ chọn kỹ năng (tag), bảng: họ tên, chức danh quan tâm, kỹ năng,
+  lý do, bằng chứng (`evidenceName`), vị trí đã ứng tuyển, ngày thêm, người thêm.
+- Nút "Gỡ khỏi kho" cần hộp xác nhận; sau 204 tải lại danh sách.

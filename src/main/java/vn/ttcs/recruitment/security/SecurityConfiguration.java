@@ -545,9 +545,11 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Story S5-06 (tasks 398-400): the talent pool. Entries are read with the scope of their source
                         // application; adding is a CANDIDATES write about that application, checked again in the service.
-                        .requestMatchers(HttpMethod.GET, "/api/v1/talent-pool/*")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/talent-pool", "/api/v1/talent-pool/*")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/talent-pool")
+                                .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/talent-pool/*")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         // Task 351 (story S4-07): every internal user may refer a candidate, like the avatar write;
                         // ApplicationReferralWriter checks the code again after locking the account and the session.
