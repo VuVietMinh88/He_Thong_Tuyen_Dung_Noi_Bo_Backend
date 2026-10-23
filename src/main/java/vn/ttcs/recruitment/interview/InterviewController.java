@@ -43,6 +43,15 @@ public class InterviewController {
     @GetMapping("/api/v1/interviews/{id}")
     public ResponseEntity<InterviewView> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.get(jwt, id)); }
 
+    @PostMapping("/api/v1/interviews/{id}/invitation")
+    public ResponseEntity<Void> invite(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @Valid @RequestBody SendInvitation request) {
+        service.invite(jwt, id, request.expectedVersion());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
+    }
+    public record SendInvitation(@jakarta.validation.constraints.NotNull
+                                 @jakarta.validation.constraints.PositiveOrZero Long expectedVersion) { }
+
     @PutMapping("/api/v1/interviews/{id}")
     public ResponseEntity<InterviewView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
             @Valid @RequestBody InterviewScheduleRequest request) { return ok(service.update(jwt, id, request)); }
