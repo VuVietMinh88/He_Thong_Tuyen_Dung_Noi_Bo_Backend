@@ -9,7 +9,7 @@ API nội bộ dùng Access Token hiện có. Quyền `CANDIDATES_READ_ALL` đ�
 - `positionId` là ID danh mục vị trí; `requisitionId` là ID một yêu cầu tuyển dụng cụ thể. Cả hai đều tùy chọn; khi truyền cùng nhau, API lấy phần giao của hai bộ lọc và phạm vi được phép.
 - Không truyền bộ lọc: người có quyền ALL thấy tất cả; người có quyền SCOPED chỉ thấy yêu cầu tuyển dụng hiện được phân công PRIMARY hoặc SUPPORTING. Không có phân công thì bảng rỗng. Người quản lý phòng ban có thể chọn một yêu cầu thuộc phòng ban mình để xem.
 - `page` bắt đầu từ 0, tối đa 1.000.000; `size` từ 1 đến 100, mặc định 20. Trang áp dụng riêng cho từng cột. `total` luôn là toàn bộ số hồ sơ phù hợp trong cột, không phải số thẻ trên trang.
-- Trả đủ sáu cột theo thứ tự `NEW`, `SCREENING`, `INTERVIEW`, `OFFER`, `HIRED`, `REJECTED`, kể cả cột rỗng. Hồ sơ `WITHDRAWN` không còn nằm trên bảng tuyển dụng.
+- Trả đủ bảy cột theo thứ tự `NEW`, `SCREENING`, `INTERVIEW`, `OFFER`, `HIRED`, `ONBOARDED`, `REJECTED`, kể cả cột rỗng. Hồ sơ `WITHDRAWN` không còn nằm trên bảng tuyển dụng. Cột ONBOARDED được cập nhật qua [checklist tiếp nhận](onboarding.md), không kéo thả vào cột này.
 - Thẻ sắp xếp theo `receivedAt` giảm dần rồi UUID giảm dần để ổn định khi trùng thời gian. Đây là phân trang theo offset; khi dữ liệu đổi giữa hai lần gọi, FE nên tải lại bảng.
 
 Ví dụ một cột trong response:

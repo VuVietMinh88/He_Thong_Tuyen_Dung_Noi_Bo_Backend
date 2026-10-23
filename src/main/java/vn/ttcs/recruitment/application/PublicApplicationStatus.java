@@ -19,7 +19,7 @@ public enum PublicApplicationStatus {
             case SCREENING -> IN_REVIEW;
             // OFFER stays on "Mời phỏng vấn": the public step never goes back, and an offer is no outcome yet.
             case INTERVIEW, OFFER -> INTERVIEWING;
-            case HIRED, REJECTED, WITHDRAWN -> COMPLETED;
+            case HIRED, ONBOARDED, REJECTED, WITHDRAWN -> COMPLETED;
         };
     }
 }

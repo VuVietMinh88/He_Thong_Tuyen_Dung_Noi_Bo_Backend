@@ -84,6 +84,9 @@ public class SecurityConfiguration {
         legacyHealth.setAllowCredentials(false);
         legacyHealth.setMaxAge(3600L);
         source.registerCorsConfiguration("/api/health", legacyHealth);
+        CorsConfiguration onboardingItems = new CorsConfiguration(configuration);
+        onboardingItems.setAllowedMethods(List.of("PATCH", "OPTIONS"));
+        source.registerCorsConfiguration("/api/v1/applications/*/onboarding/items/*", onboardingItems);
         source.registerCorsConfiguration("/api/**", configuration);
         return source;
     }
@@ -207,6 +210,38 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/positions/*").access(AuthorizationManagers.allOf(
                                 AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL"),
                                 AuthorityAuthorizationManager.hasAuthority("PERM_SALARY_RANGES_WRITE_ALL")))
+                        // Onboarding is managed by HR; responsibility for an item does not grant candidate access.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/onboarding/templates", "/api/v1/onboarding/templates/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/onboarding/templates")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/onboarding/templates/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_ORGANIZATION_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/onboarding")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_OFFERS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_CANDIDATES_READ_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/onboarding")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_OFFERS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_OFFERS_WRITE_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_CANDIDATES_READ_ALL")))
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/applications/*/onboarding/items/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_OFFERS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_OFFERS_WRITE_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_CANDIDATES_READ_ALL")))
                         // Competency frameworks are organization data: every internal role reads them (interviewers
                         // score with them), and only organization writers create or edit them.
                         .requestMatchers(HttpMethod.GET, "/api/v1/competency-frameworks",

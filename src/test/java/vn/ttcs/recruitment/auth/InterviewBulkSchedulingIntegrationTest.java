@@ -154,6 +154,15 @@ class InterviewBulkSchedulingIntegrationTest extends ScreeningTestSupport {
     }
 
     @Test
+    void onboardedApplicationRejectsBothBulkPreviewAndCreation() throws Exception {
+        applications.stage(other.applicationId(), vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        var request = body(List.of(first.applicationId(), other.applicationId()));
+        error(post("/preview", request, hrToken), 409, "INTERVIEW_APPLICATION_INACTIVE");
+        error(post("", request, hrToken), 409, "INTERVIEW_APPLICATION_INACTIVE");
+        assertNothingScheduled();
+    }
+
+    @Test
     void identicalRetryReturnsSavedResponseWhileChangedPayloadOrOrderIsRejected() throws Exception {
         var request = body(List.of(first.applicationId(), other.applicationId()));
         var firstResponse = created(post("", request, hrToken));

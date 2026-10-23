@@ -117,6 +117,13 @@ class ApiAuthorizationMatrixIntegrationTest {
     // so a call that passes authorization stops at 404 or validation instead of changing data.
     private static final List<Endpoint> ENDPOINTS = List.of(
             endpoint("GET", "/api/v1/applications/{id}/interview-participants", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/onboarding/templates", onboarding(ORGANIZATION_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/onboarding/templates/{id}", onboarding(ORGANIZATION_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/onboarding/templates", onboarding(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/onboarding/templates/{id}", onboarding(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/applications/{applicationId}/onboarding", onboarding(OFFERS_READ_ALL, CANDIDATES_READ_ALL), null, 404),
+            endpoint("POST", "/api/v1/applications/{applicationId}/onboarding", onboarding(OFFERS_READ_ALL, OFFERS_WRITE_ALL, CANDIDATES_READ_ALL), INVALID_BODY, 400),
+            endpoint("PATCH", "/api/v1/applications/{applicationId}/onboarding/items/{itemId}", onboarding(OFFERS_READ_ALL, OFFERS_WRITE_ALL, CANDIDATES_READ_ALL), INVALID_BODY, 400),
             endpoint("POST", "/api/v1/applications/{id}/offers", offerWriter(), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/applications/{id}/offers", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/offers/{id}", anyOf(OFFERS_READ_ALL, OFFERS_READ_SCOPED), null, 404),
@@ -378,7 +385,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
             "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events",
             "interview_question_usage", "hiring_decisions", "offers", "offer_events",
-            "offer_response_tokens", "offer_delivery_outbox", "offer_negotiations",
+            "offer_response_tokens", "offer_delivery_outbox", "offer_negotiations", "onboarding_templates",
+            "onboarding_template_items", "onboarding_checklists", "onboarding_checklist_items",
             "job_applications", "application_cvs", "application_email_outbox", "cv_extraction_jobs",
             "cv_extraction_attempts", "application_confirmed_contacts", "application_contact_history");
 
@@ -1138,6 +1146,10 @@ class ApiAuthorizationMatrixIntegrationTest {
                 Set.of("ADMIN", "HR_MANAGER", "RECRUITER"));
     }
 
+    private static Rule onboarding(String... permissions) {
+        return new Rule(List.of(permissions), false, false, false, List.of(), Set.of("ADMIN", "HR_MANAGER"));
+    }
+
     private static Rule adminWith(String code) { return new Rule(List.of(code), false, true); }
 
     private static Rule adminWithAll(String... codes) { return new Rule(List.of(codes), false, true); }
@@ -1185,9 +1197,10 @@ class ApiAuthorizationMatrixIntegrationTest {
 
         String samplePath() {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString())
-                    .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
+                    .replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{questionId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
-                    .replace("{type}", CATALOG_TYPE);
+                    .replace("{type}", CATALOG_TYPE).replace("{applicationId}", UNKNOWN_ID.toString())
+                    .replace("{itemId}", UNKNOWN_ID.toString());
         }
 
         @Override

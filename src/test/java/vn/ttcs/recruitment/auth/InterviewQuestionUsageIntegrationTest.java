@@ -169,6 +169,14 @@ class InterviewQuestionUsageIntegrationTest extends InterviewEvaluationTestSuppo
     }
 
     @Test
+    void onboardedApplicationCannotRecordAnyFurtherInterviewQuestion() throws Exception {
+        form(panelToken);
+        applications.stage(first.applicationId(), vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        error(mark(interview, technical, panelToken, 0), 409, "INTERVIEW_APPLICATION_INACTIVE");
+        assertThat(count("interview_question_usage")).isZero();
+    }
+
+    @Test
     void historyShowsOnlyPriorRoundsOfSameApplicationNeverOtherApplicationOfSameCandidate() throws Exception {
         form(panelToken); ok(mark(interview, technical, panelToken, 0));
         UUID next = anotherInterview(first.applicationId(), "Next round", 3600, 7200);

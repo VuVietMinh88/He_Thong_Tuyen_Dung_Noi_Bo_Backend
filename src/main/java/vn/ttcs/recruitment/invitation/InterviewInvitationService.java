@@ -10,6 +10,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
+import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.candidate.CandidateAccess;
 import vn.ttcs.recruitment.candidate.CandidateAccessKind;
@@ -27,7 +28,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /** Candidate capability access is limited to one invitation, never an account or a candidate profile. */
@@ -148,7 +148,7 @@ public class InterviewInvitationService {
                     && rs.getLong("schedule_version") == rs.getLong("current_version")
                     && expires.isAfter(clock.instant()) && starts.isAfter(clock.instant())
                     && "APPROVED".equals(rs.getString("requisition_status"))
-                    && !Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(rs.getString("stage"));
+                    && ApplicationStage.valueOf(rs.getString("stage")).active();
             if (!valid) throw invalid();
             Details details = new Details(rs.getString("posting_title"), rs.getString("round_name"), starts,
                     instant(rs, "ends_at"), rs.getString("mode"), rs.getString("room"), rs.getString("meeting_url"),

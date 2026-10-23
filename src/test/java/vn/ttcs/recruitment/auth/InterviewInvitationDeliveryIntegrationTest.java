@@ -195,6 +195,15 @@ class InterviewInvitationDeliveryIntegrationTest extends ScreeningTestSupport {
                 .isEqualTo("RECIPIENT_UNAVAILABLE");
     }
 
+    @Test void onboardingCompletionCancelsQueuedInvitationsWithoutSendingMail() throws Exception {
+        single();
+        applications.stage(first.applicationId(), vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        drain();
+        assertThat(SMTP.messages()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM interview_invitation_outbox WHERE status='CANCELLED' AND ciphertext IS NULL", Long.class))
+                .isEqualTo(2);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"INTERVIEWS_READ_SCOPED", "EVALUATIONS_WRITE_SCOPED"})
     void revokedPanelGrantStopsQueuedMeetingDetails(String permission) throws Exception {

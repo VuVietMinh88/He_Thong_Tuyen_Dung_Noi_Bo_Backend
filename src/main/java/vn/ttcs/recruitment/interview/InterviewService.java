@@ -14,6 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthSession;
 import vn.ttcs.recruitment.auth.AuthSessionRepository;
@@ -356,7 +357,7 @@ public class InterviewService {
             freshScope(jwt, writer, application);
             if (stage == null) throw applicationNotFound();
             if (requireActive && (!"APPROVED".equals(statuses.get(requisitions.get(application)))
-                    || Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(stage))) {
+                    || !ApplicationStage.valueOf(stage).active())) {
                 throw conflict("INTERVIEW_APPLICATION_INACTIVE", "Hồ sơ hoặc yêu cầu tuyển dụng đã ngừng xử lý.");
             }
         }
@@ -440,7 +441,7 @@ public class InterviewService {
         String stage = data.lockApplication(application);
         freshScope(jwt, writer, application);
         if (stage == null) throw applicationNotFound();
-        if (requireActive && (!"APPROVED".equals(status) || Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(stage))) {
+        if (requireActive && (!"APPROVED".equals(status) || !ApplicationStage.valueOf(stage).active())) {
             throw conflict("INTERVIEW_APPLICATION_INACTIVE", "Hồ sơ hoặc yêu cầu tuyển dụng đã ngừng xử lý.");
         }
     }

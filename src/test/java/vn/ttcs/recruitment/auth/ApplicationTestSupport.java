@@ -84,6 +84,8 @@ final class ApplicationTestSupport {
     // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too). The
     // referral attempts and their quota rows (task 351) reference staff accounts only and are deleted with them.
     void reset() {
+        // Disposable test databases: remove immutable completed checklists before their application/account parents.
+        jdbc.execute("TRUNCATE onboarding_templates CASCADE");
         // Offer history is immutable and references applications; this database belongs only to this test suite.
         jdbc.execute("TRUNCATE offers CASCADE");
         jdbc.execute("TRUNCATE offer_request_buckets");
@@ -251,9 +253,9 @@ final class ApplicationTestSupport {
         return id;
     }
 
-    // Sprint 4 has no stage API (S5-02): tests move an application with SQL.
+    // Tests arrange stages with SQL; ONBOARDED includes the completed checklist required by V64.
     void stage(UUID application, ApplicationStage stage) {
-        jdbc.update("UPDATE job_applications SET stage = ? WHERE id = ?", stage.name(), application);
+        OnboardingStageTestFixture.stage(jdbc, application, stage);
     }
 
     int trackingAttempts() {

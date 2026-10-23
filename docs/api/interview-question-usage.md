@@ -53,7 +53,7 @@ Thành công trả HTTP 200 với một câu hỏi có `asked=true`, người đ
 Điều kiện trước khi ghi:
 
 - Lịch vẫn `SCHEDULED`, đúng phiên bản đang hiển thị.
-- Yêu cầu tuyển dụng vẫn `APPROVED`, hồ sơ chưa `REJECTED`, `WITHDRAWN` hoặc `HIRED`.
+- Yêu cầu tuyển dụng vẫn `APPROVED`, hồ sơ chưa `REJECTED`, `WITHDRAWN`, `HIRED` hoặc `ONBOARDED`.
 - Phiếu của người gọi đang nháp và chưa từng nộp. Mở lại phiếu đã nộp không mở lại quyền sửa câu đã hỏi.
 - Câu đang hoạt động và thuộc tiêu chí trong phiếu của người gọi; câu đã đánh dấu được trả lại bằng bản chụp cũ.
 

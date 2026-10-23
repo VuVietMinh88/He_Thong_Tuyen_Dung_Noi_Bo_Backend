@@ -212,7 +212,7 @@ class ApplicationStageChangeIntegrationTest {
     @Test
     void movesOutsideTheForwardPathAreRefused() throws Exception {
         String token = token(hr);
-        for (String target : List.of("INTERVIEW", "OFFER", "HIRED", "NEW", "WITHDRAWN")) {
+        for (String target : List.of("INTERVIEW", "OFFER", "HIRED", "ONBOARDED", "NEW", "WITHDRAWN")) {
             conflict(change(lan.applicationId(), target, "NEW", token), "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
         }
         // Even a confirming HR_MANAGER skips only the interview, never the screening too.
@@ -233,6 +233,24 @@ class ApplicationStageChangeIntegrationTest {
                 "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
         assertThat(stageOf(lan.applicationId())).isEqualTo("NEW");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM application_stage_events", Integer.class)).isZero();
+    }
+
+    @Test
+    void genericStageChangesCannotFinishOnboardingOrReopenItsCompletedApplication() throws Exception {
+        String token = token(hr);
+        applications.stage(lan.applicationId(), ApplicationStage.HIRED);
+        conflict(change(lan.applicationId(), "ONBOARDED", "HIRED", token), "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
+        applications.stage(minh.applicationId(), ApplicationStage.ONBOARDED);
+        int previousEvents = jdbc.queryForObject("SELECT count(*) FROM application_stage_events", Integer.class);
+        for (ApplicationStage target : ApplicationStage.values()) {
+            var response = target == ApplicationStage.REJECTED
+                    ? post(minh.applicationId(), body("REJECTED", "ONBOARDED", activeReason, null), token)
+                    : change(minh.applicationId(), target.name(), "ONBOARDED", token);
+            conflict(response, "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED");
+        }
+        assertThat(stageOf(lan.applicationId())).isEqualTo("HIRED");
+        assertThat(stageOf(minh.applicationId())).isEqualTo("ONBOARDED");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_stage_events", Integer.class)).isEqualTo(previousEvents);
     }
 
     // A write never implies a read (V3): a recruiter whose role lost CANDIDATES_READ_SCOPED is refused, although it is

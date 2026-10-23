@@ -23,7 +23,8 @@ import java.util.stream.Collectors;
 @Service
 public class ApplicationBoardService {
     private static final List<ApplicationStage> STAGES = List.of(ApplicationStage.NEW, ApplicationStage.SCREENING,
-            ApplicationStage.INTERVIEW, ApplicationStage.OFFER, ApplicationStage.HIRED, ApplicationStage.REJECTED);
+            ApplicationStage.INTERVIEW, ApplicationStage.OFFER, ApplicationStage.HIRED, ApplicationStage.ONBOARDED,
+            ApplicationStage.REJECTED);
     private final CandidateAccess access;
     private final ApplicationBoardRepository repository;
     private final TransactionTemplate reads;

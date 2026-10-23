@@ -114,6 +114,18 @@ class InterviewInvitationIntegrationTest extends ScreeningTestSupport {
     }
 
     @Test
+    void onboardingCompletionInvalidatesOldInterviewLookupAndResponse() throws Exception {
+        var invite = invitation(first.applicationId(), START, "Obsolete interview");
+        JsonNode invalid = invalidLookup(invitationTokens.create());
+        applications.stage(first.applicationId(), vn.ttcs.recruitment.application.ApplicationStage.ONBOARDED);
+        assertThat(invalidLookup(invite.token())).isEqualTo(invalid);
+        var response = call("POST", PUBLIC + "/respond", responseBody(invite.token(), "CONFIRM", null), null);
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(json.readTree(response.body())).isEqualTo(invalid);
+        assertThat(status(invite.id())).isEqualTo("PENDING");
+    }
+
+    @Test
     void confirmationWithAnOptionalNoteIsStoredAndCanBeRetried() throws Exception {
         var invite = invitation(first.applicationId(), START, "Confirmation note interview");
         var confirmed = respond(invite.token(), "CONFIRM", "  Tôi sẽ đến trước giờ hẹn.  ");

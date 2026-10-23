@@ -75,6 +75,7 @@ class ApplicationStorageIntegrationTest {
     @BeforeEach
     void fixture() throws Exception {
         clock.set(NOW);
+        jdbc.execute("TRUNCATE onboarding_templates CASCADE");
         jdbc.update("DELETE FROM application_cvs");
         jdbc.update("DELETE FROM job_applications");
         jdbc.execute("TRUNCATE job_posting_events");
@@ -144,7 +145,7 @@ class ApplicationStorageIntegrationTest {
     @EnumSource(ApplicationStage.class)
     void everyStageKeepsTheEmailReservation(ApplicationStage stage) {
         var saved = storage.store(posting, submission("a@example.test"), cv, hash());
-        jdbc.update("UPDATE job_applications SET stage=? WHERE id=?", stage.name(), saved.id());
+        OnboardingStageTestFixture.stage(jdbc, saved.id(), stage);
         assertThatThrownBy(() -> storage.store(posting, submission(" A@EXAMPLE.test "), cv, hash()))
                 .isInstanceOf(DuplicateApplicationException.class);
         assertThat(count()).isEqualTo(1);
