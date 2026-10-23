@@ -27,6 +27,7 @@ import vn.ttcs.recruitment.evaluationreport.EvaluationEvidenceService;
 import vn.ttcs.recruitment.hiringdecision.HiringDecisionRepository;
 import vn.ttcs.recruitment.hiringdecision.HiringDecisionRequest;
 import vn.ttcs.recruitment.hiringdecision.HiringDecisionView;
+import vn.ttcs.recruitment.messaging.CandidateNoticeEmails;
 import vn.ttcs.recruitment.pipeline.ApplicationStageChangeRepository.RejectionReason;
 import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.security.AccessScope;
@@ -98,6 +99,7 @@ public class ApplicationStageChangeService {
     private final HiringDecisionRepository decisions;
     private final EvaluationEvidenceService evidence;
     private final DepartmentRepository departments;
+    private final CandidateNoticeEmails notices;
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final TransactionTemplate transaction;
@@ -106,7 +108,7 @@ public class ApplicationStageChangeService {
                                   PermissionService permissions, CandidateAccess candidates,
                                   RecruiterAssignmentAccess assignments, ApplicationStageChangeRepository stages,
                                   HiringDecisionRepository decisions, EvaluationEvidenceService evidence,
-                                  DepartmentRepository departments,
+                                  DepartmentRepository departments, CandidateNoticeEmails notices,
                                   JdbcTemplate jdbc, Clock clock, PlatformTransactionManager manager) {
         this.accounts = accounts;
         this.sessions = sessions;
@@ -117,6 +119,7 @@ public class ApplicationStageChangeService {
         this.decisions = decisions;
         this.evidence = evidence;
         this.departments = departments;
+        this.notices = notices;
         this.jdbc = jdbc;
         this.clock = clock;
         transaction = new TransactionTemplate(manager);
@@ -214,6 +217,8 @@ public class ApplicationStageChangeService {
         Instant at = clock.instant().truncatedTo(ChronoUnit.MICROS);
         stages.move(applicationId, current, target);
         UUID stageEvent = stages.record(applicationId, current, target, writer.id(), at, request.note(), reason, false);
+        // Task 533: a REJECT decision is a staff rejection; its letter is queued or suppressed in this transaction.
+        if (target == ApplicationStage.REJECTED) notices.rejected(applicationId);
         var result = new HiringDecisionView(UUID.randomUUID(), applicationId, reviewed.latestInterviewId(),
                 request.decision(), target, at, writer.id(), writer.fullName(), request.note(),
                 reason == null ? null : reason.id(), reason == null ? null : reason.name(), reviewed.hash());
@@ -319,6 +324,9 @@ public class ApplicationStageChangeService {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         stages.move(applicationId, current, target);
         stages.record(applicationId, current, target, writer.id(), now, request.note(), reason, interviewSkipped);
+        // Task 533 (story S8-01): the rejection letter follows the REJECTION template's automatic-send flag; it is
+        // recorded with the stage change, so a rolled-back change sends nothing.
+        if (target == ApplicationStage.REJECTED) notices.rejected(applicationId);
         return ApplicationStageChangeView.of(applicationId, current, target, now, writer.id(), writer.fullName(),
                 request.note(), reason, interviewSkipped);
     }

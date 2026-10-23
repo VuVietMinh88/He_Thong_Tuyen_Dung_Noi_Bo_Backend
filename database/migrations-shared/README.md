@@ -11,6 +11,9 @@ See `docs/api/interviews.md`, `interview-evaluations.md`, `interview-question-us
 
 Candidate extensions (`docs/api/candidate-extensions.md`): V65 stores personal saved candidate-search filters; V65_1 records who entered an application by hand; V65_2 indexes application phones in their national form for the manual duplicate check; V65_3 stores the required criteria (experience, education, skills) of a position; V65_4 stores the qualifications staff record for an application and its fit result; V65_5 stores the talent pool (entries with evidence, reason, title interests and skills).
 
+V66 and its V66_x follow-ups hold candidate email templates, the email log, in-app notifications,
+notification preferences and stage SLA (`docs/api/messaging.md`).
+
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one
 legacy directory, selected by `APP_MIGRATION_LINEAGE`.

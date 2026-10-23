@@ -68,6 +68,7 @@ class ApplicationConfirmationIntegrationTest {
     @Autowired ApplicationConfirmationWorker worker;
     @Autowired ApplicationConfirmationMailSender mail;
     @Autowired ApplicationReferralLookup referrals;
+    @Autowired vn.ttcs.recruitment.messaging.EmailTemplates templates;
     @Autowired ApplicationConfirmationSettings settings;
     @Autowired PostgresApplicationReceiptWriter writer;
     @Autowired ApplicationStorageService storage;
@@ -399,7 +400,7 @@ class ApplicationConfirmationIntegrationTest {
     }
     @Test void restartUsesExistingDurableEncryptedPayloadAndSameCode() throws Exception {
         var receipt=pending();var repository=new ApplicationOutboxRepository(jdbc,manager);
-        var restarted=new ApplicationConfirmationWorker(settings,repository,new ApplicationOutboxCrypto(settings,json),mail,referrals);
+        var restarted=new ApplicationConfirmationWorker(settings,repository,new ApplicationOutboxCrypto(settings,json),mail,referrals,templates);
         assertThat(restarted.processNext()).isTrue();assertThat(status()).isEqualTo("SENT");
         assertThat(SMTP.messages().getFirst().getContent().toString()).contains(receipt.get("trackingCode").asString());
     }

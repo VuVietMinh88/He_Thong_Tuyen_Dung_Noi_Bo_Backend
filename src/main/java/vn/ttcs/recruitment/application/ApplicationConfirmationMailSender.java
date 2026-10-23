@@ -6,6 +6,8 @@ import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.ReceiptMailText;
 
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
@@ -24,33 +26,25 @@ public class ApplicationConfirmationMailSender {
         this.sender=sender;time=DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(zone);this.settings=settings;
     }
 
-    void send(ApplicationConfirmationPayload payload,String messageId) {send(payload,messageId,false);}
-
     // Task 351 (story S4-07): referred is true when a staff member submitted the application through the referral API
     // (ApplicationReferralLookup at send time). The mail then says so after the greeting, with how to withdraw and whom
     // to ask to delete the data; it never names the referrer.
-    void send(ApplicationConfirmationPayload payload,String messageId,boolean referred) {
+    // Task 533 (story S8-01): the subject and the opening come from the APPLICATION_RECEIPT template, rendered by the
+    // worker at send time; ReceiptMailText adds the fixed part (position, time, tracking code and link, task 345's
+    // withdrawal link), which no template can remove. V66's default template gives the text sent before templates.
+    void send(ApplicationConfirmationPayload payload,String messageId,boolean referred,EmailTemplate.Rendered template) {
         var message=sender.createMimeMessage();
         try {
             var helper=new MimeMessageHelper(message,StandardCharsets.UTF_8.name());
             helper.setFrom(payload.from());helper.setTo(payload.email());
-            helper.setSubject("Xác nhận nhận hồ sơ ứng tuyển — Hệ thống tuyển dụng nội bộ");
-            helper.setText("Chào "+payload.fullName()+",\n\n"
-                    +(referred?referralParagraph(payload.from()):"")
-                    +"Hệ thống đã nhận hồ sơ ứng tuyển của bạn.\n\n"
-                    +"Vị trí ứng tuyển: "+payload.postingTitle()+"\n"
-                    +"Thời gian tiếp nhận: "+time.format(payload.receivedAt())+" (giờ Việt Nam)\n"
-                    +"Mã tra cứu: "+payload.trackingCode()+"\n\n"
-                    +"Bạn có thể dùng liên kết sau để tra cứu hồ sơ:\n"+payload.trackingUrl()+"\n\n"
-                    +"Vui lòng giữ mã và liên kết này để theo dõi hồ sơ.\n\n"
-                    // Task 345 (story S4-06): the withdrawal link ships with the withdrawal API, never before it.
-                    +"Nếu không muốn tiếp tục ứng tuyển, bạn có thể rút hồ sơ tại liên kết sau. Hệ thống sẽ hỏi email "
-                    +"đã dùng khi nộp hồ sơ và yêu cầu bạn xác nhận lại trước khi rút:\n"
-                    +settings.withdrawalUrl(payload.trackingCode())+"\n\n"
-                    +"Email này xác nhận hồ sơ đã được tiếp nhận.\nKết quả tuyển dụng sẽ được thông báo sau.\n\n"
-                    +"Hệ thống tuyển dụng nội bộ\n",false);
+            helper.setSubject(template.subject());
+            helper.setText(ReceiptMailText.compose(template.paragraphs(),referred?referralParagraph(payload.from()):null,
+                    payload.postingTitle(),time.format(payload.receivedAt()),payload.trackingCode(),payload.trackingUrl(),
+                    settings.withdrawalUrl(payload.trackingCode())),false);
             message.setHeader("Message-ID",messageId);
-        } catch(MessagingException exception) {throw new MailPreparationException("Could not prepare application confirmation");}
+        } catch(MessagingException|IllegalArgumentException|NullPointerException exception) {
+            throw new MailPreparationException("Could not prepare application confirmation");
+        }
         sender.send(message);
     }
 

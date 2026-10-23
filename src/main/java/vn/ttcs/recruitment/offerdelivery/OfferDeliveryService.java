@@ -15,6 +15,8 @@ import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.offer.OfferAccess;
 import vn.ttcs.recruitment.offer.OfferDeclineReason;
 import vn.ttcs.recruitment.offer.OfferMailPayload;
+import vn.ttcs.recruitment.messaging.EmailMessageLog;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -42,10 +44,13 @@ public class OfferDeliveryService {
     private final BusinessCalendar calendar;
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
+    private final EmailMessageLog messages;
 
+    // Task 533: sending honours the OFFER automatic-send flag and records the email in email_messages.
     public OfferDeliveryService(JdbcTemplate jdbc, OfferAccess access, OfferDeliverySettings settings,
         OfferDeliveryCrypto crypto, OfferOutboxRepository outbox, ResetTokenGenerator tokens,
-        Clock clock, BusinessCalendar calendar, PlatformTransactionManager manager) {
+        Clock clock, BusinessCalendar calendar, PlatformTransactionManager manager, EmailMessageLog messages) {
+        this.messages = messages;
         this.jdbc = jdbc;
         this.access = access;
         this.settings = settings;
@@ -86,6 +91,12 @@ public class OfferDeliveryService {
             if (!sameRecipientAndPosition(current, parent) || !positionAvailable) {
                 throw conflict("OFFER_RECIPIENT_CHANGED", "Hồ sơ hoặc vị trí đã thay đổi. Vui lòng tạo offer mới.");
             }
+            // Task 533 (story S8-01): the email is the only way an offer reaches the candidate (its reply link exists
+            // only there), so with the OFFER type's automatic sending off the offer is not marked SENT at all.
+            if (!messages.autoSend(EmailTemplateType.OFFER)) {
+                throw conflict("OFFER_EMAIL_DISABLED", "Gửi thư offer tự động đang tắt trong cấu hình mẫu email."
+                    + " Vui lòng bật lại trước khi gửi offer.");
+            }
             String token = tokens.create();
             UUID tokenId = UUID.randomUUID();
             UUID outboxId = UUID.randomUUID();
@@ -97,6 +108,9 @@ public class OfferDeliveryService {
             var payload = new OfferMailPayload(current.email(), current.candidateName(), current.positionTitle(), current.salary(),
                 current.allowance(), current.startDate(), current.deadline(), settings.link(token));
             outbox.enqueue(outboxId, id, current.applicationId(), current.version()+1, tokenId, crypto.encrypt(outboxId, id, payload));
+            messages.queued(new EmailMessageLog.Message(EmailTemplateType.OFFER, null, current.applicationId(), null, id,
+                EmailMessageLog.Trigger.MANUAL, current.email(), "OFFER:" + id, actor.id()),
+                EmailMessageLog.Delivery.OFFER_DELIVERY, outboxId);
             jdbc.update("UPDATE offers SET status='SENT',version=version+1,sent_at=?,updated_at=? WHERE id=?",
                 Timestamp.from(now), Timestamp.from(now), id);
             event(current, "SENT", actor.id(), actor.name(), null, now);

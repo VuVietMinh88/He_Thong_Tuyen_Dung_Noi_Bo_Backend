@@ -17,17 +17,16 @@ import java.util.UUID;
 @Component
 public class PostgresApplicationReceiptWriter implements ApplicationReceiptWriter {
     private final ApplicationStorageService storage;
-    private final ApplicationOutboxRepository outbox;
-    private final ApplicationOutboxCrypto crypto;
+    private final ApplicationReceiptDispatch receipts;
     private final ApplicationConfirmationSettings settings;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final SecureRandom random = new SecureRandom();
 
-    public PostgresApplicationReceiptWriter(ApplicationStorageService storage, ApplicationOutboxRepository outbox,
-            ApplicationOutboxCrypto crypto, ApplicationConfirmationSettings settings, JdbcTemplate jdbc,
-            PlatformTransactionManager manager) {
-        this.storage=storage;this.outbox=outbox;this.crypto=crypto;this.settings=settings;this.jdbc=jdbc;
+    // Task 533: the receipt dispatch queues the confirmation, or records it suppressed when automatic sending is off.
+    public PostgresApplicationReceiptWriter(ApplicationStorageService storage, ApplicationReceiptDispatch receipts,
+            ApplicationConfirmationSettings settings, JdbcTemplate jdbc, PlatformTransactionManager manager) {
+        this.storage=storage;this.receipts=receipts;this.settings=settings;this.jdbc=jdbc;
         transaction=new TransactionTemplate(manager);
         // A caller's transaction must not let an uncommitted receipt escape.
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -50,10 +49,9 @@ public class PostgresApplicationReceiptWriter implements ApplicationReceiptWrite
                 var stored=storage.store(postingId,submission,cv,hash);
                 String title=jdbc.queryForObject("SELECT posting_title FROM job_applications WHERE id=?",String.class,stored.id());
                 var receipt=new ApplicationReceipt(stored.id(),stored.receivedAt(),code,settings.trackingUrl(code));
-                UUID outboxId=UUID.randomUUID();
                 var payload=new ApplicationConfirmationPayload(submission.email(),submission.fullName(),title,
                         receipt.receivedAt(),code,receipt.trackingUrl(),settings.from());
-                outbox.enqueue(outboxId,stored.id(),settings.messageId(outboxId),crypto.encrypt(outboxId,stored.id(),payload));
+                receipts.decide(stored.id(),payload);
                 return receipt;
             }));
         } catch(NoSuchAlgorithmException exception) { throw new IllegalStateException("SHA-256 unavailable"); }

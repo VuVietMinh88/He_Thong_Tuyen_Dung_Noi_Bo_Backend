@@ -8,6 +8,12 @@ import org.springframework.mail.MailPreparationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import vn.ttcs.recruitment.common.MailFailureClassifier;
+import vn.ttcs.recruitment.messaging.EmailTemplate;
+import vn.ttcs.recruitment.messaging.EmailTemplateType;
+import vn.ttcs.recruitment.messaging.EmailTemplates;
+import vn.ttcs.recruitment.messaging.TemplateVariable;
+
+import java.util.Map;
 
 @Component
 public class OfferDeliveryWorker {
@@ -16,13 +22,16 @@ public class OfferDeliveryWorker {
     private final OfferOutboxRepository outbox;
     private final OfferDeliveryCrypto crypto;
     private final OfferDeliveryMailSender mail;
+    private final EmailTemplates templates;
 
+    // Task 533: the OFFER template current at send time gives the subject and the opening.
     public OfferDeliveryWorker(OfferDeliverySettings settings, OfferOutboxRepository outbox,
-        OfferDeliveryCrypto crypto, OfferDeliveryMailSender mail) {
+        OfferDeliveryCrypto crypto, OfferDeliveryMailSender mail, EmailTemplates templates) {
         this.settings = settings;
         this.outbox = outbox;
         this.crypto = crypto;
         this.mail = mail;
+        this.templates = templates;
     }
     @Scheduled(initialDelayString = "${app.offers.poll-delay-ms:60000}",
         fixedDelayString = "${app.offers.poll-delay-ms:60000}")
@@ -64,8 +73,11 @@ public class OfferDeliveryWorker {
             outbox.abandon(delivery, unavailable);
             return true;
         }
+        EmailTemplate.Rendered template = templates.render(EmailTemplateType.OFFER, Map.of(
+            TemplateVariable.CANDIDATE_NAME, payload.recipientName(),
+            TemplateVariable.POSITION_TITLE, payload.positionTitle()));
         try {
-            mail.send(payload, settings.messageId(delivery.id()));
+            mail.send(payload, settings.messageId(delivery.id()), template);
         }
         catch (MailPreparationException exception) {
             outbox.failed(delivery, true, "PAYLOAD_INVALID");

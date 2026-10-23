@@ -51,24 +51,22 @@ class ManualApplicationWriter {
     private final ManualApplicationAccess scope;
     private final ManualApplicationDuplicates duplicates;
     private final ApplicationStorageService storage;
-    private final ApplicationOutboxRepository outbox;
-    private final ApplicationOutboxCrypto crypto;
+    private final ApplicationReceiptDispatch receipts;
     private final ApplicationConfirmationSettings settings;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
     private final SecureRandom random = new SecureRandom();
 
     ManualApplicationWriter(CandidateWriteGuard guard, CandidateAccess access, ManualApplicationAccess scope,
-                            ManualApplicationDuplicates duplicates, ApplicationStorageService storage, ApplicationOutboxRepository outbox,
-                            ApplicationOutboxCrypto crypto, ApplicationConfirmationSettings settings, JdbcTemplate jdbc,
+                            ManualApplicationDuplicates duplicates, ApplicationStorageService storage,
+                            ApplicationReceiptDispatch receipts, ApplicationConfirmationSettings settings, JdbcTemplate jdbc,
                             PlatformTransactionManager manager) {
         this.guard = guard;
         this.access = access;
         this.scope = scope;
         this.duplicates = duplicates;
         this.storage = storage;
-        this.outbox = outbox;
-        this.crypto = crypto;
+        this.receipts = receipts;
         this.settings = settings;
         this.jdbc = jdbc;
         transaction = new TransactionTemplate(manager);
@@ -112,10 +110,10 @@ class ManualApplicationWriter {
         String title = (String) saved.get("posting_title");
         UUID candidateId = (UUID) saved.get("candidate_id");
         var receipt = new ApplicationReceipt(stored.id(), stored.receivedAt(), code, settings.trackingUrl(code));
-        UUID outboxId = UUID.randomUUID();
         var payload = new ApplicationConfirmationPayload(form.submission().email(), form.submission().fullName(), title,
                 receipt.receivedAt(), code, receipt.trackingUrl(), settings.from());
-        outbox.enqueue(outboxId, stored.id(), settings.messageId(outboxId), crypto.encrypt(outboxId, stored.id(), payload));
+        // Task 533: queued like the referral's receipt, or recorded as suppressed when automatic sending is off.
+        receipts.decide(stored.id(), payload);
         access.recordGranted(reader, CandidateAccessKind.PROFILE, candidateId, List.of(stored.id()));
         var report = duplicates.report(reader, requisitionId, form.submission().normalizedEmail(),
                 form.submission().phone(), stored.id());

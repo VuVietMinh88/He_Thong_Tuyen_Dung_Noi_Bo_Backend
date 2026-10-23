@@ -25,6 +25,7 @@ import vn.ttcs.recruitment.candidate.CandidateReader;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.competency.EvaluationCriteria;
 import vn.ttcs.recruitment.competency.EvaluationCriteriaService;
+import vn.ttcs.recruitment.messaging.CandidateNoticeEmails;
 import vn.ttcs.recruitment.security.AccessScope;
 import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
@@ -61,11 +62,14 @@ public class EvaluationService {
     private final TransactionTemplate reads;
     private final TransactionTemplate auditedReads;
     private final TransactionTemplate writes;
+    private final CandidateNoticeEmails notices;
 
+    // Task 533: notices decides the candidate's thank-you email when an interview is completed.
     public EvaluationService(EvaluationRepository data, EvaluationCriteriaService criteria, AuthService auth,
             AccountRepository accounts, AuthSessionRepository sessions, PermissionService permissions,
             CandidateAccess candidates, JdbcTemplate jdbc, Clock clock, ObjectMapper json,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions, CandidateNoticeEmails notices) {
+        this.notices = notices;
         this.data = data; this.criteria = criteria; this.auth = auth; this.accounts = accounts;
         this.sessions = sessions; this.permissions = permissions; this.candidates = candidates;
         this.jdbc = jdbc; this.clock = clock; this.json = json;
@@ -127,8 +131,13 @@ public class EvaluationService {
             BigDecimal total = total(form, answers);
             data.save(form, answers, request.conclusion(), total, submit, now);
             EvaluationView result = data.find(interviewId, form.id(), false).orElseThrow();
-            if (submit) data.event(result, "EVALUATION_SUBMITTED", writer.account().getId(), now, null,
-                    json.writeValueAsString(result));
+            if (submit) {
+                data.event(result, "EVALUATION_SUBMITTED", writer.account().getId(), now, null,
+                        json.writeValueAsString(result));
+                // Task 533: a submitted evaluation proves the interview took place; the first one decides the
+                // candidate's thank-you email (later ones record nothing more).
+                notices.interviewCompleted(interviewId, interview.applicationId());
+            }
             return result;
         });
     }
