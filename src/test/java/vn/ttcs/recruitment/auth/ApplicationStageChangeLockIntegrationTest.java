@@ -136,6 +136,64 @@ class ApplicationStageChangeLockIntegrationTest {
         assertThat(eventShapes()).isEmpty();
     }
 
+    // Task 381: a rejection locks its reason FOR SHARE after the application, so it waits while HR edits that value
+    // (here a raw connection holding it FOR UPDATE, as RecruitmentCatalogService does), and holds the application
+    // meanwhile. What HR committed is seen: a deactivated value is refused, a renamed one is stored under its new name.
+    // A grant narrowed from ALL to SCOPED during that wait is seen as well: the scope is checked again after it.
+    @ParameterizedTest(name = "{0}")
+    @CsvSource({
+            "nothing, 200", "deactivated, 400", "renamed, 200",
+            "write-narrowed, 403", "read-narrowed, 403"
+    })
+    void aRejectionWaitsForHrEditingItsReason(String change, int expected) throws Exception {
+        UUID reason = rejectionReason();
+        try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
+            blocker.setAutoCommit(false);
+            hold(blocker, "SELECT 1 FROM recruitment_catalog_items WHERE id = ? FOR UPDATE", reason);
+            Future<HttpResponse<String>> rejection;
+            try {
+                rejection = executor.submit(() -> applications.post(
+                        "/api/v1/applications/" + lan.applicationId() + "/stage-changes",
+                        "{\"targetStage\":\"REJECTED\",\"expectedCurrentStage\":\"NEW\",\"rejectionReasonId\":\""
+                                + reason + "\"}", "application/json", Map.of("Authorization", "Bearer " + hrToken)));
+                applications.awaitWaiterOf(ApplicationTestSupport.backendPid(blocker));
+                assertThat(probe("SELECT 1 FROM job_applications WHERE id = ? FOR SHARE NOWAIT", lan.applicationId()))
+                        .isEqualTo(LOCKED);
+                switch (change) {
+                    case "deactivated" -> execute(blocker,
+                            "UPDATE recruitment_catalog_items SET active = false WHERE id = ?", reason);
+                    case "renamed" -> execute(blocker,
+                            "UPDATE recruitment_catalog_items SET name = 'Tên mới' WHERE id = ?", reason);
+                    case "write-narrowed" -> jdbc.update("UPDATE role_permissions SET permission_code = "
+                            + "'CANDIDATES_WRITE_SCOPED' WHERE role_code = 'HR_MANAGER' "
+                            + "AND permission_code = 'CANDIDATES_WRITE_ALL'");
+                    case "read-narrowed" -> jdbc.update("UPDATE role_permissions SET permission_code = "
+                            + "'CANDIDATES_READ_SCOPED' WHERE role_code = 'HR_MANAGER' "
+                            + "AND permission_code = 'CANDIDATES_READ_ALL'");
+                    default -> { }
+                }
+                blocker.commit();
+            } finally {
+                blocker.rollback();
+            }
+            var response = rejection.get(10, TimeUnit.SECONDS);
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(expected);
+            if (change.equals("deactivated")) {
+                assertThat(json.readTree(response.body()).path("code").asString())
+                        .isEqualTo("REJECTION_REASON_INACTIVE");
+            }
+        }
+        if (expected == 200) {
+            assertThat(stageOf(lan.applicationId())).isEqualTo("REJECTED");
+            assertThat(jdbc.queryForObject("SELECT rejection_reason_name FROM application_stage_events "
+                    + "WHERE application_id = ?", String.class, lan.applicationId()))
+                    .isEqualTo(change.equals("renamed") ? "Tên mới" : "Chưa phù hợp kỹ năng");
+        } else {
+            assertThat(stageOf(lan.applicationId())).isEqualTo("NEW");
+            assertThat(eventShapes()).isEmpty();
+        }
+    }
+
     // The same request without the downgrade passes: HR's ALL grants are what let it write an application of a team it
     // is not on.
     @Test
@@ -342,6 +400,22 @@ class ApplicationStageChangeLockIntegrationTest {
         var response = call.get(10, TimeUnit.SECONDS);
         assertThat(response.statusCode()).as(response.body()).isIn(200, 403, 409, 503);
         return response.statusCode();
+    }
+
+    private static void execute(Connection connection, String sql, UUID id) throws SQLException {
+        try (var statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, id);
+            assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+    }
+
+    // An active REJECTION_REASON value, as HR declares it (V10 seeds none).
+    private UUID rejectionReason() {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO recruitment_catalog_items(id,catalog_type,code,name,sort_order,active,created_at,"
+                + "updated_at) VALUES (?,'REJECTION_REASON',?,'Chưa phù hợp kỹ năng',0,true,?,?)", id, id.toString(),
+                java.sql.Timestamp.from(ApplicationTestSupport.NOW), java.sql.Timestamp.from(ApplicationTestSupport.NOW));
+        return id;
     }
 
     private static void hold(Connection connection, String sql, UUID id) throws SQLException {
