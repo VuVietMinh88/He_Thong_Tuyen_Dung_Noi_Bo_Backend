@@ -32,6 +32,19 @@ public class DepartmentRepository {
     // saw nothing open stays right (OpenRequisitionStatusChangeTest).
     static final List<String> OPEN_REQUISITION_STATUSES = List.of("DRAFT", "PENDING_APPROVAL", "RETURNED",
             "APPROVED", "PAUSED");
+    // The named parameter of MANAGED_DEPARTMENT_IDS: the manager's user id.
+    public static final String MANAGER = "managerUserId";
+    // Task 363: the one definition of "the departments a user manages": those whose manager_user_id is the user, plus
+    // every department below them in the tree (children, grandchildren...). findManagedDepartmentIds runs it, and the
+    // candidate module (CandidateAccess) uses it as a constant fragment, "x.department_id IN (" + ... + ")", so a Java
+    // check and an SQL filter can never disagree. Every column resolves inside the fragment (departments, child,
+    // managed), whatever the aliases of the outer query. The active flag is ignored: it says whether a department is
+    // still used, not who is responsible for it. UNION (not UNION ALL) drops rows already found, so the recursion also
+    // stops on a cycle left by manual SQL edits.
+    public static final String MANAGED_DEPARTMENT_IDS = "WITH RECURSIVE managed(id) AS ("
+            + "SELECT id FROM departments WHERE manager_user_id = :" + MANAGER
+            + " UNION SELECT child.id FROM departments child JOIN managed ON child.parent_id = managed.id"
+            + ") SELECT id FROM managed";
 
     private final NamedParameterJdbcTemplate jdbc;
 
@@ -76,19 +89,11 @@ public class DepartmentRepository {
         return parents;
     }
 
-    // The departments this user manages directly, plus every department below them in the tree (children,
-    // grandchildren...). Used for REQUISITIONS_*_SCOPED. The active flag is ignored: it says whether a department
-    // is still used, not who is responsible for it. UNION (not UNION ALL) drops rows already found, so the
-    // recursion also stops on a cycle left by manual SQL edits.
+    // The departments this user manages directly, plus every department below them in the tree (MANAGED_DEPARTMENT_IDS).
+    // Used for REQUISITIONS_*_SCOPED, headcount plans and approver rules; from task 363 the same SQL decides
+    // CANDIDATES_*_SCOPED for department managers.
     public Set<UUID> findManagedDepartmentIds(UUID managerUserId) {
-        return Set.copyOf(jdbc.query("""
-                WITH RECURSIVE managed(id) AS (
-                    SELECT id FROM departments WHERE manager_user_id = :managerUserId
-                    UNION
-                    SELECT child.id FROM departments child JOIN managed ON child.parent_id = managed.id
-                )
-                SELECT id FROM managed
-                """, new MapSqlParameterSource("managerUserId", managerUserId),
+        return Set.copyOf(jdbc.query(MANAGED_DEPARTMENT_IDS, new MapSqlParameterSource(MANAGER, managerUserId),
                 (row, number) -> row.getObject("id", UUID.class)));
     }
 
