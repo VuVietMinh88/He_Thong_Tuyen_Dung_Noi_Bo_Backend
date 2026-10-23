@@ -17,6 +17,8 @@ Bốn loại dùng chung một API, phân biệt bằng `{type}` trong URL. `{ty
 
 Loại khác (kể cả `candidate_source`, `candidate-sources`) trả **404** `RECRUITMENT_CATALOG_TYPE_NOT_FOUND`, thông báo liệt kê bốn loại hợp lệ. Database không seed sẵn giá trị nào; Trưởng phòng Nhân sự tự khai báo.
 
+Giới thiệu nội bộ (task 350, story S4-07): HR **không cần** tạo giá trị `CANDIDATE_SOURCE` cho giới thiệu nội bộ. Hồ sơ do nhân viên giới thiệu được gắn nhãn "Giới thiệu nội bộ" từ bản ghi giới thiệu (V36, kèm người giới thiệu và ghi chú) và không lưu nguồn danh mục, nên đổi tên hay ngừng dùng một giá trị danh mục không đổi nhãn đó. Giá trị như "Nhân viên giới thiệu" mà ứng viên tự chọn trên form nộp hồ sơ công khai chỉ là lời khai của ứng viên: hồ sơ đó vẫn là `CAREER_PAGE` với tên giá trị ở `details`, không có người giới thiệu. Xem [giới thiệu ứng viên](application-referrals.md#nhãn-giới-thiệu-nội-bộ-lấy-từ-bản-ghi-không-từ-danh-mục).
+
 ## Tạo và sửa
 
 `POST /recruitment-catalogs/{type}/items` tạo giá trị trong loại danh mục, trả **201**. `PUT /recruitment-catalogs/{type}/items/{id}` thay thế mã, tên và trạng thái của giá trị có UUID tương ứng, trả **200**.
