@@ -1,12 +1,12 @@
 # Giới thiệu ứng viên nội bộ
 
-Phạm vi TKNHTTDNB1-350 (lưu nguồn giới thiệu và người giới thiệu) và TKNHTTDNB1-351 (API giới thiệu cho nhân viên đã đăng nhập), story TKNHTTDNB1-46 (S4-07): nhân viên nội bộ giới thiệu ứng viên cho một vị trí đang tuyển. Tiêu chí của story:
+Phạm vi TKNHTTDNB1-350 (lưu nguồn giới thiệu và người giới thiệu), TKNHTTDNB1-351 (API giới thiệu cho nhân viên đã đăng nhập) và TKNHTTDNB1-352 (người giới thiệu xem trạng thái tổng quát), story TKNHTTDNB1-46 (S4-07): nhân viên nội bộ giới thiệu ứng viên cho một vị trí đang tuyển. Tiêu chí của story:
 
 - "Nhân viên nội bộ nộp hồ sơ giúp người quen kèm ghi chú giới thiệu": đã có: lớp lưu trữ (350) và `POST /api/v1/referrals` (351).
 - "Hồ sơ được gắn nhãn nguồn Giới thiệu nội bộ và tên người giới thiệu": đã có (350). Hồ sơ ứng viên hợp nhất hiện `source.type = "INTERNAL_REFERRAL"`, nhãn "Giới thiệu nội bộ", id và họ tên người giới thiệu cùng ghi chú.
-- "Người giới thiệu theo dõi được trạng thái ở mức tổng quát": task 352.
+- "Người giới thiệu theo dõi được trạng thái ở mức tổng quát": đã có (352): `GET /api/v1/referrals/my-referrals` chỉ trả các hồ sơ do chính người gọi giới thiệu, với trạng thái công khai của task 340.
 
-Task 350 thêm migration V36 và lớp lưu trữ nội bộ `ReferralApplicationStorage`, không có endpoint. Task 351 thêm `POST /api/v1/referrals` và migration V37 (giới hạn lượt gửi), không thêm mã quyền; ma trận phân quyền từ 1581 lên 1596 ca.
+Task 350 thêm migration V36 và lớp lưu trữ nội bộ `ReferralApplicationStorage`, không có endpoint. Task 351 thêm `POST /api/v1/referrals` và migration V37 (giới hạn lượt gửi), không thêm mã quyền; ma trận phân quyền từ 1581 lên 1596 ca. Task 352 thêm `GET /api/v1/referrals/my-referrals`, không có migration, không thêm mã quyền; ma trận từ 1596 lên 1611 ca.
 
 ## Lưu giới thiệu (task 350)
 
@@ -58,7 +58,7 @@ Người giới thiệu gửi dữ liệu cá nhân của người khác, nên A
 - Người được đọc lần ứng tuyển đó trong [hồ sơ ứng viên hợp nhất](candidate-profiles.md#response-200) (task 361, quy tắc của task 363): ghi chú nằm trong `source.note`, người giới thiệu là `source.referrerId` và `source.referrerName` (họ tên hiện tại), không bao giờ là email.
 - Người đọc không được xem lần ứng tuyển đó không thấy gì của nó, kể cả việc nó được giới thiệu. Là người giới thiệu cũng không cho quyền xem hồ sơ ứng viên.
 - Ứng viên không bao giờ thấy ghi chú: không có trong API tra cứu, rút hồ sơ hay email.
-- Task 352 sẽ cho người giới thiệu xem lại ghi chú của chính mình trong danh sách giới thiệu.
+- Người giới thiệu xem lại ghi chú của chính mình trong [danh sách giới thiệu của mình](#theo-dõi-giới-thiệu-task-352) (task 352), không thấy ghi chú của người khác.
 
 ### Schema (V36)
 
@@ -226,6 +226,74 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/referrals" `
 - Tải lên tới 11 MiB có thể vượt timeout 15 giây của axios (`axiosClient.ts`): tăng timeout cho lời gọi này.
 - Ghi chú: server không đòi tối thiểu 10 ký tự như form hiện tại (câu hỏi 27, ý 1).
 
+## Theo dõi giới thiệu (task 352)
+
+`GET /api/v1/referrals/my-referrals`, `Authorization: Bearer <access token>`. Người giới thiệu xem lại các hồ sơ **mình** đã giới thiệu và trạng thái của chúng ở mức tổng quát.
+
+### Quyền
+
+- `SELF_PROFILE_READ` ở matcher (`SecurityConfiguration`), như xem ảnh đại diện của đồng nghiệp; cả sáu vai trò nội bộ đều có (V3, V5). Không thêm mã quyền.
+- `ApplicationReferralStatusService` kiểm lại trước khi đọc dòng nào: token còn hạn (401 `SESSION_INVALID`), phiên và tài khoản còn hoạt động (401), mã `SELF_PROFILE_READ` đọc lại từ database (403), giống `AvatarService`.
+- Danh sách lọc trong SQL theo `application_referrals.referrer_id` = người gọi (subject của JWT). Không đọc tham số nào trên query string: `search`, `status`, `page`, `limit` mà frontend đang gửi, hay một `referrerId`, đều bị bỏ qua, nên không ai xem được danh sách của người khác.
+- Người không giới thiệu ai nhận `[]`, kể cả recruiter phụ trách yêu cầu hay HR Manager: quyền xem ứng viên không mở danh sách này. Ngược lại, là người giới thiệu không cho quyền xem hồ sơ ứng viên.
+
+### Response 200
+
+```json
+[{"id":"…","candidateName":"Nguyễn Văn A","jobTitle":"Lập trình viên Java","submittedAt":"2026-10-15T03:00:00Z",
+  "status":"INTERVIEWING","statusName":"Mời phỏng vấn","referralNote":"Bạn học cũ, mạnh Java"}]
+```
+
+`Cache-Control: no-store`. Mảng trần (không bọc trong `items` hay `data`, như `referralService.ts` đang đọc), mới nhất trước (`received_at` giảm dần, cùng thời điểm thì theo `id` giảm dần), không phân trang. Mỗi phần tử đúng bảy khóa, giống hệt response 201 của [API giới thiệu](#response-201) (task 351):
+
+| Khóa | Nguồn | Ghi chú |
+|---|---|---|
+| `id` | `job_applications.id` | id hồ sơ ứng tuyển; frontend dùng làm key (không có thì tự tạo `ref-${Date.now()}`, và các dòng tạo trong cùng một mili giây trùng key) |
+| `candidateName` | `job_applications.full_name` | họ tên ứng viên đúng như người giới thiệu đã nhập |
+| `jobTitle` | `job_applications.posting_title` | bản chụp tên tin lúc nộp; tin bị sửa, gỡ hay đóng sau đó không đổi giá trị này |
+| `submittedAt` | `job_applications.received_at` | lúc nhận hồ sơ |
+| `status`, `statusName` | `PublicApplicationStatus.of(stage)` (task 340) | `RECEIVED` "Đã nhận", `IN_REVIEW` "Đang xem xét", `INTERVIEWING` "Mời phỏng vấn", `COMPLETED` "Kết thúc" |
+| `referralNote` | `application_referrals.note` | ghi chú của chính người giới thiệu (đã chuẩn hóa xuống dòng) |
+
+**Không bao giờ** có: email, số điện thoại hay CV của ứng viên; giai đoạn nội bộ hay tên của nó (`SCREENING`, "Sàng lọc"…); nhãn nguồn; id yêu cầu tuyển dụng, tin hay hồ sơ ứng viên; recruiter, người phỏng vấn hay bất kỳ nhân viên nào (kể cả chính người giới thiệu); lý do rút hồ sơ; mã hay liên kết tra cứu. Hồ sơ ứng viên đã rút hiện "Kết thúc", như hồ sơ trúng tuyển hay không phù hợp (câu hỏi 24, ý 2). Sprint 4 chưa có API chuyển giai đoạn (S5-02), nên tới Sprint 5 hồ sơ hiện "Đã nhận", trừ hồ sơ ứng viên tự rút.
+
+Câu truy vấn duy nhất (`ApplicationReferralStatusService`, một transaction chỉ đọc REPEATABLE READ cùng với phần kiểm người gọi):
+
+```sql
+SELECT a.id, a.full_name, a.posting_title, a.received_at, a.stage, r.note
+FROM application_referrals r JOIN job_applications a ON a.id = r.application_id
+WHERE r.referrer_id = :caller
+ORDER BY a.received_at DESC, a.id DESC
+```
+
+Chỉ mục `application_referrals_referrer_idx` (V36) phục vụ điều kiện `referrer_id`. `stage` chỉ rời lớp này qua `PublicApplicationStatus.of`. Thêm một khóa vào danh sách là đổi hợp đồng: sửa `ApplicationReferralView`, test ghim (`ApplicationReferralStatusIntegrationTest`, `PublicResponseContract`) và mục này, rồi báo frontend.
+
+### Lỗi
+
+| Trường hợp | Trả lời |
+|---|---|
+| Không có token, token hỏng, phiên hoặc tài khoản không còn hoạt động | 401 `UNAUTHORIZED` (matcher) hoặc 401 `SESSION_INVALID` (service kiểm lại) |
+| Không có `SELF_PROFILE_READ` | 403 `FORBIDDEN` |
+
+`GET /api/v1/referrals` (danh sách mọi lần giới thiệu) không tồn tại: bị từ chối mặc định (403), kể cả với ADMIN.
+
+### Ví dụ PowerShell
+
+```powershell
+$body = @{ email = "nhanvien@example.test"; password = "<mật khẩu>" } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/auth/login" -ContentType "application/json" -Body $body
+Invoke-RestMethod -Method Get -Uri "http://localhost:8080/api/v1/referrals/my-referrals" `
+  -Headers @{ Authorization = "Bearer $($login.accessToken)" }
+```
+
+### Ghi chú cho frontend (task 349)
+
+- Gọi `GET /api/v1/referrals/my-referrals` có `Authorization`; response là mảng trần, mới nhất trước. Server bỏ qua `search`, `status`, `page`, `limit`: lọc và phân trang (nếu cần) làm ở client.
+- Hiển thị `status` và `statusName` của server; bốn mã đã khớp `ReferralStatus` (`types/referral.ts`), không cần tự ánh xạ bằng `mapToGeneralStatus`.
+- Server không gửi email, số điện thoại, CV, phòng ban, địa điểm, loại hình làm việc, người giới thiệu: ẩn các ô đó thay vì hiện giá trị dự phòng của `sanitizeReferralData` ("Chưa phân phòng", "Hà Nội", "Toàn thời gian", "CV_UngVien.pdf", "Nhân sự nội bộ").
+- Bước lọc bỏ nhận xét nội bộ, điểm đánh giá, người phỏng vấn ở client (`sanitizeReferralData`) không còn cần: server không bao giờ gửi các trường đó.
+- Không dùng danh sách mẫu trong `localStorage` khi API lỗi: hiện lỗi (401 thì đăng nhập lại, 403 thì báo không có quyền).
+
 ## Kiểm thử (task 350)
 
 - `ApplicationReferralStorageIntegrationTest` (PostgreSQL thật, không HTTP): một lần giới thiệu ghi hồ sơ (`NEW`, `source_id` trống, bản chụp tên tin), CV, liên kết hồ sơ ứng viên và dòng giới thiệu với ghi chú đã chuẩn hóa xuống dòng và `consent_declared_at` = `received_at` cắt tới micro giây; ghi chú đúng 2.000 ký tự được giữ, ghi chú 2.001 ký tự thô còn 2.000 sau khi `\r\n` thành `\n` cũng vậy; trùng theo cả hai chiều (tự nộp rồi giới thiệu, giới thiệu rồi tự nộp) trả 409 và không có dòng giới thiệu thừa; yêu cầu tạm dừng, tin đã đóng, quá hạn nộp, tin không tồn tại trả 404 và không lưu gì; ghi chú trống, chỉ có ký tự vô hình, 2.001 ký tự, có thẻ HTML, NUL hay ký tự đảo chiều trả 400 `referralNote` trước khi tới 404 của tin không tồn tại; chưa xác nhận đồng ý, thiếu người giới thiệu, thiếu bản khai, thiếu tin, có `sourceId` → `IllegalArgumentException`; không transaction → `IllegalTransactionStateException`; REPEATABLE READ, SERIALIZABLE, chỉ đọc → `IllegalStateException`; rollback của bên gọi và người giới thiệu không tồn tại (khóa ngoại) không để lại gì; schema: một dòng mỗi hồ sơ, CHECK ghi chú, độ dài, `NOT NULL`, khóa ngoại, RESTRICT tài khoản, CASCADE theo hồ sơ, chỉ mục; khóa: một kết nối giữ dòng tin, lần giới thiệu chờ trong `store()` (`pg_blocking_pids`), và `FOR SHARE NOWAIT` trên yêu cầu từ kết nối thứ ba bị từ chối (55P03), chứng tỏ yêu cầu bị khóa `FOR NO KEY UPDATE` chứ không chỉ `FOR SHARE`.
@@ -242,4 +310,9 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/referrals" `
 - `ApplicationConfirmationIntegrationTest` của TRAN DUC LUONG: worker dựng lại tay nhận thêm `ApplicationReferralLookup`.
 - `ApiAuthorizationMatrixIntegrationTest`: dòng `POST /api/v1/referrals` (`SELF_PROFILE_WRITE`, mẫu JSON dừng ở 415), 1596 ca.
 
-Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 27, ý (1)–(10).
+## Kiểm thử (task 352)
+
+- `ApplicationReferralStatusIntegrationTest` (HTTP, PostgreSQL; lần giới thiệu được lưu qua `ReferralApplicationStorage` thật ở các thời điểm chọn trước, một lần qua API của task 351): hai người giới thiệu mỗi người chỉ thấy lần giới thiệu của mình, mới nhất trước, hai lần cùng thời điểm theo `id` giảm dần; query string (kể cả `referrerId` của người khác) không đổi kết quả; bảy giai đoạn (đặt bằng SQL) hiện đúng trạng thái công khai và tên của nó, không giá trị nào là mã hay tên giai đoạn nội bộ; hồ sơ ứng viên tự rút (API rút hồ sơ, có lý do) hiện `COMPLETED` "Kết thúc", không có lý do; record `ApplicationReferralView` có đúng bảy thành phần và chỉ `id`, `candidateName`, `referralNote` mang tên giống dữ liệu nội bộ (`PublicResponseContract`), JSON đúng bảy khóa, thân không chứa email, số điện thoại, tên tệp CV, giai đoạn, nhãn nguồn, id yêu cầu, tin, hồ sơ ứng viên, tên recruiter, HR, người giới thiệu, ứng viên khác của cùng yêu cầu hay mã tra cứu; response 201 của task 351 bằng đúng phần tử của danh sách sau đó; recruiter chính của yêu cầu, HR Manager và người giới thiệu khác nhận `[]`; không vai trò 403, không token, `Bearer not-a-jwt` và tài khoản bị khóa sau khi có token 401, đều `no-store`; gọi service trực tiếp: tài khoản không vai trò, mã `SELF_PROFILE_READ` bị gỡ khỏi vai trò (403), tài khoản bị vô hiệu hóa, bị quản trị viên khóa hay phiên bị thu hồi sau khi token đã được giải mã (401, khôi phục thì đọc lại được) và token hết hạn theo đồng hồ (401) đều bị từ chối trước khi đọc.
+- `ApiAuthorizationMatrixIntegrationTest`: dòng `GET /api/v1/referrals/my-referrals` (`SELF_PROFILE_READ`, 200 với mảng rỗng) và `GET /api/v1/referrals` trong danh sách bị từ chối mặc định; 1611 ca.
+
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 27, ý (1)–(11).
