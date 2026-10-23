@@ -325,6 +325,8 @@ public class InterviewService {
         }
         String url = text(request.meetingUrl(), 2000, false, "meetingUrl");
         String reason = text(request.overrideReason(), 2000, false, "overrideReason");
+        String preparation = text(request.preparationInstructions(), 2000, false, "preparationInstructions");
+        if (preparation == null) preparation = "Vui lòng chuẩn bị CV và các thông tin liên quan đến kinh nghiệm của bạn.";
         if (request.startsAt() == null || request.durationMinutes() == null || request.durationMinutes() < 1
                 || request.durationMinutes() > 480 || request.mode() == null) {
             throw invalid("startsAt", "Cần thời gian, hình thức và thời lượng từ 1 đến 480 phút.");
@@ -356,7 +358,7 @@ public class InterviewService {
         }
         return new InterviewScheduleRequest(round, request.startsAt().truncatedTo(ChronoUnit.MICROS),
                 request.durationMinutes(), request.mode(), room, url, List.copyOf(request.participantIds()),
-                request.expectedVersion(), request.overrideConflicts(), reason);
+                request.expectedVersion(), request.overrideConflicts(), reason, preparation);
     }
 
     private static String text(String value, int max, boolean required, String field) {

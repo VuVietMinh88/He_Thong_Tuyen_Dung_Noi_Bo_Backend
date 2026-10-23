@@ -26,6 +26,8 @@ import vn.ttcs.recruitment.application.ApplicationIntakeRoutes;
 import vn.ttcs.recruitment.application.ApplicationReferralRoutes;
 import vn.ttcs.recruitment.application.ApplicationTrackingRequestFilter;
 import vn.ttcs.recruitment.application.ApplicationTrackingRoutes;
+import vn.ttcs.recruitment.invitation.http.InterviewInvitationRoutes;
+import vn.ttcs.recruitment.invitation.http.InterviewInvitationRequestFilter;
 
 import java.util.List;
 
@@ -44,7 +46,7 @@ public class SecurityConfiguration {
             }
             // Task 339: a candidate has no account; the frontend attaches any stored bearer, which must not block a
             // lookup (or, from task 345, a withdrawal). The credential is the tracking code and email in the body.
-            if (ApplicationTrackingRoutes.isPublicPost(request)) {
+            if (ApplicationTrackingRoutes.isPublicPost(request) || InterviewInvitationRoutes.isPublicPost(request)) {
                 return null;
             }
             // These endpoints authenticate their body; a stale bearer must not block recovery.
@@ -89,7 +91,8 @@ public class SecurityConfiguration {
                                                   PermissionService permissions,
                                                   BearerTokenResolver bearerTokenResolver,
                                                   ApplicationIntakeFilter intakeFilter,
-                                                  ApplicationTrackingRequestFilter trackingFilter) throws Exception {
+                                                  ApplicationTrackingRequestFilter trackingFilter,
+                                                  InterviewInvitationRequestFilter invitationFilter) throws Exception {
         return http
                 .cors(withDefaults())
                 // These APIs accept bearer headers/body tokens only, never browser authentication cookies.
@@ -100,6 +103,7 @@ public class SecurityConfiguration {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .addFilterBefore(intakeFilter, BearerTokenAuthenticationFilter.class)
                 .addFilterBefore(trackingFilter, BearerTokenAuthenticationFilter.class)
+                .addFilterBefore(invitationFilter, BearerTokenAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health", "/api/v1/health").permitAll()
@@ -111,6 +115,9 @@ public class SecurityConfiguration {
                         // Task 345: the candidate's withdrawal; the same credential in the body, never a PATCH with the
                         // code in the path.
                         .requestMatchers(HttpMethod.POST, ApplicationTrackingRoutes.WITHDRAW).permitAll()
+                        .requestMatchers(HttpMethod.POST, InterviewInvitationRoutes.LOOKUP, InterviewInvitationRoutes.RESPOND).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/interview-invitations/reply",
+                                "/api/v1/public/interview-invitations/reply.js").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/auth/activate-account").permitAll()
@@ -356,10 +363,12 @@ public class SecurityConfiguration {
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Interview scopes are checked again against the application or invited panel in the service.
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interviews",
-                                "/api/v1/interviews/me", "/api/v1/interviews/*")
+                                "/api/v1/interviews/me", "/api/v1/interviews/*", "/api/v1/interviews/*/invitation")
                                 .hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED")
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/interviews",
-                                "/api/v1/interviews/conflicts", "/api/v1/interviews/*/cancel")
+                                "/api/v1/interviews/conflicts", "/api/v1/interviews/*/cancel",
+                                "/api/v1/interviews/bulk", "/api/v1/interviews/bulk/preview",
+                                "/api/v1/interviews/*/invitation")
                                 .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/interviews/*")
                                 .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")

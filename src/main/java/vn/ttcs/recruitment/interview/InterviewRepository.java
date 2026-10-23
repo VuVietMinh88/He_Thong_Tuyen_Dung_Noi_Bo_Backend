@@ -107,8 +107,8 @@ public class InterviewRepository {
                 Instant now, Instant end) {
         jdbc.update("""
                 INSERT INTO interview_sessions(id,application_id,round_name,starts_at,ends_at,mode,room,normalized_room,
-                    meeting_url,created_by,created_at,updated_at)
-                VALUES (:id,:application,:round,:start,:end,:mode,:room,:normalizedRoom,:url,:actor,:now,:now)
+                    meeting_url,created_by,created_at,updated_at,preparation_instructions)
+                VALUES (:id,:application,:round,:start,:end,:mode,:room,:normalizedRoom,:url,:actor,:now,:now,:preparation)
                 """, scheduleParams(id, request, normalizedRoom, end).addValue("application", application)
                 .addValue("actor", actor).addValue("now", Timestamp.from(now)));
         participants(id, request.participantIds());
@@ -117,7 +117,8 @@ public class InterviewRepository {
     void update(UUID id, InterviewScheduleRequest request, String normalizedRoom, Instant now, Instant end) {
         jdbc.update("""
                 UPDATE interview_sessions SET round_name=:round,starts_at=:start,ends_at=:end,mode=:mode,room=:room,
-                    normalized_room=:normalizedRoom,meeting_url=:url,updated_at=:now,version=version+1 WHERE id=:id
+                    normalized_room=:normalizedRoom,meeting_url=:url,preparation_instructions=:preparation,
+                    updated_at=:now,version=version+1 WHERE id=:id
                 """, scheduleParams(id, request, normalizedRoom, end).addValue("now", Timestamp.from(now)));
         participants(id, request.participantIds());
     }
@@ -140,6 +141,24 @@ public class InterviewRepository {
                 .addValue("reason", reason).addValue("override", override).addValue("overrideReason", overrideReason));
     }
 
+    record BulkStored(String requestHash, String responseJson) { }
+
+    Optional<BulkStored> bulkRequest(UUID actor, UUID requestId) {
+        return jdbc.query("""
+                SELECT request_hash,response_json::text FROM interview_bulk_requests
+                WHERE actor_id=:actor AND request_id=:request
+                """, params("actor", actor).addValue("request", requestId),
+                (row, n) -> new BulkStored(row.getString(1), row.getString(2))).stream().findFirst();
+    }
+
+    void rememberBulk(UUID actor, UUID requestId, String hash, String response, Instant now) {
+        jdbc.update("""
+                INSERT INTO interview_bulk_requests(actor_id,request_id,request_hash,created_at,response_json)
+                VALUES (:actor,:request,:hash,:now,CAST(:response AS jsonb))
+                """, params("actor", actor).addValue("request", requestId).addValue("hash", hash)
+                .addValue("now", Timestamp.from(now)).addValue("response", response));
+    }
+
     private void participants(UUID id, List<UUID> users) {
         jdbc.update("UPDATE interview_participants SET active=false WHERE interview_id=:id", params("id", id));
         for (UUID user : users) {
@@ -154,7 +173,8 @@ public class InterviewRepository {
                                                          Instant end) {
         return params("id", id).addValue("round", request.roundName()).addValue("start", Timestamp.from(request.startsAt()))
                 .addValue("end", Timestamp.from(end)).addValue("mode", request.mode().name()).addValue("room", request.room())
-                .addValue("normalizedRoom", normalized).addValue("url", request.meetingUrl());
+                .addValue("normalizedRoom", normalized).addValue("url", request.meetingUrl())
+                .addValue("preparation", request.preparationInstructions());
     }
 
     private static MapSqlParameterSource params(String key, Object value) { return new MapSqlParameterSource(key, value); }
@@ -168,6 +188,6 @@ public class InterviewRepository {
                 InterviewMode.valueOf(row.getString("mode")), row.getString("room"), row.getString("meeting_url"),
                 row.getString("status"), row.getLong("version"), participantIds, row.getObject("created_by", UUID.class),
                 row.getTimestamp("created_at").toInstant(), row.getTimestamp("updated_at").toInstant(),
-                submitted == null ? null : submitted.toInstant());
+                submitted == null ? null : submitted.toInstant(), row.getString("preparation_instructions"));
     }
 }

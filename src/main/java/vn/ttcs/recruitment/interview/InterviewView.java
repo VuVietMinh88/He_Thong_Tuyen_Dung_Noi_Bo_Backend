@@ -8,4 +8,4 @@ import java.util.UUID;
 public record InterviewView(UUID id, UUID applicationId, String roundName, Instant startsAt, Instant endsAt,
                             InterviewMode mode, String room, String meetingUrl, String status, long version,
                             List<UUID> participantIds, UUID createdBy, Instant createdAt, Instant updatedAt,
-                            Instant everSubmittedAt) { }
+                            Instant everSubmittedAt, String preparationInstructions) { }

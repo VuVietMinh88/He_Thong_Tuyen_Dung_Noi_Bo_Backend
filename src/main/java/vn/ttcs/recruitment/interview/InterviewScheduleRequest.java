@@ -21,4 +21,12 @@ public record InterviewScheduleRequest(
         @NotNull @Size(min = 1, max = 20) List<@NotNull UUID> participantIds,
         @Min(0) Long expectedVersion,
         Boolean overrideConflicts,
-        @Size(max = 2000) String overrideReason) { }
+        @Size(max = 2000) String overrideReason,
+        @Size(max = 2000) String preparationInstructions) {
+    public InterviewScheduleRequest(String roundName, Instant startsAt, Integer durationMinutes, InterviewMode mode,
+            String room, String meetingUrl, List<UUID> participantIds, Long expectedVersion,
+            Boolean overrideConflicts, String overrideReason) {
+        this(roundName, startsAt, durationMinutes, mode, room, meetingUrl, participantIds, expectedVersion,
+                overrideConflicts, overrideReason, null);
+    }
+}
