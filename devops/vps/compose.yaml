@@ -51,6 +51,7 @@ services:
       MAIL_SMTP_STARTTLS: "true"
       RESET_PASSWORD_PAGE_URL: https://internal-hire.com/reset-password
       ACCOUNT_ACTIVATION_PAGE_URL: https://internal-hire.com/activate-account
+      CANDIDATE_PROFILE_PAGE_URL: https://internal-hire.com/candidates
       SPRING_CONFIG_ADDITIONAL_LOCATION: file:/app/application-vps.properties
       JAVA_TOOL_OPTIONS: -Xms128m -Xmx1024m -XX:+ExitOnOutOfMemoryError
     volumes:

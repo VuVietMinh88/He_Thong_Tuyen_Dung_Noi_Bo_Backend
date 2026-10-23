@@ -26,8 +26,9 @@ import java.util.Objects;
  * application, FOR NO KEY UPDATE, the credential checked again on the locked row; empty: the lookup's 404), the clock
  * read after the locks, then by the locked stage:
  * <ul>
- * <li>NEW, SCREENING, INTERVIEW, OFFER: the stage becomes WITHDRAWN (only from the locked stage) and one CANDIDATE
- * event is written in the same transaction; 200 with withdrawnAt = now.</li>
+ * <li>NEW, SCREENING, INTERVIEW, OFFER: the stage becomes WITHDRAWN (only from the locked stage), one CANDIDATE
+ * event is written and the emails of task 346 are queued (ApplicationWithdrawalNotices: the eligible PRIMARY
+ * recruiter and the candidate), all in the same transaction; 200 with withdrawnAt = now.</li>
  * <li>WITHDRAWN: a repeat; nothing is written; 200 with the time of the first withdrawal (null without an event).</li>
  * <li>HIRED, REJECTED: 409 APPLICATION_NOT_WITHDRAWABLE; nothing is written.</li>
  * </ul>
@@ -43,15 +44,16 @@ public class ApplicationWithdrawalService {
     private final PostgresApplicationTrackingQuota quota;
     private final ApplicationWithdrawalAccess access;
     private final ApplicationStageEventRepository events;
+    private final ApplicationWithdrawalNotices notices;
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final TransactionTemplate transaction;
 
     ApplicationWithdrawalService(ApplicationClientIpResolver addresses, PostgresApplicationTrackingQuota quota,
-            ApplicationWithdrawalAccess access, ApplicationStageEventRepository events, JdbcTemplate jdbc, Clock clock,
-            PlatformTransactionManager manager) {
-        this.addresses = addresses; this.quota = quota; this.access = access; this.events = events; this.jdbc = jdbc;
-        this.clock = clock;
+            ApplicationWithdrawalAccess access, ApplicationStageEventRepository events,
+            ApplicationWithdrawalNotices notices, JdbcTemplate jdbc, Clock clock, PlatformTransactionManager manager) {
+        this.addresses = addresses; this.quota = quota; this.access = access; this.events = events;
+        this.notices = notices; this.jdbc = jdbc; this.clock = clock;
         transaction = new TransactionTemplate(manager);
         // Commits on its own (a caller's transaction must not hold the locks) and reads the newest committed row
         // version under each lock (ApplicationWithdrawalAccess needs READ COMMITTED).
@@ -89,6 +91,9 @@ public class ApplicationWithdrawalService {
                     throw new IllegalStateException("The locked application changed its stage");
                 }
                 events.recordCandidateWithdrawal(locked.id(), locked.stage(), reason, now);
+                // Task 346: in this transaction, never in one of their own, so the withdrawal commits if and only if
+                // its emails are queued. A repeat (WITHDRAWN below) queues nothing.
+                notices.queue(locked.id(), locked.requisitionId());
                 yield ApplicationWithdrawalView.of(locked.postingTitle(), locked.receivedAt(), now);
             }
             case WITHDRAWN -> ApplicationWithdrawalView.of(locked.postingTitle(), locked.receivedAt(),

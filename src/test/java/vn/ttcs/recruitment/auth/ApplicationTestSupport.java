@@ -69,10 +69,12 @@ final class ApplicationTestSupport {
     // ApprovalTestSupport.reset(): they delete postings, requisitions and accounts but not applications, and the
     // applications' RESTRICT keys would make them fail. The candidate profiles (task 360) go first: a profile with a
     // link cannot be deleted, and nothing else deletes a profile. The access log (task 363) has no keys but rejects
-    // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) would go with their
-    // applications (CASCADE) but are deleted first, like every child table.
+    // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) and the withdrawal notices
+    // (task 346, whose recipients are staff accounts) would go with their applications (CASCADE) but are deleted
+    // first, like every child table.
     void reset() {
         jdbc.execute("TRUNCATE candidate_access_events");
+        jdbc.update("DELETE FROM application_notice_outbox");
         jdbc.update("DELETE FROM application_stage_events");
         jdbc.update("DELETE FROM candidate_applications");
         jdbc.update("DELETE FROM candidates");

@@ -2,7 +2,7 @@
 
 Phạm vi TKNHTTDNB1-340 (ánh xạ trạng thái nội bộ thành trạng thái công khai), TKNHTTDNB1-339 (tra cứu bằng mã tra cứu và email) và TKNHTTDNB1-341 (không tiết lộ nhận xét nội bộ, đánh giá hay tên người phỏng vấn), story TKNHTTDNB1-44 (S4-05): ứng viên tra cứu trạng thái hồ sơ của mình bằng mã tra cứu, để biết hồ sơ đã được xem chưa mà không phải gọi điện hỏi. Task 340 thêm quy tắc ánh xạ dùng chung `PublicApplicationStatus` (mục "Trạng thái công khai (task 340)"), không thêm API, migration hay mã quyền. Task 339 thêm API công khai `POST /api/v1/public/applications/lookup` (mục "Tra cứu hồ sơ (task 339)") và migration V31 cho hạn mức theo IP, không thêm mã quyền. Task 341 không đổi API: ghim bằng test và tài liệu rằng API công khai chỉ trả bốn trường được phép (mục "Dữ liệu công khai (task 341)"). Hồ sơ được nộp qua [API nhận hồ sơ công khai](public-applications.md) (task 326); mã tra cứu được trả trong response nộp hồ sơ và gửi trong [email xác nhận](application-confirmation.md) (task 329).
 
-Story TKNHTTDNB1-45 (S4-06, "Rút hồ sơ") dùng lại chính mã tra cứu. Task TKNHTTDNB1-344 tạo liên kết rút hồ sơ `#rut=<mã>` và bước kiểm liên kết dưới khóa `ApplicationWithdrawalAccess` (mục "Liên kết rút hồ sơ (task 344)"); chưa thêm API, migration, mã quyền hay đoạn nào trong email. Task TKNHTTDNB1-345 thêm API công khai `POST /api/v1/public/applications/withdraw`, migration V34 (lịch sử giai đoạn của hồ sơ), đoạn mời rút hồ sơ trong email xác nhận và `actions.canWithdraw` trong kết quả tra cứu (mục "Rút hồ sơ (task 345)"); không thêm mã quyền.
+Story TKNHTTDNB1-45 (S4-06, "Rút hồ sơ") dùng lại chính mã tra cứu. Task TKNHTTDNB1-344 tạo liên kết rút hồ sơ `#rut=<mã>` và bước kiểm liên kết dưới khóa `ApplicationWithdrawalAccess` (mục "Liên kết rút hồ sơ (task 344)"); chưa thêm API, migration, mã quyền hay đoạn nào trong email. Task TKNHTTDNB1-345 thêm API công khai `POST /api/v1/public/applications/withdraw`, migration V34 (lịch sử giai đoạn của hồ sơ), đoạn mời rút hồ sơ trong email xác nhận và `actions.canWithdraw` trong kết quả tra cứu (mục "Rút hồ sơ (task 345)"); không thêm mã quyền. Task TKNHTTDNB1-346 gửi email cho recruiter chính và cho ứng viên sau mỗi lần rút, qua hàng đợi V35 (mục "Thông báo sau khi rút (task 346)"); không thêm API hay mã quyền.
 
 Tiêu chí của story S4-05:
 
@@ -338,7 +338,7 @@ Hai lần rút cùng một hồ sơ chạy lần lượt trên khóa của yêu 
 - API tra cứu hiện `COMPLETED` ("Kết thúc") và `actions.canWithdraw: false`. Mã vẫn tra cứu được (câu hỏi 26, ý 2).
 - Hồ sơ ứng viên hợp nhất (task 361) có thêm `withdrawnAt` và `withdrawalReason` ở lần ứng tuyển đó, chỉ với người được đọc lần ứng tuyển đó; `updatedAt` tính cả `withdrawnAt` (xem [hồ sơ ứng viên](candidate-profiles.md#response-200)).
 - Email vẫn giữ chỗ trong yêu cầu đó: nộp lại vào cùng yêu cầu vẫn trả 409 `APPLICATION_ALREADY_SUBMITTED` (task 327, [chặn hồ sơ trùng](application-duplicates.md)). Rút là kết thúc; có cần cho HR hoàn tác việc rút không, và ai được làm, là câu hỏi 26, ý 6.
-- Email báo cho recruiter chính và cho ứng viên sau khi rút là task 346.
+- Recruiter chính (nếu còn quyền xem ứng viên) và ứng viên nhận email báo việc rút: mục "Thông báo sau khi rút (task 346)".
 
 ### Ai rút được hồ sơ
 
@@ -382,3 +382,108 @@ Không gửi header `Authorization`. Gọi lại cùng lệnh trả cùng kết 
 - Không lưu mã hay email vào `localStorage`/`sessionStorage`.
 
 Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 26, ý (4)–(7).
+
+## Thông báo sau khi rút (task 346)
+
+Story S4-06 (TKNHTTDNB1-45), tiêu chí "Recruiter phụ trách nhận thông báo". Sau mỗi lần rút hồ sơ thật sự (không phải lần gọi lại), backend gửi một email cho recruiter chính của yêu cầu tuyển dụng và một email cho ứng viên. Không thêm API hay mã quyền; migration V35 (`application_notice_outbox`, xem [dữ liệu](../database/README.md)); ma trận quyền giữ 1581 ca.
+
+### Ai nhận email nào
+
+| Loại (`kind`) | Người nhận | Gửi khi nào | Nội dung |
+|---|---|---|---|
+| `RECRUITER_WITHDRAWAL` | Recruiter chính (`PRIMARY`) của yêu cầu tuyển dụng | Sau 15 phút, gộp theo người nhận và yêu cầu | Tên của chính recruiter, tên vị trí (bản chụp lúc nộp), thời điểm rút, liên kết tới hồ sơ ứng viên |
+| `CANDIDATE_WITHDRAWAL` | Địa chỉ email của chính lần ứng tuyển đó | Ngay | Tên vị trí, thời điểm nộp, thời điểm rút, địa chỉ hỗ trợ |
+
+- **Lúc rút** (`ApplicationWithdrawalNotices.queue`, trong transaction rút hồ sơ): recruiter chính chỉ được xếp email khi tài khoản còn đăng nhập được (bật, không bị quản trị khóa, như `Account.isAccessAllowed`) **và** có `CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED` (đọc lại từ database). Recruiter chính đã được phân công và có một trong hai mã thì đọc được lần ứng tuyển này theo quy tắc task 363; người bị gỡ vai trò mà vẫn còn tên trong nhóm (V16 cho phép) không biết gì thêm. Recruiter hỗ trợ không nhận email. Yêu cầu chưa có recruiter chính đủ điều kiện (chưa có nhóm, tài khoản bị tắt, bị khóa, không còn quyền xem ứng viên) thì không ai nhận email recruiter, và việc rút vẫn thành công (câu hỏi 26, ý 8).
+- **Lúc gửi** (`ApplicationNoticeWorker`): người nhận phải vẫn bật, không bị khóa, vẫn trong nhóm recruiter của yêu cầu đó (chính hoặc hỗ trợ) và vẫn có mã `CANDIDATES_READ_*`. Không đạt thì cả lô thành `FAILED` với `last_failure = 'RECIPIENT_UNAVAILABLE'`, không gửi gì. Recruiter vừa được chuyển sang hỗ trợ vẫn nhận (vẫn theo dõi yêu cầu); người đã rời nhóm thì không.
+- Email ứng viên đi tới địa chỉ đã nhập khi nộp hồ sơ, để ứng viên phát hiện việc rút không do mình làm (mục "Ai rút được hồ sơ"). Email không có tên, mã tra cứu, lý do hay liên kết nào.
+
+### Vì sao email recruiter không chứa gì ứng viên đã nhập
+
+Ô họ tên của form công khai nhận mọi dòng chữ nhìn thấy được tới 120 ký tự, kể cả đường dẫn, ví dụ "A. Tài khoản của bạn sắp bị khóa, xác minh tại https://…". Nếu email gửi từ địa chỉ của hệ thống tới recruiter chép lại tên đó, bất kỳ ai cũng dùng được hệ thống để gửi thư lừa đảo cho nhân viên. Vì vậy email recruiter chỉ chứa chữ do nhân viên viết (tên của chính người nhận, tên vị trí do HR soạn, chụp lúc nộp hồ sơ), thời điểm và liên kết. Tên, email, số điện thoại, thư giới thiệu, lý do rút, mã tra cứu và tên tệp CV của ứng viên chỉ xem được sau khi đăng nhập, trong hồ sơ ứng viên (task 361, 362). Tiêu đề của cả hai email là hằng số; không header nào chứa dữ liệu.
+
+### Nội dung thư
+
+Email recruiter, tiêu đề "Có ứng viên rút hồ sơ — Hệ thống tuyển dụng nội bộ":
+
+```text
+Chào {tên recruiter},
+
+Các hồ sơ ứng tuyển sau, thuộc yêu cầu tuyển dụng bạn phụ trách, vừa được ứng viên rút:
+- Vị trí "{tên vị trí}", rút lúc {dd/MM/yyyy HH:mm} (giờ Việt Nam). Xem hồ sơ: {CANDIDATE_PROFILE_PAGE_URL}/{id hồ sơ ứng viên}
+(một dòng cho mỗi hồ sơ trong lô)
+
+Các hồ sơ này đã chuyển sang giai đoạn "Ứng viên rút" và không còn được tính trong danh sách đang xử lý.
+Tên và thông tin liên hệ của ứng viên chỉ hiển thị sau khi đăng nhập.
+
+Email này được gửi tự động tới recruiter chính của yêu cầu tuyển dụng.
+Hệ thống tuyển dụng nội bộ
+```
+
+Email ứng viên, tiêu đề "Xác nhận rút hồ sơ ứng tuyển — Hệ thống tuyển dụng nội bộ":
+
+```text
+Chào bạn,
+
+Hồ sơ ứng tuyển vị trí "{tên vị trí}" nộp lúc {dd/MM/yyyy HH:mm} đã được rút lúc {dd/MM/yyyy HH:mm} (giờ Việt Nam)
+theo yêu cầu gửi từ trang tra cứu hồ sơ.
+
+Nếu không phải bạn thực hiện việc này, vui lòng trả lời email này hoặc liên hệ {địa chỉ MAIL_FROM} để được hỗ trợ.
+
+Hệ thống tuyển dụng nội bộ
+```
+
+- Văn bản thuần UTF-8, From là `MAIL_FROM` (`app.mail.from`, như email xác nhận), Message-ID `<application-notice.<id dòng hàng đợi>@<miền của MAIL_FROM>>` của dòng worker lấy (dòng đầu của lô); thử lại cùng dòng đó thì giữ cùng Message-ID. Thời gian theo `app.business-zone` (giờ Việt Nam).
+- Dòng của một hồ sơ chưa liên kết hồ sơ ứng viên (không xảy ra với hồ sơ nộp từ task 360) không có "Xem hồ sơ".
+- Liên kết hồ sơ chỉ là trang của frontend; trang đòi đăng nhập và API hồ sơ (task 361) kiểm lại người xem.
+
+### Gộp trong 15 phút
+
+Dòng `RECRUITER_WITHDRAWAL` đến hạn sau `app.application-notice.recruiter-delay-seconds` giây (mặc định 900, từ 0 tới 3600). Khi worker lấy một dòng recruiter đến hạn, nó lấy luôn mọi dòng recruiter khác đang chờ của **cùng người nhận** và **cùng yêu cầu tuyển dụng**, đến hạn hay chưa, tối đa 50 dòng (dòng vừa lấy đứng đầu), dưới cùng một `lease_token`: một email liệt kê từng hồ sơ, sắp theo thời điểm rút. Hồ sơ của yêu cầu khác có email riêng. Nhờ vậy một loạt rút hồ sơ (kể cả do một script nộp rồi rút liên tục) chỉ tạo khoảng bốn email mỗi giờ cho mỗi recruiter và yêu cầu (câu hỏi 26, ý 9). Email ứng viên không gộp và không chờ.
+
+### Hàng đợi và gửi lại
+
+- Hai dòng được ghi bằng `JdbcTemplate` trong **cùng** transaction rút hồ sơ, sau dòng lịch sử giai đoạn, chỉ khi giai đoạn thật sự đổi (lần gọi lại không ghi gì): việc rút commit khi và chỉ khi hai email đã vào hàng đợi. Không bao giờ ghi trong transaction riêng (quy tắc của `ApplicationOutboxRepository`): khóa ngoại của dòng hàng đợi chỉ lấy `FOR KEY SHARE` trên hồ sơ đang khóa, nên một transaction riêng không phải chờ và sẽ commit email ngay cả khi việc rút thất bại lúc commit. Ràng buộc `application_notice_outbox_once` giữ mỗi loại một dòng cho mỗi hồ sơ (`ON CONFLICT … DO NOTHING`).
+- Bảng không có payload: nội dung được dựng lúc gửi, trong một transaction chỉ đọc, từ `job_applications`, dòng `WITHDRAWN` của `application_stage_events`, `candidate_applications` và tài khoản người nhận lúc đó. Không lưu dữ liệu cá nhân hay bí mật nào trong hàng đợi.
+- `ApplicationNoticeWorker` chạy mỗi `app.application-notice.poll-delay-ms` (mặc định 10 giây), tối đa 10 lần lấy mỗi lượt, cùng quy tắc với email xác nhận (task 329, V28): lease 2 phút, `FOR UPDATE SKIP LOCKED`, tối đa 6 lần thử, thử lại sau 60/300/900/3600/21600 giây; máy chủ thư từ chối người nhận → `FAILED`/`RECIPIENT_REFUSED`; lease hết hạn ở lần thử thứ 6 (worker chết giữa chừng) → `FAILED`/`DELIVERY_UNCERTAIN`; SMTP luôn chạy ngoài mọi transaction. Mỗi dòng trong lô giữ số lần thử của riêng nó.
+- Hồ sơ không còn ở `WITHDRAWN` lúc gửi (chỉ đổi được bằng SQL trong Sprint 4) → dòng đó `FAILED`/`OBSOLETE` và bị bỏ khỏi lô; lô không còn hồ sơ nào thì không gửi.
+- Mọi cập nhật kết quả (`renew`, `sent`, `failed`, đánh dấu bỏ) chỉ đổi các dòng còn mang đúng `lease_token` của lô và đúng các id của lô: worker đến muộn, sau khi lease hết hạn và worker khác đã lấy lại lô, không đổi được dòng nào.
+
+| `status` / `last_failure` | Ý nghĩa |
+|---|---|
+| `PENDING` | Chờ tới hạn (`next_attempt_at`) |
+| `PROCESSING` | Đang có worker giữ lease |
+| `RETRY_WAIT` / `SMTP_TEMPORARY` | Lỗi tạm thời, sẽ thử lại |
+| `SENT` | Đã gửi (`sent_at`) |
+| `FAILED` / `RECIPIENT_REFUSED`, `RETRIES_EXHAUSTED`, `DELIVERY_UNCERTAIN` | Như email xác nhận (V28) |
+| `FAILED` / `RECIPIENT_UNAVAILABLE` | Người nhận không còn được biết (khóa, tắt, rời nhóm, mất quyền xem ứng viên) |
+| `FAILED` / `OBSOLETE` | Hồ sơ không còn ở `WITHDRAWN` |
+
+### Cấu hình (task 346)
+
+| Khóa | Biến môi trường | Mặc định | Ghi chú |
+|---|---|---|---|
+| `app.application-notice.poll-delay-ms` | `APPLICATION_NOTICE_POLL_DELAY_MS` | `10000` | Khoảng nghỉ giữa hai lượt của worker |
+| `app.application-notice.recruiter-delay-seconds` | `APPLICATION_NOTICE_RECRUITER_DELAY_SECONDS` | `900` | 0..3600; ngoài khoảng này ứng dụng không khởi động |
+| `app.candidate-profile.page-url` | `CANDIDATE_PROFILE_PAGE_URL` | `http://localhost:5173/candidates` | Trang hồ sơ ứng viên của frontend; kiểm như trang tra cứu: HTTPS (HTTP chỉ với loopback), không userinfo, query hay fragment. Production: `https://internal-hire.com/candidates`, ghi sẵn trong `devops/vps/compose.yaml` (`.env` của VPS không tới được backend) |
+
+Hai worker (email xác nhận và email sau khi rút) cùng với hai tác vụ dọn hạn mức dùng chung bộ lập lịch hai luồng của module hồ sơ ứng tuyển.
+
+### Khóa và transaction (task 346)
+
+- Recruiter chính được đọc trong transaction rút hồ sơ, khi đang giữ khóa yêu cầu tuyển dụng (`FOR NO KEY UPDATE`, task 344). Mọi thay đổi nhóm recruiter khóa yêu cầu trước, nên người được đọc là recruiter chính tại thời điểm commit. Quyền được đọc không khóa; thay đổi vai trò, nhóm hay tài khoản sau khi commit được bắt lúc gửi.
+- Khóa ngoại tới tài khoản người nhận lấy `FOR KEY SHARE`, không bị khóa quản trị (`FOR NO KEY UPDATE`) chặn; khóa ngoại tới hồ sơ lấy `FOR KEY SHARE` trên chính dòng hồ sơ đang giữ. Không có lần chờ khóa mới nào sau hai khóa của task 344.
+- Lỗi khi ghi hàng đợi hay lúc commit: 503 `APPLICATION_TRACKING_UNAVAILABLE`, không còn gì của lần rút (giai đoạn, lịch sử, email).
+
+### Kiểm thử (task 346)
+
+- `ApplicationNoticeSettingsTest` (unit): liên kết hồ sơ là trang đã cấu hình cộng id ở cuối (không nhân đôi dấu `/`); từ chối HTTP ngoài loopback, scheme khác, userinfo, query, fragment, đường dẫn tương đối; độ trễ 0..3600; Message-ID, From và địa chỉ hỗ trợ lấy từ `MAIL_FROM`.
+- `ApplicationWithdrawalNoticeIntegrationTest` (HTTP thật, PostgreSQL thật, máy chủ SMTP loopback; worker chỉ chạy khi test gọi `processNext`, độ trễ được "trôi qua" bằng SQL): một lần rút xếp đúng một dòng recruiter cho recruiter chính (đến hạn sau 900 giây) và một dòng ứng viên (đến hạn ngay), không bao giờ cho recruiter hỗ trợ, và trước khi hết độ trễ chỉ email ứng viên được gửi; email recruiter tới địa chỉ **hiện tại** của recruiter chính, đúng tiêu đề, From, Message-ID, văn bản thuần UTF-8, có tên vị trí, thời điểm rút, "Ứng viên rút" và liên kết hồ sơ; với họ tên ứng viên là câu lừa đảo kèm `https://internal-hire.co/login`, không email nào (thân và header) chứa tên đó, miền đó, email, số điện thoại, thư giới thiệu, lý do, mã hay tên tệp CV; email ứng viên tới đúng địa chỉ của lần ứng tuyển, có tên vị trí, hai thời điểm và địa chỉ hỗ trợ, không có tên, mã, lý do hay liên kết; ba lần rút cùng yêu cầu → một email recruiter ba dòng, cả ba dòng `SENT` sau một lần thử, lần rút ở yêu cầu khác có email riêng; một lần lấy giữ các dòng chờ của cùng người nhận và yêu cầu dưới một `lease_token` (kể cả dòng chưa đến hạn), không giữ dòng của người khác; sau khi lease hết hạn, worker khác lấy lại cả lô và `renew`, `sent`, `failed`, đánh dấu bỏ của worker cũ đều bị từ chối cho mọi dòng; gọi lại và hai lần rút song song vẫn chỉ một dòng mỗi loại; không có recruiter chính (chỉ có hỗ trợ, không có nhóm), recruiter chính bị tắt, bị khóa, bị gỡ vai trò lúc rút → không có dòng recruiter, vẫn có dòng ứng viên, rút vẫn 200; sau khi xếp hàng, recruiter chính bị khóa, bị tắt, rời nhóm, bị gỡ vai trò → `RECIPIENT_UNAVAILABLE` cho cả lô, không gửi; bị chuyển sang hỗ trợ → vẫn gửi; rời nhóm của yêu cầu này nhưng vẫn ở nhóm (chính hoặc hỗ trợ) của yêu cầu khác → vẫn `RECIPIENT_UNAVAILABLE`, không gửi; bàn giao recruiter chính trong lúc chờ → mỗi lô chỉ có dòng của chính người nhận, dù dòng nào được lấy trước: dòng của người cũ `RECIPIENT_UNAVAILABLE`, người mới nhận một email chỉ nêu lần rút sau bàn giao; hồ sơ bị đặt lại giai đoạn khác → `OBSOLETE`, bị bỏ khỏi lô, không gửi khi lô không còn gì; SMTP lỗi → cả lô `RETRY_WAIT` sau 60 giây rồi `SENT` với cùng Message-ID; người nhận bị từ chối → `RECIPIENT_REFUSED` sau một lần; lease hết hạn ở lần thứ 6 → `DELIVERY_UNCERTAIN`; trigger làm hỏng việc ghi hàng đợi → rút trả 503, giai đoạn không đổi, không lịch sử, không dòng hàng đợi; lỗi lúc commit (trigger ràng buộc hoãn tới commit trên `application_stage_events`) → 503 và **không** có dòng hàng đợi nào; bảng chỉ có các cột id, trạng thái gửi và thời điểm, và các loại CHECK nhận đúng bằng các giá trị của enum.
+- Cập nhật có chủ ý: `ApplicationTestSupport.reset()` xóa cả `application_notice_outbox`; bốn lớp test có rút hồ sơ (`ApplicationWithdrawalIntegrationTest`, `ApplicationWithdrawalLockIntegrationTest`, `ApplicationTrackingQuotaIntegrationTest`, `PublicApplicationPrivacyIntegrationTest`) đặt `app.application-notice.poll-delay-ms=3600000` để worker không tự chạy giữa test.
+
+### Ghi chú cho frontend (task 346)
+
+- Không có API mới và không có hộp thư thông báo trong ứng dụng (thuộc S8-03). Liên kết trong email recruiter là `<CANDIDATE_PROFILE_PAGE_URL>/<id hồ sơ ứng viên>`, tức route `/candidates/:id` của frontend: trang đòi đăng nhập rồi gọi `GET /api/v1/candidates/{id}/unified-profile`; xử lý 401, 403, 404 như mọi lần mở hồ sơ (hiện thông báo của server, không hiện hồ sơ giả).
+- Trang tra cứu, sau khi rút thành công, có thể báo ứng viên rằng một email xác nhận đã được gửi tới địa chỉ đã dùng khi nộp hồ sơ.
+
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 26, ý (8)–(10).
