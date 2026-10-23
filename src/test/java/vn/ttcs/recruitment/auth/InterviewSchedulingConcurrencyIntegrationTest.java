@@ -171,6 +171,36 @@ class InterviewSchedulingConcurrencyIntegrationTest {
 
     // Represents the evaluator's transaction holding the appointment and committing its permanent submission
     // marker. The HTTP edit/cancel must read that committed marker after waiting, not the earlier unlocked copy.
+    @ParameterizedTest(name = "submitted marker commits before {0}")
+    @ValueSource(strings = {"reschedule", "cancel"})
+    void aSubmissionCommittedWhileWaitingPermanentlyLocksTheSchedule(String action) throws Exception {
+        UUID interview = create();
+        try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
+            hold(blocker, "interview", interview);
+            Future<HttpResponse<String>> pending;
+            try {
+                pending = executor.submit(() -> action.equals("reschedule") ? write(interview)
+                        : call("POST", "/api/v1/interviews/" + interview + "/cancel",
+                                "{\"expectedVersion\":0,\"reason\":\"Changed plan\"}", hrTokenA));
+                applications.awaitWaiterOf(ApplicationTestSupport.backendPid(blocker));
+                try (var update = blocker.prepareStatement(
+                        "UPDATE interview_sessions SET ever_submitted_at=? WHERE id=?")) {
+                    update.setTimestamp(1, Timestamp.from(ApplicationTestSupport.NOW));
+                    update.setObject(2, interview);
+                    assertThat(update.executeUpdate()).isEqualTo(1);
+                }
+                blocker.commit();
+            } finally {
+                blocker.rollback();
+            }
+            var response = pending.get(10, TimeUnit.SECONDS);
+            assertThat(response.statusCode()).as(response.body()).isEqualTo(409);
+            assertThat(json.readTree(response.body()).path("code").asText()).isEqualTo("INTERVIEW_EVALUATION_SUBMITTED");
+            assertThat(jdbc.queryForObject("SELECT ever_submitted_at FROM interview_sessions WHERE id=?",
+                    Timestamp.class, interview).toInstant()).isEqualTo(ApplicationTestSupport.NOW);
+        }
+        assertUnchanged(interview);
+    }
 
     private List<HttpResponse<String>> createTogether(String first, String second) throws Exception {
         var barrier = new CyclicBarrier(2);
