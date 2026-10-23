@@ -228,3 +228,48 @@ Ghi chú cho frontend:
   `Content-Disposition`; **không** mở URL trực tiếp trong tab mới (không có token). Nếu `response.ok` là false, đọc
   body JSON để lấy `code`/`message`.
 - Khi nhận `CANDIDATE_EXPORT_TOO_LARGE`, nhắc người dùng thu hẹp bộ lọc (ví dụ chọn vị trí hoặc khoảng ngày).
+
+## 424 — Định dạng tệp xuất và loại ghi chú nhạy cảm
+
+Áp dụng cho tệp của `GET /api/v1/candidate-search/export` (423).
+
+**Tên tệp:** `ung-vien_<mã vị trí>_<yyyy-MM-dd>.xlsx`.
+
+- Mã vị trí lấy từ vị trí của `requisitionId` (nếu lọc theo requisition) hoặc của `positionId`; không lọc theo vị trí
+  thì là `TAT-CA`.
+- Mã chỉ giữ chữ Latin không dấu, số, `.`, `-`, `_`; ký tự khác thành `-` (ví dụ `DEV/JAVA 01` → `DEV-JAVA-01`), tối đa 50
+  ký tự; mã không còn ký tự nào thì là `VI-TRI`.
+- Ngày là **ngày xuất theo giờ Việt Nam** (`app.business-zone`), không phải ngày UTC.
+
+**Sheet `Ứng viên`** — các cột cố định (danh sách cho phép, không tự thêm theo câu truy vấn):
+
+| Cột | Kiểu ô |
+|---|---|
+| STT | số |
+| Mã vị trí, Vị trí, Tin tuyển dụng, Họ tên, Email, Số điện thoại, Giai đoạn, Nguồn, Nhãn | chuỗi |
+| Đánh giá | số (trống nếu chưa đánh giá) |
+| Ngày nộp | ngày giờ `dd/mm/yyyy hh:mm` theo giờ Việt Nam |
+
+Dòng tiêu đề được cố định khi cuộn và có bộ lọc tự động.
+
+**Không bao giờ có trong tệp:** ghi chú sàng lọc nội bộ, nội dung thư giới thiệu, tệp/tên tệp CV, mã tra cứu và mã băm,
+id nội bộ (hồ sơ, ứng viên, requisition), email nhân viên, hồ sơ ngoài phạm vi.
+
+**Chống chèn công thức:** mọi văn bản là ô chuỗi, không ô nào là công thức. Văn bản bắt đầu bằng `=`, `+`, `-`, `@`, tab,
+xuống dòng (kể cả dạng full-width `＝＋－＠`) được gắn kiểu "quote prefix", nên Excel/LibreOffice luôn hiểu là chữ, kể cả
+khi người dùng sửa ô. Ký tự điều khiển bị bỏ.
+
+**Sheet `Thông tin xuất`:** thời điểm xuất (giờ Việt Nam), số hồ sơ, và bộ lọc đã áp dụng bằng chữ (vị trí, giai đoạn,
+nguồn, nhãn, khoảng ngày nộp, mức đánh giá, từ khóa).
+
+**Tài nguyên:** tệp được ghi theo kiểu streaming (Apache POI SXSSF): chỉ 100 dòng nằm trong bộ nhớ, phần còn lại ở tệp tạm
+nén của POI và bị xóa ngay sau khi tạo xong. Mỗi máy chủ chỉ tạo đồng thời tối đa `app.candidate-export.max-concurrent`
+tệp (mặc định 2, cấu hình 1..8); vượt quá → 503 `CANDIDATE_EXPORT_BUSY` kèm `Retry-After: 1`. Truy vấn quá thời gian →
+503 `CANDIDATE_SEARCH_BUSY`.
+
+Ghi chú cho frontend:
+
+- Lấy tên tệp từ `Content-Disposition` (ưu tiên `filename*`), không tự đặt tên.
+- Không cần xử lý định dạng: mở tệp là đọc được ngay, cột ngày sắp xếp đúng.
+- Câu hỏi BA/PO: khi không lọc theo vị trí, tên tệp dùng `TAT-CA`; nếu muốn bắt buộc chọn vị trí trước khi xuất, chỉ cần
+  FE ẩn nút xuất khi chưa chọn vị trí.

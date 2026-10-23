@@ -15,6 +15,8 @@ import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.security.AccessScope;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -35,6 +37,12 @@ import java.util.stream.Collectors;
  * them the same way. At most app.candidate-export.max-rows rows (default 5000, 1..10000): a larger result is refused
  * (400 CANDIDATE_EXPORT_TOO_LARGE) instead of being cut silently. The rows are read and logged in the transaction; the
  * workbook is written after it, so no connection is held while POI works.
+ * <p>
+ * Task 424 (story S6-01, "Tên tệp chứa mã vị trí và ngày xuất"): the file is named after the position of the
+ * requisition or position filter and the business date of the export (CandidateExportWorkbook.filename), and its
+ * information sheet describes the applied filter with resolved names (CandidateExportDescription). At most
+ * app.candidate-export.max-concurrent exports (1..8, default 2) are built at once per process (503
+ * CANDIDATE_EXPORT_BUSY with Retry-After), and a timeout or lock wait is 503 CANDIDATE_SEARCH_BUSY like the list.
  */
 @Service
 public class CandidateSearchService {
@@ -44,21 +52,29 @@ public class CandidateSearchService {
     private final CandidateSearchRepository repository;
     private final CandidateExportWorkbook workbook;
     private final BusinessCalendar calendar;
+    private final Clock clock;
     private final int maxExportRows;
+    private final java.util.concurrent.Semaphore exportPermits;
     private final TransactionTemplate reads;
     private final TransactionTemplate exports;
 
     CandidateSearchService(CandidateAccess access, CandidateSearchRepository repository,
-                           CandidateExportWorkbook workbook, BusinessCalendar calendar,
+                           CandidateExportWorkbook workbook, BusinessCalendar calendar, Clock clock,
                            @Value("${app.candidate-export.max-rows:5000}") int maxExportRows,
+                           @Value("${app.candidate-export.max-concurrent:2}") int maxConcurrentExports,
                            PlatformTransactionManager transactions) {
         if (maxExportRows < 1 || maxExportRows > 10_000) {
             throw new IllegalArgumentException("app.candidate-export.max-rows must be 1..10000");
         }
+        if (maxConcurrentExports < 1 || maxConcurrentExports > 8) {
+            throw new IllegalArgumentException("app.candidate-export.max-concurrent must be 1..8");
+        }
+        this.exportPermits = new java.util.concurrent.Semaphore(maxConcurrentExports);
         this.access = access;
         this.repository = repository;
         this.workbook = workbook;
         this.calendar = calendar;
+        this.clock = clock;
         this.maxExportRows = maxExportRows;
         reads = new TransactionTemplate(transactions);
         reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -89,7 +105,19 @@ public class CandidateSearchService {
     public CandidateExport export(Jwt jwt, CandidateSearchCriteria criteria) {
         CandidateReader reader = access.requireReader(jwt);
         criteria.requireValid();
-        List<CandidateSearchView.Item> rows = Objects.requireNonNull(exports.execute(status -> {
+        if (!exportPermits.tryAcquire()) {
+            throw new vn.ttcs.recruitment.common.RetryAfterApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "CANDIDATE_EXPORT_BUSY", "Đang có nhiều tệp được xuất. Vui lòng thử lại sau.", 1);
+        }
+        try {
+            return exportHolding(reader, criteria);
+        } finally {
+            exportPermits.release();
+        }
+    }
+
+    private CandidateExport exportHolding(CandidateReader reader, CandidateSearchCriteria criteria) {
+        Snapshot snapshot = Objects.requireNonNull(searching(exports, status -> {
             requireFilters(reader, criteria);
             // One row more than allowed tells an oversized result from an exact fit without counting first.
             List<CandidateSearchView.Item> found = repository.page(reader, criteria, 0, maxExportRows + 1);
@@ -98,10 +126,22 @@ public class CandidateSearchService {
                         "Tệp xuất tối đa " + maxExportRows + " hồ sơ. Vui lòng thu hẹp bộ lọc.");
             }
             recordDisclosed(reader, found);
-            return found;
+            // Task 424: the file is named after the filter's position; the information sheet describes the filter.
+            CandidateExportDescription.Position position = criteria.requisitionId() != null
+                    ? repository.positionOfRequisition(criteria.requisitionId()).orElseThrow()
+                    : criteria.positionId() != null ? repository.position(criteria.positionId()).orElseThrow() : null;
+            return new Snapshot(found, position, CandidateExportDescription.lines(criteria, position,
+                    repository.catalogNames(criteria.distinctSources()), repository.catalogNames(criteria.distinctTags())));
         }));
-        return new CandidateExport(CandidateExportWorkbook.filename(calendar.today()), workbook.write(rows), rows.size());
+        Instant exportedAt = clock.instant();
+        String filename = CandidateExportWorkbook.filename(
+                snapshot.position() == null ? null : snapshot.position().code(), calendar.dateOf(exportedAt));
+        return new CandidateExport(filename, workbook.write(snapshot.rows(), exportedAt, snapshot.filter()),
+                snapshot.rows().size());
     }
+
+    private record Snapshot(List<CandidateSearchView.Item> rows, CandidateExportDescription.Position position,
+                            List<CandidateExportWorkbook.InfoLine> filter) { }
 
     public record CandidateExport(String filename, byte[] content, int rows) {
         @Override public String toString() { return "CandidateExport[" + filename + ", " + rows + " rows]"; }
