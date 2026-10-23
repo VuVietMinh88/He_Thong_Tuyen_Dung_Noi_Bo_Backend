@@ -63,6 +63,12 @@ public class ApplicationConfirmationSettings {
         return key;
     }
     String trackingUrl(String code) { return trackingPage.toASCIIString() + "#ma=" + code; }
+    // Task 344 (story S4-06): the withdrawal link of the confirmation email is the same validated tracking page with
+    // the same code, under "#rut=" instead of "#ma=": the page opens its withdrawal mode, asks the email and a second
+    // confirmation, and never acts on page load (mail scanners open links). A fragment never reaches a server, a proxy
+    // or a Referer, and the link carries no second secret: the withdrawal (task 345) checks the code and the email
+    // again under the row lock (ApplicationWithdrawalAccess). The mail paragraph ships with that endpoint, not here.
+    String withdrawalUrl(String code) { return trackingPage.toASCIIString() + "#rut=" + code; }
     String messageId(java.util.UUID outboxId) { return "<application-confirmation." + outboxId + "@" + domain + ">"; }
     @Override public String toString() { return "ApplicationConfirmationSettings[secrets redacted]"; }
 }

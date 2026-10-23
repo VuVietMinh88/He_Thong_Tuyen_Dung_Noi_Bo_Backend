@@ -2,6 +2,8 @@
 
 Phạm vi TKNHTTDNB1-340 (ánh xạ trạng thái nội bộ thành trạng thái công khai), TKNHTTDNB1-339 (tra cứu bằng mã tra cứu và email) và TKNHTTDNB1-341 (không tiết lộ nhận xét nội bộ, đánh giá hay tên người phỏng vấn), story TKNHTTDNB1-44 (S4-05): ứng viên tra cứu trạng thái hồ sơ của mình bằng mã tra cứu, để biết hồ sơ đã được xem chưa mà không phải gọi điện hỏi. Task 340 thêm quy tắc ánh xạ dùng chung `PublicApplicationStatus` (mục "Trạng thái công khai (task 340)"), không thêm API, migration hay mã quyền. Task 339 thêm API công khai `POST /api/v1/public/applications/lookup` (mục "Tra cứu hồ sơ (task 339)") và migration V31 cho hạn mức theo IP, không thêm mã quyền. Task 341 không đổi API: ghim bằng test và tài liệu rằng API công khai chỉ trả bốn trường được phép (mục "Dữ liệu công khai (task 341)"). Hồ sơ được nộp qua [API nhận hồ sơ công khai](public-applications.md) (task 326); mã tra cứu được trả trong response nộp hồ sơ và gửi trong [email xác nhận](application-confirmation.md) (task 329).
 
+Story TKNHTTDNB1-45 (S4-06, "Rút hồ sơ") dùng lại chính mã tra cứu. Task TKNHTTDNB1-344 tạo liên kết rút hồ sơ `#rut=<mã>` và bước kiểm liên kết dưới khóa `ApplicationWithdrawalAccess` (mục "Liên kết rút hồ sơ (task 344)"); chưa thêm API, migration, mã quyền hay đoạn nào trong email. API rút hồ sơ và đoạn mời rút hồ sơ trong email xác nhận là task 345.
+
 Tiêu chí của story S4-05:
 
 - "Nhập mã tra cứu và email để xem trạng thái": đã có (339). Ứng viên gửi mã tra cứu và email đã dùng khi nộp hồ sơ trong thân một yêu cầu POST, không cần tài khoản.
@@ -203,3 +205,63 @@ Danh sách dưới đây áp dụng cho API tra cứu. Hai biên nhận ở mụ
 - `sanitizePublicApplicationResult` (`src/services/applicationLookupService.ts`) lọc dữ liệu ở trình duyệt, nhưng lọc ở trình duyệt không bảo vệ được gì: dữ liệu đã nằm trong response mà ai cũng xem được bằng công cụ của trình duyệt. Bảo đảm nằm ở server (danh sách cho phép ở trên); frontend chỉ cần hiện đúng bốn trường.
 
 Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 24, ý (11).
+
+## Liên kết rút hồ sơ (task 344)
+
+Story S4-06 (TKNHTTDNB1-45): "Rút hồ sơ qua liên kết trong email xác nhận, có xác nhận lại trước khi thực hiện". Task 344 làm hai phần mà API rút hồ sơ (task 345) sẽ dùng: **tạo** liên kết và **kiểm** liên kết dưới khóa. Không thêm API, migration hay mã quyền; ma trận quyền giữ 1572 ca.
+
+### Dạng liên kết
+
+```text
+<APPLICATION_TRACKING_PAGE_URL>#rut=<mã tra cứu>
+https://portal.example.test/tra-cuu#rut=<43 ký tự base64url>
+```
+
+- `ApplicationConfirmationSettings.withdrawalUrl(code)`: cùng trang đã được kiểm khi khởi động như liên kết tra cứu `#ma=` của task 329 (HTTPS, HTTP chỉ với loopback, không userinfo, query hay fragment), cùng mã tra cứu của lần ứng tuyển đó; chỉ khác phần sau `#`: `rut=` thay cho `ma=`.
+- Không có query string: phần sau `#` không bao giờ được trình duyệt gửi lên máy chủ, nên mã không lọt vào log của máy chủ, của proxy hay header `Referer`.
+- Mã base64url không cần mã hóa thêm trong fragment, nên liên kết chứa đúng mã như trong email.
+
+### Vì sao dùng lại mã tra cứu, không có mã riêng hết hạn
+
+- Mã tra cứu là 32 byte ngẫu nhiên (256 bit), không đoán được. API rút hồ sơ (task 345) đòi **cả** mã và email đã dùng khi nộp, cùng `confirm: true` (bước xác nhận lại của tiêu chí), và kiểm lại cặp đó sau khi khóa dòng hồ sơ.
+- Một liên kết riêng dùng một lần, hết hạn sau 60 phút cần một bảng liên kết, một hàng đợi email, một tác vụ gửi, một API kiểm liên kết và một trang frontend mới, và lại gửi **thêm một bí mật** tới cùng hộp thư đã nhận mã tra cứu: người đọc được hộp thư đó vẫn rút được hồ sơ. Câu hỏi 26 (1) hỏi BA/PO có cần bước đó không.
+- Mã không hết hạn và vẫn tra cứu được sau khi rút (câu hỏi 26 (2)). Mã bị lộ được thu hồi theo mục "Thu hồi mã (task 339)": sau đó cả tra cứu lẫn rút hồ sơ đều trả 404.
+
+### Email: đoạn mời rút hồ sơ đến cùng API (task 345)
+
+Task này **không** sửa email xác nhận. Email đã gửi thì không lấy lại được, nên không email nào được hứa một việc mà backend chưa làm được, dù hai PR được merge hay deploy theo thứ tự nào. Task 345 thêm đoạn mời rút hồ sơ cùng lúc với API; đoạn đó được dựng lúc gửi, từ mã đã giải mã, nên email còn trong hàng đợi lúc deploy cũng có liên kết. Email đã gửi trước task 345 không có liên kết rút; ứng viên vẫn rút được từ trang tra cứu (câu hỏi 26 (3)).
+
+### Kiểm liên kết dưới khóa (`ApplicationWithdrawalAccess`)
+
+`ApplicationWithdrawalAccess.lock(TrackingCredential)` (package-private, chỉ module hồ sơ ứng tuyển gọi) nhận hash SHA-256 của mã và email đã chuẩn hóa (cùng `TrackingCredential` của API tra cứu) và trả đúng **một** lần ứng tuyển đã khóa, hoặc rỗng:
+
+1. Đọc không khóa `id` và `requisition_id` của lần ứng tuyển có đúng hash, đúng email và mã chưa bị thu hồi (một câu SQL, qua chỉ mục UNIQUE của hash). Không có thì trả rỗng ngay, không khóa gì.
+2. Khóa dòng **yêu cầu tuyển dụng** `FOR NO KEY UPDATE`, như mọi thao tác đóng, tạm dừng hay đổi nhóm recruiter. Nhờ đó một lần rút chạy lần lượt với các thao tác đó trên cùng yêu cầu, và một thao tác đổi giai đoạn của Sprint 5 có thể đi đúng đường này.
+3. Khóa dòng **hồ sơ** `FOR NO KEY UPDATE`, theo id **và** lại đủ hash, email, `tracking_revoked_at IS NULL`. Ở mức READ COMMITTED, câu khóa đã phải chờ sẽ đọc bản mới nhất đã commit, nên mã bị thu hồi trong lúc chờ cho kết quả rỗng, và giai đoạn đổi trong lúc chờ được trả theo giá trị mới.
+
+Kết quả `LockedApplication(id, requisitionId, stage, postingTitle, receivedAt)`: `id` và `requisitionId` là dữ liệu nội bộ, không bao giờ trả cho ứng viên; tên vị trí và thời điểm nộp là bản chụp lúc nộp. Mã lạ, email sai và mã đã thu hồi đi cùng các câu SQL và cùng cho kết quả rỗng, nên task 345 trả chung một 404 như API tra cứu. Bước kiểm không ghi gì.
+
+Điều kiện với người gọi (lỗi lập trình, báo trước mọi câu SQL):
+
+| Gọi trong | Kết quả |
+|---|---|
+| Không có transaction | `IllegalTransactionStateException` (`Propagation.MANDATORY`): khóa phải giữ tới khi lần rút commit |
+| Transaction chỉ đọc | `IllegalStateException`: PostgreSQL không cho khóa dòng trong transaction chỉ đọc |
+| `REPEATABLE_READ`, `SERIALIZABLE` | `IllegalStateException`: ở các mức này, khóa một dòng đã đổi sau snapshot báo lỗi serialization thay vì đọc bản mới |
+| READ COMMITTED đọc ghi | Chạy bình thường |
+
+Người gọi đọc đồng hồ **sau** lời gọi này (sau lần chờ khóa cuối cùng), và ghi dòng của mình trong cùng transaction. Khi kết quả rỗng ở bước 3, khóa của yêu cầu vẫn giữ tới hết transaction của người gọi; không có gì được ghi.
+
+### Kiểm thử (task 344)
+
+- `ApplicationWithdrawalLinkTest` (unit): với trang HTTPS, trang `/careers/applications/lookup` và ba trang loopback, liên kết đúng bằng trang + `#rut=` + mã; cùng scheme, host, cổng, đường dẫn với liên kết tra cứu; không query, không userinfo; fragment đúng `rut=<mã>`, không có `#ma=`.
+- `ApplicationWithdrawalAccessIntegrationTest` (PostgreSQL thật, không HTTP), mọi lần chờ khóa đo bằng `pg_blocking_pids` và thử khóa `NOWAIT` từ kết nối khác: một email nộp hai yêu cầu, mã A khóa đúng hồ sơ A và yêu cầu của A (khóa chia sẻ trên yêu cầu bị chặn, khóa `FOR KEY SHARE` thì không, nên đúng mức `FOR NO KEY UPDATE`), không khóa gì của B; email khác hoa thường và có khoảng trắng hai đầu vẫn khớp; giai đoạn trả đúng giá trị đang lưu; không dòng nào đổi `xmin`; mã của người khác, email của người khác, mã lạ, mã đã thu hồi → rỗng và không khóa gì; khi yêu cầu đang bị giữ, lời gọi chờ ở yêu cầu trong lúc dòng hồ sơ vẫn khóa được; thu hồi mã hoặc đổi giai đoạn commit trong lúc chờ → rỗng, hoặc giai đoạn mới; ngoài transaction, chỉ đọc, `REPEATABLE_READ`, `SERIALIZABLE` bị từ chối.
+- `ApplicationConfirmationSecurityTest` (của TRAN DUC LUONG, không sửa): kiểm trang khi khởi động và liên kết `#ma=` vẫn đúng.
+
+### Ghi chú cho frontend (task 344)
+
+- Trang ở `APPLICATION_TRACKING_PAGE_URL` đọc thêm `#rut=`: mở chế độ rút hồ sơ, điền sẵn mã, hỏi email đã dùng khi nộp, rồi xóa phần sau `#` bằng `history.replaceState`, như với `#ma=`.
+- **Không bao giờ** gọi API khi tải trang: trình quét thư và trình xem trước liên kết tự mở mọi liên kết trong email. Chỉ gọi API rút hồ sơ (task 345) sau khi ứng viên nhập email và bấm xác nhận trong hộp thoại hỏi lại.
+- Không lưu mã hay email vào `localStorage`/`sessionStorage`; phục vụ trang với `Content-Security-Policy: frame-ancestors 'none'`.
+
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 26, ý (1)–(3).
