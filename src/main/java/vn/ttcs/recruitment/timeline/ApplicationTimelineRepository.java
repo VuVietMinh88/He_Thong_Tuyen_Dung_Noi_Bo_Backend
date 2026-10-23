@@ -10,6 +10,8 @@ import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.Actor;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.ActorType;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.Details;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.EmailSent;
+import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.EvaluationChange;
+import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.InterviewChange;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.MailKind;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.RatingSnapshot;
 import vn.ttcs.recruitment.timeline.ApplicationTimelineEvent.Recipient;
@@ -29,9 +31,9 @@ import java.util.UUID;
  * Task 403 (story S5-07): the timeline of exactly one application, gathered from the tables that already record its
  * events: the receipt (job_applications.received_at), the stage history (application_stage_events, V34/V40), the
  * confirmation and withdrawal mails the SMTP server accepted (application_email_outbox V28 and
- * application_notice_outbox V35, status SENT only), the screening notes and the current shared rating (V41). Interview
- * scheduling and evaluation have no tables yet and are not invented from the INTERVIEW stage; screening tags are
- * mutable state, not history, and are left out.
+ * application_notice_outbox V35, status SENT only), the screening notes and the current shared rating (V41), and
+ * immutable interview/evaluation event metadata (V55/V56). Scheduling events are not invented from the INTERVIEW
+ * stage; screening tags are mutable state, not history, and are left out.
  * <p>
  * Called only after the caller authorized this application, inside its transaction (MANDATORY), the REPEATABLE READ
  * read of the timeline API. Every arm of the UNION names the application, so applications of the same candidate
@@ -41,7 +43,7 @@ import java.util.UUID;
  * <p>
  * Read: ids, types, times, staff display names (user_accounts.full_name as it is now) and the internal text staff may
  * read (stage reasons, notes). Never read: mail ciphertext, nonce, key id or Message-ID, tracking hashes, staff or
- * candidate emails, candidate name or phone.
+ * candidate emails, candidate name or phone; interview room/link, evaluation answers, scores or conclusions.
  */
 @Repository
 @Transactional(propagation = Propagation.MANDATORY)
@@ -49,7 +51,7 @@ public class ApplicationTimelineRepository {
     public static final int MAX_PAGE = 1_000_000;
     public static final int MAX_SIZE = 100;
 
-    // Seventeen columns per arm, in this order. The first arm types every column (a multi-arm UNION resolves its types
+    // Twenty-two columns per arm, in this order. The first arm types every column (a multi-arm UNION resolves its types
     // pair by pair, so a later NULL must find a type already set).
     private static final String TIMELINE = """
             WITH events AS (
@@ -62,7 +64,9 @@ public class ApplicationTimelineRepository {
                     NULL::uuid AS rejection_reason_id, NULL::text AS rejection_reason_name,
                     NULL::boolean AS interview_skipped,
                     NULL::text AS mail_kind, NULL::uuid AS recipient_id, NULL::text AS recipient_name,
-                    NULL::integer AS rating
+                    NULL::integer AS rating,
+                    NULL::uuid AS interview_id, NULL::uuid AS form_id, NULL::text AS round_name,
+                    NULL::timestamptz AS starts_at, NULL::timestamptz AS ends_at
                 FROM job_applications a
                 LEFT JOIN application_referrals referral ON referral.application_id = a.id
                 LEFT JOIN user_accounts referrer ON referrer.id = referral.referrer_id
@@ -75,7 +79,8 @@ public class ApplicationTimelineRepository {
                     e.rejection_reason_id, e.rejection_reason_name,
                     e.interview_skipped,
                     NULL, NULL, NULL,
-                    NULL
+                    NULL,
+                    NULL, NULL, NULL, NULL, NULL
                 FROM application_stage_events e LEFT JOIN user_accounts u ON u.id = e.actor_id
                 WHERE e.application_id = ?
                 UNION ALL
@@ -86,7 +91,8 @@ public class ApplicationTimelineRepository {
                     NULL, NULL,
                     NULL,
                     'APPLICATION_CONFIRMATION', NULL, NULL,
-                    NULL
+                    NULL,
+                    NULL, NULL, NULL, NULL, NULL
                 FROM application_email_outbox o
                 WHERE o.application_id = ? AND o.status = 'SENT' AND o.sent_at IS NOT NULL
                 UNION ALL
@@ -97,7 +103,8 @@ public class ApplicationTimelineRepository {
                     NULL, NULL,
                     NULL,
                     n.kind, n.recipient_id, r.full_name,
-                    NULL
+                    NULL,
+                    NULL, NULL, NULL, NULL, NULL
                 FROM application_notice_outbox n LEFT JOIN user_accounts r ON r.id = n.recipient_id
                 WHERE n.application_id = ? AND n.status = 'SENT' AND n.sent_at IS NOT NULL
                 UNION ALL
@@ -108,7 +115,8 @@ public class ApplicationTimelineRepository {
                     NULL, NULL,
                     NULL,
                     NULL, NULL, NULL,
-                    NULL
+                    NULL,
+                    NULL, NULL, NULL, NULL, NULL
                 FROM application_screening_notes s LEFT JOIN user_accounts u ON u.id = s.author_id
                 WHERE s.application_id = ?
                 UNION ALL
@@ -119,9 +127,34 @@ public class ApplicationTimelineRepository {
                     NULL, NULL,
                     NULL,
                     NULL, NULL, NULL,
-                    g.rating
+                    g.rating,
+                    NULL, NULL, NULL, NULL, NULL
                 FROM application_screening_ratings g LEFT JOIN user_accounts u ON u.id = g.updated_by
                 WHERE g.application_id = ?
+                UNION ALL
+                SELECT 'interview:' || e.id::text, e.event_type,
+                    e.occurred_at, 'STAFF', e.actor_id,
+                    u.full_name, NULL,
+                    NULL, NULL, NULL,
+                    NULL, NULL,
+                    NULL,
+                    NULL, NULL, NULL,
+                    NULL,
+                    e.interview_id, NULL, e.round_name, e.starts_at, e.ends_at
+                FROM interview_events e LEFT JOIN user_accounts u ON u.id = e.actor_id
+                WHERE e.application_id = ?
+                UNION ALL
+                SELECT 'evaluation:' || e.id::text, e.event_type,
+                    e.occurred_at, 'STAFF', e.actor_id,
+                    u.full_name, NULL,
+                    NULL, NULL, NULL,
+                    NULL, NULL,
+                    NULL,
+                    NULL, NULL, NULL,
+                    NULL,
+                    e.interview_id, e.form_id, NULL, NULL, NULL
+                FROM evaluation_events e LEFT JOIN user_accounts u ON u.id = e.actor_id
+                WHERE e.application_id = ?
             )
             SELECT total.n AS total_elements, slice.*
             FROM (SELECT count(*) AS n FROM events) total
@@ -145,7 +178,7 @@ public class ApplicationTimelineRepository {
         if (size < 1 || size > MAX_SIZE) throw new IllegalArgumentException("size must be between 1 and " + MAX_SIZE);
         ResultSetExtractor<ApplicationTimelinePage> extractor = rows -> toPage(rows, applicationId, page, size);
         return jdbc.query(TIMELINE, extractor, applicationId, applicationId, applicationId, applicationId,
-                applicationId, applicationId, size, (long) page * size);
+                applicationId, applicationId, applicationId, applicationId, size, (long) page * size);
     }
 
     // Every row carries the total; a page past the end is one row with the total and no event.
@@ -174,6 +207,11 @@ public class ApplicationTimelineRepository {
             case EMAIL_SENT -> emailSent(row);
             case SCREENING_NOTE_ADDED -> new ScreeningNote(row.getString("internal_text"));
             case SCREENING_RATING_SNAPSHOT -> new RatingSnapshot(row.getInt("rating"));
+            case INTERVIEW_SCHEDULED, INTERVIEW_RESCHEDULED, INTERVIEW_CANCELLED ->
+                    new InterviewChange(row.getObject("interview_id", UUID.class), row.getString("round_name"),
+                            row.getTimestamp("starts_at").toInstant(), row.getTimestamp("ends_at").toInstant());
+            case EVALUATION_SUBMITTED, EVALUATION_REOPENED ->
+                    new EvaluationChange(row.getObject("interview_id", UUID.class), row.getObject("form_id", UUID.class));
         };
         return new ApplicationTimelineEvent(id, type, applicationId, row.getTimestamp("occurred_at").toInstant(),
                 actor(row), details);
