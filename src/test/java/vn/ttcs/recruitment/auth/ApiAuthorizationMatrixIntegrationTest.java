@@ -110,6 +110,7 @@ class ApiAuthorizationMatrixIntegrationTest {
     // One row per handler mapping. Path variables get an unknown id, and write samples carry an invalid body,
     // so a call that passes authorization stops at 404 or validation instead of changing data.
     private static final List<Endpoint> ENDPOINTS = List.of(
+            endpoint("POST", "/api/v1/applications/{id}/interviews", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/health", PUBLIC, null, 200),
             endpoint("GET", "/api/v1/health", PUBLIC, null, 200),
             endpoint("POST", "/api/v1/auth/login", PUBLIC, INVALID_BODY, 400),
