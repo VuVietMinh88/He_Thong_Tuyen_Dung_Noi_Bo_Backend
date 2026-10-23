@@ -39,7 +39,8 @@ import java.util.UUID;
  * the public form;</li>
  * <li>the manual_application_intakes row naming the caller, and the candidate's confirmation queued exactly as the
  * referral queues it (encrypted, joined enqueue): the candidate, not the staff member, receives the tracking code;</li>
- * <li>the PROFILE disclosure log of the application the answer shows.</li>
+ * <li>task 408: the duplicate report (ManualApplicationDuplicates) of the stored email and phone, and the PROFILE
+ * disclosure log of every application the answer shows.</li>
  * </ol>
  * The token bytes are zeroed in finally.
  */
@@ -48,6 +49,7 @@ class ManualApplicationWriter {
     private final CandidateWriteGuard guard;
     private final CandidateAccess access;
     private final ManualApplicationAccess scope;
+    private final ManualApplicationDuplicates duplicates;
     private final ApplicationStorageService storage;
     private final ApplicationOutboxRepository outbox;
     private final ApplicationOutboxCrypto crypto;
@@ -57,12 +59,13 @@ class ManualApplicationWriter {
     private final SecureRandom random = new SecureRandom();
 
     ManualApplicationWriter(CandidateWriteGuard guard, CandidateAccess access, ManualApplicationAccess scope,
-                            ApplicationStorageService storage, ApplicationOutboxRepository outbox,
+                            ManualApplicationDuplicates duplicates, ApplicationStorageService storage, ApplicationOutboxRepository outbox,
                             ApplicationOutboxCrypto crypto, ApplicationConfirmationSettings settings, JdbcTemplate jdbc,
                             PlatformTransactionManager manager) {
         this.guard = guard;
         this.access = access;
         this.scope = scope;
+        this.duplicates = duplicates;
         this.storage = storage;
         this.outbox = outbox;
         this.crypto = crypto;
@@ -114,9 +117,12 @@ class ManualApplicationWriter {
                 receipt.receivedAt(), code, receipt.trackingUrl(), settings.from());
         outbox.enqueue(outboxId, stored.id(), settings.messageId(outboxId), crypto.encrypt(outboxId, stored.id(), payload));
         access.recordGranted(reader, CandidateAccessKind.PROFILE, candidateId, List.of(stored.id()));
+        var report = duplicates.report(reader, requisitionId, form.submission().normalizedEmail(),
+                form.submission().phone(), stored.id());
+        ManualApplicationDuplicateService.recordDisclosed(access, reader, report);
         return new ManualApplicationView(stored.id(), candidateId, requisitionId, title, (String) saved.get("full_name"),
                 stored.stage(), stored.stage().displayName(), stored.receivedAt(),
-                new ManualApplicationView.Staff(writer.id(), writer.fullName()));
+                new ManualApplicationView.Staff(writer.id(), writer.fullName()), report);
     }
 
     // Called after every lock wait: the token, the session and the permissions read again, then the requisition's

@@ -346,3 +346,82 @@ Ghi chú cho frontend:
 - Ô `candidateConsent` là checkbox bắt buộc "Ứng viên đã đồng ý cho công ty lưu hồ sơ".
 - Câu hỏi BA/PO: (1) có bắt buộc chọn nguồn cho hồ sơ nhập tay không (hiện không bắt buộc); (2) có gửi email xác nhận cho
   ứng viên nhập tay không (hiện có, giống cổng nộp, để ứng viên tra cứu/rút hồ sơ).
+
+## 408 — Dùng chung kiểm tra trùng cho hồ sơ thủ công
+
+Migration: `V65_2__index_application_national_phone.sql` (chỉ mục biểu thức trên số điện thoại dạng nội địa, không đổi dữ
+liệu).
+
+Hồ sơ nhập tay đi qua **đúng luồng phát hiện trùng của cổng nộp hồ sơ**, không có luật riêng:
+
+1. Cùng email chuẩn hóa trong cùng requisition → 409 `APPLICATION_ALREADY_SUBMITTED` (bộ phân xử UNIQUE của storage).
+2. Email đã có ở requisition khác → hồ sơ mới được gộp vào **cùng hồ sơ ứng viên** (`candidateId`), xem chung ở hồ sơ hợp
+   nhất.
+3. Thêm cho nhân viên: báo cáo các hồ sơ cùng email (sẽ/đã gộp) và hồ sơ **email khác nhưng cùng số điện thoại** để so
+   sánh bằng mắt. Số điện thoại so ở dạng nội địa: `+84 912 345 678` trùng `0912345678`.
+
+Mọi danh sách chỉ gồm hồ sơ người gọi **đọc được** (`CandidateAccess.READABLE`); hồ sơ ngoài phạm vi không bao giờ được
+nhắc tới. Mỗi hồ sơ hiện ra được ghi `candidate_access_events` loại `PROFILE`. Tối đa 20 hồ sơ mỗi danh sách, mới nhất
+trước.
+
+### Kiểm tra trước khi nhập
+
+`POST /api/v1/requisitions/{id}/manual-applications/duplicate-check`
+
+Quyền và phạm vi: như API nhập tay (407). Request:
+
+```json
+{ "email": "lan@example.test", "phone": "0912 345 678" }
+```
+
+Email/điện thoại được kiểm và chuẩn hóa đúng như khi lưu (trim, chữ thường, bỏ khoảng trắng/`.`/`-`/`()`). Trường lạ bị
+từ chối (400 `INVALID_JSON`). Không ghi gì ngoài nhật ký truy cập.
+
+Response 200:
+
+```json
+{
+  "emailInRequisition": true,
+  "sameEmail": [
+    {
+      "applicationId": "4b8f…",
+      "candidateId": "0c1d…",
+      "requisitionId": "77aa…",
+      "postingTitle": "Java Developer",
+      "fullName": "Nguyễn Văn A",
+      "stage": "NEW",
+      "stageName": "Hồ sơ mới",
+      "receivedAt": "2026-10-15T03:00:00Z",
+      "sameRequisition": true
+    }
+  ],
+  "samePhone": []
+}
+```
+
+`emailInRequisition = true` nghĩa là lệnh nhập sẽ bị 409. Cờ này được tính riêng (EXISTS trên requisition + email
+chuẩn hóa), không suy ra từ danh sách `sameEmail` vốn chỉ có tối đa 20 hồ sơ.
+
+Lỗi: 400 `VALIDATION_ERROR` (`fieldErrors.email` / `fieldErrors.phone`), 400 `INVALID_JSON`, 401, 403 `FORBIDDEN`,
+404 `REQUISITION_NOT_FOUND`.
+
+### Báo cáo sau khi nhập
+
+Response 201 của `POST /api/v1/requisitions/{id}/manual-applications` có thêm:
+
+```json
+"duplicates": {
+  "emailInRequisition": false,
+  "sameEmail": [ { "...": "hồ sơ khác của cùng ứng viên" } ],
+  "samePhone": [ { "...": "hồ sơ email khác, cùng số điện thoại" } ],
+  "empty": false
+}
+```
+
+Ghi chú cho frontend:
+
+- Luồng gợi ý: người dùng nhập email + điện thoại → gọi `duplicate-check` → nếu `emailInRequisition` thì chặn nút lưu và
+  mở hồ sơ cũ; nếu có `sameEmail`/`samePhone` thì hiện bảng so sánh (họ tên, vị trí, giai đoạn, ngày nộp) với link tới
+  hồ sơ hợp nhất `/candidates/{candidateId}`; người dùng xác nhận rồi mới gửi form nhập.
+- Trùng số điện thoại chỉ là **gợi ý**, không chặn lưu; hệ thống không tự gộp hai email khác nhau.
+- Câu hỏi BA/PO: có cần chức năng gộp thủ công hai hồ sơ ứng viên khác email nhưng cùng người không (hiện chưa có).
