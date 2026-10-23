@@ -24,7 +24,8 @@ import java.util.UUID;
  * so a keyword found in one application never combines with the stage of another application of the same person.
  * <p>
  * An empty list means "no condition". Without an explicit stage list WITHDRAWN applications are left out, like the
- * board. Dates are business dates (app.business-zone), both ends included.
+ * board. Dates are business dates (app.business-zone), both ends included. Task 394: a repeated list value counts once
+ * and is kept once, so a saved filter stores the lists exactly as they are checked.
  */
 public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<ApplicationStage> stages,
                                       List<UUID> sourceIds, List<UUID> tagIds, TagMatch tagMatch,
@@ -129,8 +130,9 @@ public record CandidateSearchCriteria(UUID requisitionId, UUID positionId, List<
         return CandidateText.trim(value);
     }
 
+    // Distinct values in the given order; a null stays (once) so problems() can report it.
     private static <T> List<T> copy(List<T> values) {
-        return values == null ? List.of() : Collections.unmodifiableList(new ArrayList<>(values));
+        return values == null ? List.of() : Collections.unmodifiableList(new ArrayList<>(new LinkedHashSet<>(values)));
     }
 
     private static <T> List<T> distinct(List<T> values) {

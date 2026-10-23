@@ -372,6 +372,12 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/applications/{id}/screening/notes", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             // Story S5-05 (tasks 392-394): the candidate search; every permitted caller gets an empty first page.
             endpoint("GET", "/api/v1/candidate-search", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            // Task 394: saved filters; nobody owns one here, the empty body stops a permitted write at 400.
+            endpoint("GET", "/api/v1/candidate-search/saved-filters", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
+            endpoint("GET", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            endpoint("POST", "/api/v1/candidate-search/saved-filters", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), INVALID_BODY, 400),
+            endpoint("PUT", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), INVALID_BODY, 400),
+            endpoint("DELETE", "/api/v1/candidate-search/saved-filters/{id}", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
             // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
