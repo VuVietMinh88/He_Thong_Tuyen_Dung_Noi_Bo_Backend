@@ -129,7 +129,7 @@ class InterviewSchedulingConcurrencyIntegrationTest {
     }
 
     @ParameterizedTest(name = "grant removed during {0} lock wait")
-    @ValueSource(strings = {"application", "resource"})
+    @ValueSource(strings = {"application", "interview", "resource"})
     void aRemovedSchedulingGrantDuringTheWaitCannotMutate(String held) throws Exception {
         UUID interview = held.equals("interview") ? create() : null;
         try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {
@@ -150,7 +150,7 @@ class InterviewSchedulingConcurrencyIntegrationTest {
     }
 
     @ParameterizedTest(name = "token expires during {0} lock wait")
-    @ValueSource(strings = {"application", "resource"})
+    @ValueSource(strings = {"application", "interview", "resource"})
     void anAccessTokenThatExpiresDuringTheWaitCannotMutate(String held) throws Exception {
         UUID interview = held.equals("interview") ? create() : null;
         try (Connection blocker = dataSource.getConnection(); var executor = Executors.newSingleThreadExecutor()) {

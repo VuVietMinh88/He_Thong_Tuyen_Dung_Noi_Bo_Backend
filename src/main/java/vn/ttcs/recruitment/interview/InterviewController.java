@@ -43,6 +43,10 @@ public class InterviewController {
     @GetMapping("/api/v1/interviews/{id}")
     public ResponseEntity<InterviewView> get(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) { return ok(service.get(jwt, id)); }
 
+    @PutMapping("/api/v1/interviews/{id}")
+    public ResponseEntity<InterviewView> update(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @Valid @RequestBody InterviewScheduleRequest request) { return ok(service.update(jwt, id, request)); }
+
     @PostMapping("/api/v1/interviews/conflicts")
     public ResponseEntity<List<InterviewConflict>> conflicts(@AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody InterviewConflictRequest request) { return ok(service.conflicts(jwt, request)); }
