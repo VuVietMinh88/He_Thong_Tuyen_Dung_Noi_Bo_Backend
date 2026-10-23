@@ -29,7 +29,8 @@ import java.util.UUID;
  * <p>
  * A save locks the caller's account and session, then the position FOR NO KEY UPDATE (404 for an unknown one), checks
  * the permission again, compares expectedVersion with the stored version (409 FIT_CRITERIA_CHANGED) and replaces the
- * criteria with version + 1.
+ * criteria with version + 1. Task 413: the save recomputes no fit result; stored results name the criteria version
+ * they were computed from, readers evaluate stale ones live and FitRefreshWorker rewrites them outside this lock.
  */
 @Service
 public class RequiredCriteriaService {
