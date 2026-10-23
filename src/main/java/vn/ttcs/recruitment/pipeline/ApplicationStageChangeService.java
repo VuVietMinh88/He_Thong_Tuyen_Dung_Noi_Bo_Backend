@@ -19,8 +19,14 @@ import vn.ttcs.recruitment.auth.AuthSessionRepository;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
 import vn.ttcs.recruitment.candidate.ApplicationAccess;
 import vn.ttcs.recruitment.candidate.CandidateAccess;
+import vn.ttcs.recruitment.candidate.CandidateAccessKind;
 import vn.ttcs.recruitment.candidate.CandidateReader;
 import vn.ttcs.recruitment.common.ApiException;
+import vn.ttcs.recruitment.department.DepartmentRepository;
+import vn.ttcs.recruitment.evaluationreport.EvaluationEvidenceService;
+import vn.ttcs.recruitment.hiringdecision.HiringDecisionRepository;
+import vn.ttcs.recruitment.hiringdecision.HiringDecisionRequest;
+import vn.ttcs.recruitment.hiringdecision.HiringDecisionView;
 import vn.ttcs.recruitment.pipeline.ApplicationStageChangeRepository.RejectionReason;
 import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.security.AccessScope;
@@ -32,6 +38,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -88,6 +95,9 @@ public class ApplicationStageChangeService {
     private final CandidateAccess candidates;
     private final RecruiterAssignmentAccess assignments;
     private final ApplicationStageChangeRepository stages;
+    private final HiringDecisionRepository decisions;
+    private final EvaluationEvidenceService evidence;
+    private final DepartmentRepository departments;
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final TransactionTemplate transaction;
@@ -95,6 +105,8 @@ public class ApplicationStageChangeService {
     ApplicationStageChangeService(AccountRepository accounts, AuthSessionRepository sessions,
                                   PermissionService permissions, CandidateAccess candidates,
                                   RecruiterAssignmentAccess assignments, ApplicationStageChangeRepository stages,
+                                  HiringDecisionRepository decisions, EvaluationEvidenceService evidence,
+                                  DepartmentRepository departments,
                                   JdbcTemplate jdbc, Clock clock, PlatformTransactionManager manager) {
         this.accounts = accounts;
         this.sessions = sessions;
@@ -102,6 +114,9 @@ public class ApplicationStageChangeService {
         this.candidates = candidates;
         this.assignments = assignments;
         this.stages = stages;
+        this.decisions = decisions;
+        this.evidence = evidence;
+        this.departments = departments;
         this.jdbc = jdbc;
         this.clock = clock;
         transaction = new TransactionTemplate(manager);
@@ -125,6 +140,118 @@ public class ApplicationStageChangeService {
             }
             throw exception;
         }
+    }
+
+    /**
+     * Tasks 488–490: a narrowly scoped decision path. A department hiring manager may decide after reviewing
+     * evaluations, but does not acquire the general CANDIDATES write permission. The evidence, stage event and
+     * receipt are committed by this one transaction; calling change() from another transaction would be unsafe.
+     */
+    public HiringDecisionView decide(Jwt jwt, UUID applicationId, HiringDecisionRequest request) {
+        ApplicationStage target = "OFFER".equals(request.decision()) ? ApplicationStage.OFFER : ApplicationStage.REJECTED;
+        requireReasonMatchesTarget(new ApplicationStageChangeRequest(target.name(), request.expectedCurrentStage(),
+                request.rejectionReasonId(), false, request.note()));
+        try {
+            return Objects.requireNonNull(transaction.execute(status -> decideLocked(jwt, applicationId, request, target)));
+        } catch (DecisionScopeDenied denied) {
+            candidates.recordDenied(denied.reader, CandidateAccessKind.PROFILE, denied.candidateId, applicationId);
+            throw new AccessDeniedException("The application is outside the hiring decision scope");
+        } catch (RuntimeException exception) {
+            if (busy(exception)) throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "HIRING_DECISION_BUSY",
+                    "Hồ sơ hoặc đánh giá đang được xử lý. Vui lòng thử lại.");
+            throw exception;
+        }
+    }
+
+    private HiringDecisionView decideLocked(Jwt jwt, UUID applicationId, HiringDecisionRequest request,
+                                            ApplicationStage target) {
+        jdbc.execute("SET LOCAL lock_timeout = '2s'");
+        jdbc.execute("SET LOCAL statement_timeout = '3s'");
+        Writer writer = lockWriter(jwt);
+        decisionReader(jwt, writer);
+        UUID requisitionId = stages.requisitionOf(applicationId).orElseThrow(ApplicationStageChangeService::notFound);
+        stages.lockRequisition(requisitionId);
+        requireDecisionScope(jwt, writer, requisitionId, applicationId);
+        ApplicationStage current = stages.lockApplication(applicationId).orElseThrow(ApplicationStageChangeService::notFound);
+        requireDecisionScope(jwt, writer, requisitionId, applicationId);
+        if (current != ApplicationStage.valueOf(request.expectedCurrentStage())) {
+            throw new ApiException(HttpStatus.CONFLICT, "APPLICATION_STAGE_CHANGED",
+                    "Hồ sơ vừa chuyển giai đoạn. Vui lòng tải lại trước khi quyết định.");
+        }
+        if (current != ApplicationStage.INTERVIEW
+                || ApplicationStageTransitions.decide(current, target, writer.hrManager(), false)
+                != ApplicationStageTransitions.Decision.ALLOWED) {
+            throw new ApiException(HttpStatus.CONFLICT, "APPLICATION_STAGE_TRANSITION_NOT_ALLOWED",
+                    "Chỉ quyết định Offer hoặc Loại từ giai đoạn Phỏng vấn.");
+        }
+        if (!decisions.requisitionActive(requisitionId)) {
+            throw new ApiException(HttpStatus.CONFLICT, "HIRING_REQUISITION_INACTIVE",
+                    "Yêu cầu tuyển dụng phải đang được phê duyệt và hoạt động để ra quyết định.");
+        }
+
+        // Every submit/reopen locks its interview, and scheduling locks this requisition/application first.
+        // Holding all those interview/form rows keeps the reviewed evidence stable until the decision commits.
+        var reviewed = evidence.load(applicationId, writer.id(), true);
+        requireDecisionScope(jwt, writer, requisitionId, applicationId);
+        if (!reviewed.hash().equals(request.expectedEvidenceHash())) {
+            throw new ApiException(HttpStatus.CONFLICT, "HIRING_EVIDENCE_CHANGED",
+                    "Đánh giá hoặc lịch phỏng vấn đã thay đổi. Vui lòng xem lại bản tổng hợp mới nhất.");
+        }
+        if (reviewed.latestInterviewId() == null || reviewed.submittedForms().stream()
+                .noneMatch(form -> reviewed.latestInterviewId().equals(form.interviewId()))) {
+            throw new ApiException(HttpStatus.CONFLICT, "HIRING_EVALUATION_REQUIRED",
+                    "Cần ít nhất một phiếu đã nộp của buổi phỏng vấn cuối cùng trước khi quyết định.");
+        }
+        RejectionReason reason = null;
+        if (target == ApplicationStage.REJECTED) {
+            Optional<RejectionReason> locked = stages.lockRejectionReason(request.rejectionReasonId());
+            requireDecisionScope(jwt, writer, requisitionId, applicationId);
+            reason = locked.orElseThrow(() -> reasonError("INVALID_REJECTION_REASON", "Lý do loại không tồn tại."));
+            if (!reason.active()) throw reasonError("REJECTION_REASON_INACTIVE", "Lý do loại đã ngừng sử dụng.");
+        }
+        CandidateReader reader = decisionReader(jwt, writer);
+        ApplicationAccess application = requireDecisionScope(jwt, writer, requisitionId, applicationId);
+        Instant at = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        stages.move(applicationId, current, target);
+        UUID stageEvent = stages.record(applicationId, current, target, writer.id(), at, request.note(), reason, false);
+        var result = new HiringDecisionView(UUID.randomUUID(), applicationId, reviewed.latestInterviewId(),
+                request.decision(), target, at, writer.id(), writer.fullName(), request.note(),
+                reason == null ? null : reason.id(), reason == null ? null : reason.name(), reviewed.hash());
+        decisions.record(result, stageEvent, reviewed);
+        candidates.recordGranted(reader, CandidateAccessKind.PROFILE, application.candidateId(), List.of(applicationId));
+        return result;
+    }
+
+    private CandidateReader decisionReader(Jwt jwt, Writer writer) {
+        requireFresh(jwt, writer);
+        boolean senior = writer.roles().contains(Role.ADMIN) || writer.roles().contains(Role.HR_MANAGER);
+        if (!senior && !writer.roles().contains(Role.HIRING_MANAGER)) {
+            throw new AccessDeniedException("Only a hiring manager, HR manager or admin may make a hiring decision");
+        }
+        var granted = permissions.forUser(writer.id());
+        AccessScope candidateScope = AccessScope.read(granted, PermissionModule.CANDIDATES).orDeny();
+        AccessScope evaluationScope = AccessScope.read(granted, PermissionModule.EVALUATIONS).orDeny();
+        boolean scoped = !senior || candidateScope == AccessScope.SCOPED || evaluationScope == AccessScope.SCOPED;
+        return new CandidateReader(writer.id(), scoped ? AccessScope.SCOPED : AccessScope.ALL);
+    }
+
+    private ApplicationAccess requireDecisionScope(Jwt jwt, Writer writer, UUID requisitionId, UUID applicationId) {
+        CandidateReader reader = decisionReader(jwt, writer);
+        ApplicationAccess application = candidates.findApplication(reader, applicationId)
+                .orElseThrow(ApplicationStageChangeService::notFound);
+        boolean senior = writer.roles().contains(Role.ADMIN) || writer.roles().contains(Role.HR_MANAGER);
+        boolean managed = senior || departments.findManagedDepartmentIds(writer.id())
+                .contains(decisions.departmentOf(requisitionId));
+        if (!application.readable() || !managed) {
+            throw new DecisionScopeDenied(reader, application.candidateId());
+        }
+        return application;
+    }
+
+    private static final class DecisionScopeDenied extends RuntimeException {
+        final CandidateReader reader;
+        final UUID candidateId;
+        DecisionScopeDenied(CandidateReader reader, UUID candidateId) { this.reader = reader; this.candidateId = candidateId; }
     }
 
     // A lock or statement timeout (lock_timeout, statement_timeout, the transaction's 5 s) or a deadlock. JdbcTemplate's
@@ -213,7 +340,7 @@ public class ApplicationStageChangeService {
 
     // The caller of a write once lockWriter holds the account and the session. hrManager is read with the locked
     // account: a role change locks that account too, so it waits for this write.
-    private record Writer(UUID id, String fullName, boolean hrManager, AuthSession session) {
+    private record Writer(UUID id, String fullName, boolean hrManager, Set<Role> roles, AuthSession session) {
         @Override public String toString() { return "Writer[" + id + ", name redacted]"; }
     }
 
@@ -235,20 +362,25 @@ public class ApplicationStageChangeService {
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
         AuthSession session = sessions.findByIdForUpdate(sessionId)
                 .orElseThrow(AuthenticationFailureException::sessionInvalid);
-        return new Writer(actorId, account.getFullName(), account.getRoles().contains(Role.HR_MANAGER), session);
+        return new Writer(actorId, account.getFullName(), account.getRoles().contains(Role.HR_MANAGER),
+                Set.copyOf(account.getRoles()), session);
     }
 
     // The account and the session stay locked, but time passes (token or session expiry) and role_permissions can
     // still change, so all three are checked after every wait, the permissions read again.
     private Scopes requireStillWriter(Jwt jwt, Writer writer) {
+        requireFresh(jwt, writer);
+        Set<String> granted = permissions.forUser(writer.id());
+        return new Scopes(AccessScope.write(granted, PermissionModule.CANDIDATES).orDeny(),
+                AccessScope.read(granted, PermissionModule.CANDIDATES).orDeny());
+    }
+
+    private void requireFresh(Jwt jwt, Writer writer) {
         Instant now = clock.instant();
         if (jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(now)
                 || !writer.session().getUserId().equals(writer.id()) || !writer.session().isActive(now)) {
             throw AuthenticationFailureException.sessionInvalid();
         }
-        Set<String> granted = permissions.forUser(writer.id());
-        return new Scopes(AccessScope.write(granted, PermissionModule.CANDIDATES).orDeny(),
-                AccessScope.read(granted, PermissionModule.CANDIDATES).orDeny());
     }
 
     // After every lock wait: the caller (requireStillWriter), then the record scope evaluated with the scopes it has

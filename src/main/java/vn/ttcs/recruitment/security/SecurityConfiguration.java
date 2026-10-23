@@ -361,6 +361,26 @@ public class SecurityConfiguration {
                         // again before any lookup, then the scope of that application (403 outside it, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/interviews/me/calendar", "/api/v1/interviews/*/cv",
+                                "/api/v1/interviews/*/questions", "/api/v1/interviews/*/question-history")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_READ_ALL", "PERM_EVALUATIONS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_WRITE_ALL", "PERM_EVALUATIONS_WRITE_SCOPED")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/interviews/*/questions/*/asked")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_READ_ALL", "PERM_EVALUATIONS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_WRITE_ALL", "PERM_EVALUATIONS_WRITE_SCOPED")))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/evaluation-summary", "/api/v1/positions/*/candidate-comparison")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_READ_ALL", "PERM_EVALUATIONS_READ_SCOPED")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/hiring-decisions")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("HIRING_MANAGER", "HR_MANAGER", "ADMIN"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_EVALUATIONS_READ_ALL", "PERM_EVALUATIONS_READ_SCOPED")))
                         // Interview scopes are checked again against the application or invited panel in the service.
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interview-participants")
                                 .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")

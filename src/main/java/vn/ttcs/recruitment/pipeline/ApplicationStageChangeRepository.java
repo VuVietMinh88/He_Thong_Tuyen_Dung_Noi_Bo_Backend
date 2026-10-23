@@ -79,15 +79,17 @@ class ApplicationStageChangeRepository {
     // rejection's reason as an id and the name it has now (V40); whether the interview was skipped (the HR exception,
     // V40).
     @Transactional(propagation = Propagation.MANDATORY)
-    void record(UUID applicationId, ApplicationStage before, ApplicationStage after, UUID actorId, Instant at,
+    UUID record(UUID applicationId, ApplicationStage before, ApplicationStage after, UUID actorId, Instant at,
                 String noteOrNull, RejectionReason reasonOrNull, boolean interviewSkipped) {
+        UUID eventId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO application_stage_events(id,application_id,stage_before,stage_after,actor_type,actor_id,
                     reason,occurred_at,rejection_reason_id,rejection_reason_name,interview_skipped)
                 VALUES (?,?,?,?,'STAFF',?,?,?,?,?,?)
-                """, UUID.randomUUID(), applicationId, before.name(), after.name(), actorId, noteOrNull,
+                """, eventId, applicationId, before.name(), after.name(), actorId, noteOrNull,
                 Timestamp.from(at), reasonOrNull == null ? null : reasonOrNull.id(),
                 reasonOrNull == null ? null : reasonOrNull.name(), interviewSkipped);
+        return eventId;
     }
 
     // A rejection reason as locked: its catalog name and whether HR still offers it.

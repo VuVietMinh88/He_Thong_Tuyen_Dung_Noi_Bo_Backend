@@ -112,6 +112,16 @@ class ApiAuthorizationMatrixIntegrationTest {
     // so a call that passes authorization stops at 404 or validation instead of changing data.
     private static final List<Endpoint> ENDPOINTS = List.of(
             endpoint("GET", "/api/v1/applications/{id}/interview-participants", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/interviews/me/calendar", panelContext(), null, 200),
+            endpoint("GET", "/api/v1/interviews/{id}/cv", panelContext(), null, 404),
+            endpoint("GET", "/api/v1/interviews/{id}/questions", panelContext(), null, 404),
+            endpoint("GET", "/api/v1/interviews/{id}/question-history", panelContext(), null, 404),
+            endpoint("POST", "/api/v1/interviews/{id}/questions/{questionId}/asked", panelContext(), INVALID_BODY, 400),
+            endpoint("GET", "/api/v1/applications/{id}/evaluation-summary", evaluationReport(), null, 404),
+            endpoint("GET", "/api/v1/positions/{id}/candidate-comparison", evaluationReport(), null, 404),
+            endpoint("POST", "/api/v1/applications/{id}/hiring-decisions",
+                    new Rule(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), true, false, false,
+                            List.of(List.of(EVALUATIONS_READ_ALL, EVALUATIONS_READ_SCOPED)), Set.of("ADMIN", "HR_MANAGER", "HIRING_MANAGER")), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/applications/{id}/interviews", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 404),
             endpoint("POST", "/api/v1/applications/{id}/interviews", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 404),
@@ -340,6 +350,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             "requisition_headcount_overrides", "requisition_recruiters",
             "requisition_recruiter_changes", "approval_flows", "approval_flow_versions", "approval_flow_steps",
             "requisition_workflow_events", "job_postings", "job_posting_authors", "job_posting_events",
+            "interview_question_usage", "hiring_decisions",
             "job_applications", "application_cvs", "application_email_outbox", "cv_extraction_jobs",
             "cv_extraction_attempts", "application_confirmed_contacts", "application_contact_history");
 
@@ -1098,17 +1109,32 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Rule adminWithAll(String... codes) { return new Rule(List.of(codes), false, true); }
 
     // PUBLIC has no codes. Otherwise the caller needs every code (any one with anyOf), plus ROLE_ADMIN when required.
-    private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole, boolean requiresRecruiterRole) {
+    private static Rule panelContext() {
+        return new Rule(List.of(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), true, false, false,
+                List.of(List.of(EVALUATIONS_READ_ALL, EVALUATIONS_READ_SCOPED), List.of(EVALUATIONS_WRITE_ALL, EVALUATIONS_WRITE_SCOPED)), Set.of());
+    }
+    private static Rule evaluationReport() {
+        return new Rule(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), true, false, false,
+                List.of(List.of(EVALUATIONS_READ_ALL, EVALUATIONS_READ_SCOPED)), Set.of());
+    }
+
+    private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole, boolean requiresRecruiterRole,
+                        List<List<String>> requiredGroups, Set<String> anyRoles) {
         Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {
-            this(permissions, anyOf, requiresAdminRole, false);
+            this(permissions, anyOf, requiresAdminRole, false, List.of(), Set.of());
         }
-        boolean isPublic() { return permissions.isEmpty(); }
+        Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole, boolean requiresRecruiterRole) {
+            this(permissions, anyOf, requiresAdminRole, requiresRecruiterRole, List.of(), Set.of());
+        }
+        boolean isPublic() { return permissions.isEmpty() && requiredGroups.isEmpty() && anyRoles.isEmpty(); }
 
         boolean allows(Set<String> roles, Set<String> granted) {
             if (isPublic()) { return true; }
             boolean permitted = anyOf ? permissions.stream().anyMatch(granted::contains) : granted.containsAll(permissions);
             return permitted && (!requiresAdminRole || roles.contains("ADMIN"))
-                    && (!requiresRecruiterRole || roles.contains("RECRUITER"));
+                    && (!requiresRecruiterRole || roles.contains("RECRUITER"))
+                    && requiredGroups.stream().allMatch(group -> group.stream().anyMatch(granted::contains))
+                    && (anyRoles.isEmpty() || anyRoles.stream().anyMatch(roles::contains));
         }
 
         @Override
@@ -1124,8 +1150,9 @@ class ApiAuthorizationMatrixIntegrationTest {
         String key() { return method + " " + template; }
 
         String samplePath() {
-            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
+            return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString())
                     .replace("{applicationId}", UNKNOWN_ID.toString()).replace("{extractionId}", UNKNOWN_ID.toString())
+                    .replace("{questionId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
                     .replace("{type}", CATALOG_TYPE);
         }
 
