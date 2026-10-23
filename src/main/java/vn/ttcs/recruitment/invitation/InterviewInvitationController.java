@@ -25,6 +25,11 @@ public class InterviewInvitationController {
         fields(body, Set.of("token"));
         return ok(service.lookup(text(body, "token")));
     }
+    @PostMapping(InterviewInvitationRoutes.RESPOND)
+    public ResponseEntity<InterviewInvitationService.Response> respond(@RequestBody JsonNode body) {
+        fields(body, Set.of("token", "action", "note"));
+        return ok(service.respond(text(body, "token"), text(body, "action"), text(body, "note")));
+    }
     @GetMapping("/api/v1/interviews/{id}/invitation")
     public ResponseEntity<InterviewInvitationService.Status> status(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         return ok(service.status(jwt, id));
