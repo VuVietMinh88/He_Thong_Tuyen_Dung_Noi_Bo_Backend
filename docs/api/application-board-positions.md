@@ -2,7 +2,7 @@
 
 `GET /api/v1/application-board/positions?page=0&size=50`
 
-Gửi Access Token như các API nội bộ. Chỉ người có quyền đọc `CANDIDATES` được gọi; phạm vi giống API hồ sơ ứng viên. Không có phân công hoặc phòng ban quản lý phù hợp thì danh sách rỗng. API có thể trả yêu cầu tuyển dụng chưa nhận hồ sơ nào.
+Gửi Access Token như các API nội bộ. Chỉ người có quyền đọc `CANDIDATES` được gọi; phạm vi giống API hồ sơ ứng viên. Người có quyền SCOPED mà không có phân công hoặc phòng ban quản lý phù hợp nhận danh sách rỗng; người có quyền ALL thấy mọi lựa chọn. API có thể trả yêu cầu tuyển dụng chưa nhận hồ sơ nào.
 
 Response gồm `page`, `size`, `total`, `hasNext`, `items`. Mỗi phần tử có:
 
