@@ -271,7 +271,7 @@ public class OfferService {
         return new Locked(actor, context, offer);
     }
 
-    private OfferView readable(Account actor, UUID id) {
+    OfferView readable(Account actor, UUID id) {
         AccessScope.read(access.grants(actor.getId()), PermissionModule.OFFERS).orDeny();
         var offer = find(id, false);
         boolean assigned = actor.getId().equals(offer.hrApproverId()) && actor.getRoles().contains(Role.HR_MANAGER)
@@ -295,7 +295,7 @@ public class OfferService {
         AccessScope.write(grants, PermissionModule.OFFERS).orDeny();
     }
 
-    private void terms(long salary, String explanation, LocalDate start, Instant deadline, SalaryBand band) {
+    void terms(long salary, String explanation, LocalDate start, Instant deadline, SalaryBand band) {
         dates(start, deadline);
         if (OfferRepository.outside(salary, band) && explanation == null) throw invalid("explanation", "Lương ngoài dải chuẩn cần giải trình.");
     }
@@ -310,7 +310,7 @@ public class OfferService {
         }
     }
 
-    private static void sameIdentity(OfferView offer, OfferAccess.Context context) {
+    static void sameIdentity(OfferView offer, OfferAccess.Context context) {
         if (!offer.candidateId().equals(context.candidateId()) || !offer.positionId().equals(context.positionId())) {
             throw conflict("OFFER_CONTEXT_CHANGED", "Hồ sơ hoặc chức danh đã thay đổi. Hãy tạo lại offer.");
         }
@@ -320,11 +320,11 @@ public class OfferService {
         }
     }
 
-    private OfferView mask(OfferView view, UUID actor) {
+    OfferView mask(OfferView view, UUID actor) {
         return access.grants(actor).contains("SALARY_RANGES_READ_ALL") ? view : view.withoutBand();
     }
 
-    private OfferView find(UUID id, boolean lock) {
+    OfferView find(UUID id, boolean lock) {
         return data.find(id, lock).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "OFFER_NOT_FOUND", "Không tìm thấy offer."));
     }
 
@@ -332,12 +332,12 @@ public class OfferService {
         if (!Set.of("DRAFT", "CHANGES_REQUESTED").contains(offer.status())) throw conflict("OFFER_NOT_EDITABLE", "Chỉ sửa offer nháp hoặc được yêu cầu sửa.");
     }
 
-    private static void version(OfferView offer, Long expected) {
+    static void version(OfferView offer, Long expected) {
         if (expected == null || expected < 0) throw invalid("expectedVersion", "Cần phiên bản offer đang xem.");
         if (offer.version() != expected) throw conflict("OFFER_VERSION_CHANGED", "Offer vừa thay đổi. Vui lòng tải lại.");
     }
 
-    private static void paging(int page, int size) {
+    static void paging(int page, int size) {
         if (page < 0 || page > 100000 || size < 1 || size > 100) {
             throw invalid("page", "Trang từ 0 đến 100000, số dòng từ 1 đến 100.");
         }
@@ -347,7 +347,7 @@ public class OfferService {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
-    private <T> T execute(TransactionTemplate transaction, Supplier<T> action) {
+    <T> T execute(TransactionTemplate transaction, Supplier<T> action) {
         try {
             return Objects.requireNonNull(transaction.execute(s -> action.get()));
         } catch (OfferAccess.ScopeDenied denied) {

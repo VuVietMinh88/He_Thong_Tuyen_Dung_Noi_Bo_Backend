@@ -35,13 +35,22 @@ public class OfferRepository {
         return jdbc.queryForObject("SELECT count(*) FROM offers WHERE application_id=?", Long.class, application);
     }
     void create(UUID id, OfferAccess.Context c, OfferRequests.Draft request, SalaryBand band, UUID actor, Instant now) {
+        insert(id, c, request, band, actor, now, null, 1);
+    }
+    void createRevision(UUID id, OfferAccess.Context c, OfferRequests.Draft request, SalaryBand band,
+                        UUID actor, Instant now, UUID previous, int revision) {
+        insert(id, c, request, band, actor, now, previous, revision);
+    }
+    private void insert(UUID id, OfferAccess.Context c, OfferRequests.Draft request, SalaryBand band,
+                        UUID actor, Instant now, UUID previous, int revision) {
         jdbc.update("""
                 INSERT INTO offers(id,application_id,candidate_id,position_id,candidate_name,email,position_title,salary,allowance,
-                    start_date,response_deadline,explanation,band_min,band_max,outside_band,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    start_date,response_deadline,explanation,band_min,band_max,outside_band,created_by,created_at,updated_at,
+                    previous_offer_id,revision_number)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, id, c.applicationId(), c.candidateId(), c.positionId(), c.candidateName(), c.email(), c.positionTitle(), request.salary(), request.allowance(),
             request.startDate(), Timestamp.from(request.responseDeadline()), request.explanation(), band.salaryMin(), band.salaryMax(),
-            outside(request.salary(), band), actor, Timestamp.from(now), Timestamp.from(now));
+            outside(request.salary(), band), actor, Timestamp.from(now), Timestamp.from(now), previous, revision);
     }
     void update(UUID id, OfferAccess.Context c, OfferRequests.Draft request, SalaryBand band, Instant now) {
         jdbc.update("""
@@ -92,13 +101,16 @@ public class OfferRepository {
         UUID id = r.getObject("id", UUID.class);
         String delivery = jdbc.query("SELECT status FROM offer_delivery_outbox WHERE offer_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
             (row, index) -> row.getString(1), id).stream().findFirst().orElse("NOT_QUEUED");
+        UUID replacedBy = jdbc.query("SELECT id FROM offers WHERE previous_offer_id=?",
+            (row, index) -> row.getObject(1, UUID.class), id).stream().findFirst().orElse(null);
         return new OfferView(id, r.getObject("application_id", UUID.class), r.getObject("candidate_id", UUID.class), r.getObject("position_id", UUID.class),
             r.getString("candidate_name"), r.getString("email"), r.getString("position_title"), r.getLong("salary"), r.getLong("allowance"),
             r.getObject("start_date", java.time.LocalDate.class), instant(r, "response_deadline"), r.getString("explanation"), r.getBoolean("outside_band"),
             r.getLong("band_min"), r.getLong("band_max"), r.getString("status"), r.getLong("version"), r.getInt("approval_round"),
             r.getObject("created_by", UUID.class), r.getObject("submitted_by", UUID.class), r.getObject("hr_approver_id", UUID.class),
             r.getObject("higher_approver_id", UUID.class), instant(r, "approved_at"), instant(r, "created_at"), instant(r, "updated_at"), delivery,
-            instant(r, "sent_at"), instant(r, "responded_at"), r.getString("response_note"));
+            instant(r, "sent_at"), instant(r, "responded_at"), r.getString("response_note"), r.getString("decline_reason"),
+            r.getObject("previous_offer_id", UUID.class), r.getInt("revision_number"), replacedBy);
     }
 
     static boolean outside(long salary, SalaryBand band) {

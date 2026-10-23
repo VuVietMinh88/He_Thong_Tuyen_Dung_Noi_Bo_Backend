@@ -400,15 +400,20 @@ public class SecurityConfiguration {
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/offers", "/api/v1/offers/*",
-                                "/api/v1/offers/*/preview", "/api/v1/offers/*/history")
+                                "/api/v1/offers/*/preview", "/api/v1/offers/*/history", "/api/v1/offers/*/negotiations")
                                 .hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/offers/*/talent-pool-suggestion")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/offers/*/approval")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyRole("HR_MANAGER", "APPROVER"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/offers", "/api/v1/offers/*/submit",
-                                "/api/v1/offers/*/cancel", "/api/v1/offers/*/send")
+                                "/api/v1/offers/*/cancel", "/api/v1/offers/*/send",
+                                "/api/v1/offers/*/negotiations", "/api/v1/offers/*/revisions")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER", "RECRUITER"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),

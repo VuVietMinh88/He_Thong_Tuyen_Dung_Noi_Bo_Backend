@@ -13,6 +13,7 @@ import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
 import vn.ttcs.recruitment.offer.OfferAccess;
+import vn.ttcs.recruitment.offer.OfferDeclineReason;
 import vn.ttcs.recruitment.offer.OfferMailPayload;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -117,6 +118,10 @@ public class OfferDeliveryService {
     }
 
     public Response respond(String rawToken, String action, String rawNote) {
+        return respond(rawToken, action, rawNote, null);
+    }
+
+    public Response respond(String rawToken, String action, String rawNote, String rawDeclineReason) {
         settings.requireReady();
         String hash = hash(rawToken);
         String status = switch(action == null ? "" : action) {
@@ -125,6 +130,7 @@ public class OfferDeliveryService {
             default -> throw validation("Vui lòng chọn Chấp nhận hoặc Từ chối.");
         };
         String note = note(rawNote);
+        OfferDeclineReason declineReason = declineReason(status, rawDeclineReason);
         return busy(() -> writes.execute(tx -> {
             timeouts();
             Capability initial = capability(hash, false);
@@ -136,7 +142,8 @@ public class OfferDeliveryService {
             // Authoritative after all blocking parent/offer/token locks.
             validate(token, current, parent, now);
             if (!"SENT".equals(current.status())) {
-                if (status.equals(current.status()) && Objects.equals(note, current.note())) {
+                if (status.equals(current.status()) && Objects.equals(note, current.note())
+                    && Objects.equals(declineReason, current.declineReason())) {
                     return new Response(current.status(), current.respondedAt());
                 }
                 throw conflict("OFFER_ALREADY_RESPONDED", "Bạn đã phản hồi offer này. Vui lòng liên hệ nhà tuyển dụng nếu cần thay đổi.");
@@ -144,14 +151,16 @@ public class OfferDeliveryService {
             String stage = "ACCEPTED".equals(status) ? "HIRED" : "REJECTED";
             if (jdbc.update("UPDATE job_applications SET stage=? WHERE id=? AND stage='OFFER'", stage, current.applicationId()) != 1) throw invalid();
             jdbc.update("""
-                    UPDATE offers SET status=?,responded_at=?,response_note=?,version=version+1,updated_at=? WHERE id=?
-                    """, status, Timestamp.from(now), note, Timestamp.from(now), current.id());
+                    UPDATE offers SET status=?,responded_at=?,response_note=?,decline_reason=?,
+                        version=version+1,updated_at=? WHERE id=?
+                    """, status, Timestamp.from(now), note, declineReason == null ? null : declineReason.name(),
+                Timestamp.from(now), current.id());
             jdbc.update("""
                     INSERT INTO application_stage_events(id,application_id,stage_before,stage_after,actor_type,reason,occurred_at,offer_id)
                     VALUES (?,?,'OFFER',?,'CANDIDATE',?,?,?)
                     """, UUID.randomUUID(), current.applicationId(), stage,
                 "ACCEPTED".equals(status) ? "Ứng viên chấp nhận offer" : "Ứng viên từ chối offer", Timestamp.from(now), current.id());
-            event(current, status, null, null, note, now);
+            responseEvent(current, status, note, declineReason, now);
             outbox.cancelPending(current.id());
             return new Response(status, now);
         }));
@@ -221,7 +230,8 @@ public class OfferDeliveryService {
             r.getObject("id", UUID.class), r.getObject("application_id", UUID.class), r.getObject("candidate_id", UUID.class), r.getObject("position_id", UUID.class),
             r.getString("candidate_name"), r.getString("email"), r.getString("position_title"), r.getLong("salary"), r.getLong("allowance"),
             r.getObject("start_date", LocalDate.class), instant(r, "response_deadline"), r.getString("status"), r.getLong("version"),
-            r.getInt("approval_round"), instant(r, "approved_at"), instant(r, "responded_at"), r.getString("response_note")), id)
+            r.getInt("approval_round"), instant(r, "approved_at"), instant(r, "responded_at"), r.getString("response_note"),
+            OfferDeclineReason.parseOptional(r.getString("decline_reason"))), id)
         .stream().findFirst().orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "OFFER_NOT_FOUND", "Không tìm thấy offer."));
     }
 
@@ -238,6 +248,19 @@ public class OfferDeliveryService {
                 """, UUID.randomUUID(), offer.id(), offer.round(), type, actor, name, Timestamp.from(now), comment);
     }
 
+    private void responseEvent(Offer offer, String status, String note, OfferDeclineReason declineReason, Instant now) {
+        if (!"DECLINED".equals(status)) {
+            event(offer, status, null, null, note, now);
+            return;
+        }
+        // Keep the candidate's complete note; the structured reason is separate immutable evidence.
+        jdbc.update("""
+                INSERT INTO offer_events(id,offer_id,approval_round,event_type,occurred_at,comment,terms_snapshot)
+                VALUES (?,?,?,'DECLINED',?,?,jsonb_build_object('declineReason',CAST(? AS text)))
+                """, UUID.randomUUID(), offer.id(), offer.round(), Timestamp.from(now), note,
+            declineReason == null ? null : declineReason.name());
+    }
+
     private String hash(String token) {
         if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw invalid();
         return tokens.hash(token);
@@ -252,6 +275,18 @@ public class OfferDeliveryService {
         boolean visible = normalized.codePoints().anyMatch(c -> !Character.isWhitespace(c) && !Character.isSpaceChar(c)
             && Character.getType(c) != Character.FORMAT);
         return visible ? normalized : null;
+    }
+
+    private static OfferDeclineReason declineReason(String status, String raw) {
+        if (!"DECLINED".equals(status) && raw != null) {
+            throw validation("Chỉ chọn lý do từ chối khi từ chối offer.");
+        }
+        try {
+            // Missing values remain valid for clients written before structured reasons were introduced.
+            return OfferDeclineReason.parseOptional(raw);
+        } catch (IllegalArgumentException invalidReason) {
+            throw validation("Lý do từ chối phải là SALARY, LOCATION, OTHER_JOB hoặc PERSONAL.");
+        }
     }
 
     private Instant now() {
@@ -301,7 +336,7 @@ public class OfferDeliveryService {
 
     private record Offer(UUID id, UUID applicationId, UUID candidateId, UUID positionId, String candidateName, String email, String positionTitle,
         long salary, long allowance, LocalDate startDate, Instant deadline, String status, long version, int round,
-        Instant approvedAt, Instant respondedAt, String note) {
+        Instant approvedAt, Instant respondedAt, String note, OfferDeclineReason declineReason) {
         @Override public String toString() {
             return "Offer[redacted]";
         }

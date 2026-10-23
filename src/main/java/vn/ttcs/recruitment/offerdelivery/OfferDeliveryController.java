@@ -37,8 +37,9 @@ public class OfferDeliveryController {
     }
     @PostMapping("/api/v1/public/offers/respond")
     public ResponseEntity<OfferDeliveryService.Response> respond(@RequestBody JsonNode body) {
-        fields(body, Set.of("token", "action", "note"));
-        return ok(service.respond(text(body, "token"), text(body, "action"), text(body, "note")));
+        fields(body, Set.of("token", "action", "note", "declineReason"));
+        return ok(service.respond(text(body, "token"), text(body, "action"), text(body, "note"),
+            text(body, "declineReason")));
     }
     @GetMapping(value = "/api/v1/public/offers/reply", produces = "text/html;charset=UTF-8")
     public ResponseEntity<String> page() {

@@ -32,7 +32,7 @@ Mọi API nội bộ dùng Bearer access token, trả `Cache-Control: no-store`.
 - Hai biên của dải được tính là trong dải. Lương thấp hơn hoặc cao hơn dải đều cần `explanation` có nội dung, tối đa 2000 ký tự văn bản thuần.
 - Ngày nhận việc không ở quá khứ; hạn phản hồi phải ở tương lai và không sau ngày nhận việc theo múi giờ nghiệp vụ.
 - Hồ sơ phải đang `OFFER`, yêu cầu tuyển dụng `APPROVED`, chức danh đang hoạt động.
-- Mỗi ứng viên chỉ có một offer còn hiệu lực trên **tất cả hồ sơ ứng tuyển**. `DRAFT`, `CHANGES_REQUESTED`, `PENDING_HR`, `PENDING_HIGHER`, `APPROVED`, `SENT`, `ACCEPTED` giữ chỗ này. `REJECTED`, `DECLINED`, `EXPIRED`, `CANCELLED` giải phóng chỗ. Offer đã chấp nhận vẫn hiệu lực; chưa có nghiệp vụ thu hồi quyết định nhận việc.
+- Mỗi ứng viên chỉ có một offer còn hiệu lực trên **tất cả hồ sơ ứng tuyển**. `DRAFT`, `CHANGES_REQUESTED`, `PENDING_HR`, `PENDING_HIGHER`, `APPROVED`, `SENT`, `ACCEPTED` giữ chỗ này. `REJECTED`, `DECLINED`, `EXPIRED`, `CANCELLED`, `SUPERSEDED` giải phóng chỗ. Offer đã chấp nhận vẫn hiệu lực; chưa có nghiệp vụ thu hồi quyết định nhận việc. Xem [thương lượng và thay thế offer](offer-negotiation.md).
 
 Response gồm ID offer/hồ sơ/ứng viên/chức danh, tên/email nhận, tên chức danh, điều kiện trên, `outsideBand`, `status`, `version`, `approvalRound`, người tạo/trình/người duyệt và các mốc thời gian. Có thêm `deliveryStatus`, `sentAt`, `respondedAt`, `responseNote` phục vụ phần gửi/phản hồi. Trường không có giá trị được bỏ khỏi JSON. `SENT` nghĩa là đã xếp email vào hàng đợi; dùng `deliveryStatus` để biết trạng thái giao email.
 
