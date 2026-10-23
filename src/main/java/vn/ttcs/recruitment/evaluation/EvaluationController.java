@@ -34,5 +34,14 @@ public class EvaluationController {
     public ResponseEntity<EvaluationView> submit(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
             @Valid @RequestBody EvaluationSaveRequest request) { return ok(service.save(jwt, id, request, true)); }
 
+    @PostMapping("/api/v1/interviews/{id}/evaluations/{formId}/reopen")
+    public ResponseEntity<EvaluationReopenView> reopen(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @PathVariable UUID formId, @Valid @RequestBody EvaluationReopenRequest request) {
+        return ok(service.reopen(jwt, id, formId, request));
+    }
+
+    @GetMapping("/api/v1/interviews/{id}/evaluations/{formId}/status")
+    public ResponseEntity<EvaluationReopenView> status(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @PathVariable UUID formId) { return ok(service.status(jwt, id, formId)); }
     private static <T> ResponseEntity<T> ok(T body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
 }
