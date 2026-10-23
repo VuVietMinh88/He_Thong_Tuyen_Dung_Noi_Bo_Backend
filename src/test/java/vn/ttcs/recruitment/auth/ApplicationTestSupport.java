@@ -58,15 +58,19 @@ final class ApplicationTestSupport {
         this.port = port;
     }
 
-    // An application as a candidate knows it: its id (for SQL only) and the tracking code it received.
-    record Stored(UUID applicationId, String trackingCode) {
+    // An application as a candidate knows it: its id (for SQL only) and the tracking code it received; from task 360
+    // also the candidate profile it was linked to (for SQL only).
+    record Stored(UUID applicationId, String trackingCode, UUID candidateId) {
         @Override public String toString() { return "Stored[" + applicationId + ", tracking code redacted]"; }
     }
 
     // Every application table, children first, then both quotas. Call it before JobPostingTestSupport.reset() or
     // ApprovalTestSupport.reset(): they delete postings, requisitions and accounts but not applications, and the
-    // applications' RESTRICT keys would make them fail.
+    // applications' RESTRICT keys would make them fail. The candidate profiles (task 360) go first: a profile with a
+    // link cannot be deleted, and nothing else deletes a profile.
     void reset() {
+        jdbc.update("DELETE FROM candidate_applications");
+        jdbc.update("DELETE FROM candidates");
         jdbc.update("DELETE FROM application_email_outbox");
         jdbc.update("DELETE FROM application_cvs");
         jdbc.update("DELETE FROM job_applications");
@@ -121,7 +125,7 @@ final class ApplicationTestSupport {
         try {
             String code = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(token);
             var saved = storage.store(posting, submission, cv, MessageDigest.getInstance("SHA-256").digest(token));
-            return new Stored(saved.id(), code);
+            return new Stored(saved.id(), code, candidateOf(saved.id()));
         } catch (java.security.NoSuchAlgorithmException exception) {
             throw new IllegalStateException(exception);
         } finally {
@@ -158,6 +162,12 @@ final class ApplicationTestSupport {
         } catch (java.io.IOException exception) {
             throw new IllegalStateException(exception);
         }
+    }
+
+    // The candidate profile an application is linked to (task 360, V32).
+    UUID candidateOf(UUID application) {
+        return jdbc.queryForObject("SELECT candidate_id FROM candidate_applications WHERE application_id = ?", UUID.class,
+                application);
     }
 
     UUID requisitionOf(UUID posting) {

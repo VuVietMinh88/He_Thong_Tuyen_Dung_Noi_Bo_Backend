@@ -86,7 +86,7 @@ Các consumer mới phải dùng hợp đồng này khi triển khai. Không dù
 
 ## Cấu hình, schema và ranh giới
 
-- Migration dùng chung V60 tạo application_confirmed_contacts và application_contact_history; không sửa V26/V59.
+- Migration dùng chung V68_1 tạo application_confirmed_contacts và application_contact_history; không sửa migration hồ sơ ứng tuyển và V68.
 - `CV_CONTACT_CONFIRMATION_ENABLED=false` mặc định: PUT503, GET/history vẫn đọc dữ liệu sẵn có.
   Flag độc lập CV_EXTRACTION_ENABLED và APPLICATION_INTAKE_ENABLED.
 - Intake không gọi trích CV, confirmed-contact hoặc resolver. Worker/queue/contact table lỗi không làm hỏng nộp.
