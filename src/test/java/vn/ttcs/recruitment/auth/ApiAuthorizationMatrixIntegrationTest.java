@@ -117,6 +117,7 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/interviews/me", anyOf(INTERVIEWS_READ_ALL, INTERVIEWS_READ_SCOPED), null, 200),
             endpoint("POST", "/api/v1/interviews/conflicts", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             // Bulk validates the empty request before checking invitation readiness or creating any appointment.
+            endpoint("POST", "/api/v1/interviews/bulk/preview", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),
             // All seeded interview readers also hold candidate read; the service intersects their scopes.
             // Invitation delivery/public token access are opt-in and remain disabled in this authorization fixture.
             endpoint("PUT", "/api/v1/interviews/{id}", anyOf(INTERVIEWS_WRITE_ALL, INTERVIEWS_WRITE_SCOPED), INVALID_BODY, 400),

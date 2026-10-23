@@ -10,6 +10,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
@@ -27,12 +28,19 @@ import vn.ttcs.recruitment.security.PermissionModule;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.text.Normalizer;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -53,14 +61,18 @@ public class InterviewService {
     private final CandidateAccess candidates;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final InterviewNotifications notifications;
+    private final ObjectMapper json;
     private final TransactionTemplate reads;
     private final TransactionTemplate writes;
 
     public InterviewService(InterviewRepository data, AuthService auth, AccountRepository accounts,
             AuthSessionRepository sessions, PermissionService permissions, CandidateAccess candidates,
-            JdbcTemplate jdbc, Clock clock, PlatformTransactionManager transactions) {
+            JdbcTemplate jdbc, Clock clock, PlatformTransactionManager transactions,
+            InterviewNotifications notifications, ObjectMapper json) {
         this.data = data; this.auth = auth; this.accounts = accounts; this.sessions = sessions;
         this.permissions = permissions; this.candidates = candidates; this.jdbc = jdbc; this.clock = clock;
+        this.notifications = notifications; this.json = json;
         reads = new TransactionTemplate(transactions);
         reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         writes = new TransactionTemplate(transactions);
@@ -118,8 +130,32 @@ public class InterviewService {
             InterviewView result = data.find(id).orElseThrow();
             data.event(result, "INTERVIEW_SCHEDULED", writer.account().getId(), now, null, override,
                     override ? request.overrideReason() : null);
+            notifications.scheduled(result);
             audit(jwt, candidate(jwt, applicationId, true), true);
             return result;
+        });
+    }
+
+    /** Send an existing appointment's first invitation, or replace an expired one; valid retries do not resend. */
+    public void invite(Jwt jwt, UUID id, long expectedVersion) {
+        write(() -> {
+            Writer writer = lockWriter(jwt, List.of());
+            notifications.requireReady();
+            UUID application = applicationOf(id);
+            lockApplication(jwt, writer, application);
+            InterviewView current = data.lock(id).orElseThrow(InterviewService::notFound);
+            freshScope(jwt, writer, application);
+            editable(current, expectedVersion);
+            if (!current.startsAt().isAfter(now())) {
+                throw conflict("INTERVIEW_ALREADY_STARTED", "Không thể gửi lời mời cho lịch phỏng vấn đã bắt đầu.");
+            }
+            Boolean existing = jdbc.queryForObject("""
+                    SELECT EXISTS (SELECT 1 FROM interview_invitations WHERE interview_id=?
+                        AND schedule_version=? AND revoked_at IS NULL AND expires_at>?)
+                    """, Boolean.class, id, current.version(), java.sql.Timestamp.from(now()));
+            if (!Boolean.TRUE.equals(existing)) notifications.scheduled(current);
+            audit(jwt, candidate(jwt, application, true), true);
+            return Boolean.TRUE;
         });
     }
 
@@ -145,6 +181,7 @@ public class InterviewService {
             InterviewView result = data.find(id).orElseThrow();
             data.event(result, "INTERVIEW_RESCHEDULED", writer.account().getId(), now, null, override,
                     override ? request.overrideReason() : null);
+            notifications.changed(current, result);
             audit(jwt, candidate(jwt, application, true), true);
             return result;
         });
@@ -167,6 +204,7 @@ public class InterviewService {
             data.cancel(id, now);
             InterviewView result = data.find(id).orElseThrow();
             data.event(result, "INTERVIEW_CANCELLED", writer.account().getId(), now, reason, false, null);
+            notifications.cancelled(current, result, reason);
             audit(jwt, candidate(jwt, application, true), true);
             return result;
         });
@@ -185,6 +223,155 @@ public class InterviewService {
             // Preview is advisory. Saving repeats this query under the global transaction lock.
             return data.conflicts(raw.interviewId(), request.startsAt(), end(request), request.participantIds(), roomKey(request));
         });
+    }
+
+    public InterviewBulkPreview previewBulk(Jwt jwt, InterviewBulkRequest raw) {
+        BulkPlan plan = bulkPlan(raw);
+        return write(() -> {
+            Writer writer = lockWriter(jwt, plan.request().participantIds());
+            notifications.requireReady();
+            lockApplications(jwt, writer, plan.request().applicationIds(), true);
+            data.serializeConflictCheck();
+            refreshBulk(jwt, writer, plan.request().applicationIds());
+            eligible(writer, plan.request().participantIds());
+            List<InterviewBulkPreview.Slot> slots = previewSlots(writer, plan, now());
+            for (UUID application : plan.request().applicationIds()) audit(jwt, candidate(jwt, application, true), true);
+            boolean canCreate = Boolean.TRUE.equals(plan.request().overrideConflicts())
+                    || slots.stream().allMatch(slot -> slot.conflicts().isEmpty());
+            return new InterviewBulkPreview(canCreate, slots);
+        });
+    }
+
+    public InterviewBulkResult createBulk(Jwt jwt, InterviewBulkRequest raw) {
+        BulkPlan plan = bulkPlan(raw);
+        String hash = hash(json.writeValueAsString(plan.request()));
+        return write(() -> {
+            Writer writer = lockWriter(jwt, plan.request().participantIds());
+            // The caller's locked account serializes retries from all of that caller's sessions.
+            var previous = data.bulkRequest(writer.account().getId(), plan.request().requestId());
+            if (previous.isPresent()) {
+                if (!previous.get().requestHash().equals(hash)) {
+                    throw conflict("INTERVIEW_BULK_REQUEST_CHANGED", "Mã yêu cầu đã dùng cho dữ liệu khác. Hãy tạo mã mới.");
+                }
+                // Replaying an earlier success must not require its slots still to be in the future.
+                // Current authorization still applies before returning any saved appointment details.
+                lockApplications(jwt, writer, plan.request().applicationIds(), false);
+                refreshBulk(jwt, writer, plan.request().applicationIds());
+                for (UUID application : plan.request().applicationIds()) audit(jwt, candidate(jwt, application, true), true);
+                return json.readValue(previous.get().responseJson(), InterviewBulkResult.class);
+            }
+            notifications.requireReady();
+            lockApplications(jwt, writer, plan.request().applicationIds(), true);
+            data.serializeConflictCheck();
+            refreshBulk(jwt, writer, plan.request().applicationIds());
+            eligible(writer, plan.request().participantIds());
+            Instant now = now();
+            List<InterviewBulkPreview.Slot> slots = previewSlots(writer, plan, now);
+            // Validate every slot before creating any appointment or queuing any invitation.
+            for (int i = 0; i < slots.size(); i++) override(writer, plan.schedules().get(i), slots.get(i).conflicts());
+            List<InterviewView> created = new ArrayList<>();
+            for (int i = 0; i < slots.size(); i++) {
+                var slot = slots.get(i);
+                var request = plan.schedules().get(i);
+                UUID id = UUID.randomUUID();
+                data.insert(id, slot.applicationId(), request, roomKey(request), writer.account().getId(), now, slot.endsAt());
+                InterviewView view = data.find(id).orElseThrow();
+                boolean overridden = !slot.conflicts().isEmpty();
+                data.event(view, "INTERVIEW_SCHEDULED", writer.account().getId(), now, null, overridden,
+                        overridden ? request.overrideReason() : null);
+                notifications.scheduled(view);
+                audit(jwt, candidate(jwt, slot.applicationId(), true), true);
+                created.add(view);
+            }
+            InterviewBulkResult result = new InterviewBulkResult(plan.request().requestId(), List.copyOf(created));
+            data.rememberBulk(writer.account().getId(), result.requestId(), hash, json.writeValueAsString(result), now);
+            return result;
+        });
+    }
+
+    private record BulkPlan(InterviewBulkRequest request, List<InterviewScheduleRequest> schedules) { }
+
+    private static BulkPlan bulkPlan(InterviewBulkRequest raw) {
+        if (raw.requestId() == null) throw invalid("requestId", "Cần mã UUID để thử lại mà không đặt lịch trùng.");
+        if (raw.applicationIds() == null || raw.applicationIds().isEmpty() || raw.applicationIds().size() > 50
+                || raw.applicationIds().stream().anyMatch(Objects::isNull)
+                || new HashSet<>(raw.applicationIds()).size() != raw.applicationIds().size()) {
+            throw invalid("applicationIds", "Chọn từ 1 đến 50 hồ sơ, không trùng, theo thứ tự phỏng vấn.");
+        }
+        var first = normalized(new InterviewScheduleRequest(raw.roundName(), raw.windowStart(), raw.durationMinutes(),
+                raw.mode(), raw.room(), raw.meetingUrl(), raw.participantIds(), null, raw.overrideConflicts(),
+                raw.overrideReason(), raw.preparationInstructions()));
+        if (raw.windowEnd() == null) throw invalid("windowEnd", "Cần giờ kết thúc khung phỏng vấn.");
+        Instant windowEnd = raw.windowEnd().truncatedTo(ChronoUnit.MICROS);
+        Duration window = Duration.between(first.startsAt(), windowEnd);
+        if (window.isNegative() || window.isZero() || window.compareTo(Duration.ofHours(24)) > 0) {
+            throw invalid("windowEnd", "Khung phỏng vấn phải lớn hơn 0 và không quá 24 giờ.");
+        }
+        long totalMinutes = (long) first.durationMinutes() * raw.applicationIds().size();
+        if (window.compareTo(Duration.ofMinutes(totalMinutes)) < 0) {
+            throw invalid("windowEnd", "Khung giờ không đủ cho tất cả hồ sơ theo thời lượng đã chọn.");
+        }
+        List<InterviewScheduleRequest> schedules = new ArrayList<>();
+        for (int i = 0; i < raw.applicationIds().size(); i++) {
+            Instant start;
+            try { start = first.startsAt().plusSeconds((long) i * first.durationMinutes() * 60); }
+            catch (RuntimeException failure) { throw invalid("windowStart", "Thời gian nằm ngoài phạm vi hỗ trợ."); }
+            schedules.add(new InterviewScheduleRequest(first.roundName(), start, first.durationMinutes(), first.mode(),
+                    first.room(), first.meetingUrl(), first.participantIds(), null, first.overrideConflicts(),
+                    first.overrideReason(), first.preparationInstructions()));
+        }
+        var normalized = new InterviewBulkRequest(raw.requestId(), List.copyOf(raw.applicationIds()), first.roundName(),
+                first.startsAt(), windowEnd, first.durationMinutes(), first.mode(), first.room(), first.meetingUrl(),
+                first.participantIds(), Boolean.TRUE.equals(first.overrideConflicts()), first.overrideReason(),
+                first.preparationInstructions());
+        return new BulkPlan(normalized, List.copyOf(schedules));
+    }
+
+    private void lockApplications(Jwt jwt, Writer writer, List<UUID> applicationIds, boolean requireActive) {
+        Map<UUID, UUID> requisitions = new HashMap<>();
+        for (UUID application : applicationIds) {
+            UUID requisition = data.requisitionOf(application);
+            if (requisition == null) throw applicationNotFound();
+            requisitions.put(application, requisition);
+        }
+        Map<UUID, String> statuses = new HashMap<>();
+        // Lock all parents first: input order must never invert another batch's resource order.
+        for (UUID requisition : requisitions.values().stream().distinct().sorted().toList()) {
+            statuses.put(requisition, data.lockRequisition(requisition));
+            fresh(jwt, writer);
+        }
+        for (UUID application : applicationIds.stream().sorted().toList()) {
+            String stage = data.lockApplication(application);
+            freshScope(jwt, writer, application);
+            if (stage == null) throw applicationNotFound();
+            if (requireActive && (!"APPROVED".equals(statuses.get(requisitions.get(application)))
+                    || Set.of("REJECTED", "WITHDRAWN", "HIRED").contains(stage))) {
+                throw conflict("INTERVIEW_APPLICATION_INACTIVE", "Hồ sơ hoặc yêu cầu tuyển dụng đã ngừng xử lý.");
+            }
+        }
+    }
+
+    private void refreshBulk(Jwt jwt, Writer writer, List<UUID> applications) {
+        for (UUID application : applications) freshScope(jwt, writer, application);
+    }
+
+    private List<InterviewBulkPreview.Slot> previewSlots(Writer writer, BulkPlan plan, Instant now) {
+        List<InterviewBulkPreview.Slot> slots = new ArrayList<>();
+        for (int i = 0; i < plan.schedules().size(); i++) {
+            var schedule = plan.schedules().get(i);
+            future(schedule, now);
+            // Validate explicit override authority even when this advisory preview has no conflicts.
+            override(writer, schedule, List.of());
+            Instant end = end(schedule);
+            slots.add(new InterviewBulkPreview.Slot(plan.request().applicationIds().get(i), schedule.startsAt(), end,
+                    data.conflicts(null, schedule.startsAt(), end, schedule.participantIds(), roomKey(schedule))));
+        }
+        return List.copyOf(slots);
+    }
+
+    private static String hash(String payload) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(payload.getBytes(StandardCharsets.UTF_8))); }
+        catch (NoSuchAlgorithmException failure) { throw new IllegalStateException("SHA-256 is required by the JVM", failure); }
     }
 
     private Account reader(Jwt jwt) {
