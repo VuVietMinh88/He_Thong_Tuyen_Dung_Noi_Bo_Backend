@@ -1,12 +1,12 @@
 # Hồ sơ ứng viên hợp nhất
 
-Phạm vi TKNHTTDNB1-360 (một hồ sơ ứng viên liên kết mọi lần ứng tuyển của cùng một người), story TKNHTTDNB1-48 (S4-09): một trang gồm thông tin cá nhân, CV xem trước ngay trong trang, lịch sử ứng tuyển các vị trí, nhãn và ghi chú; hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này; chỉ recruiter phụ trách và hiring manager của vị trí đó mở được. Task 360 chỉ thêm phần dữ liệu (migration V32 và việc liên kết khi lưu hồ sơ). Task 363 thêm quy tắc ai được xem và nhật ký truy cập (migration V33, V33_1), vẫn **chưa có API đọc**: API hồ sơ và lịch sử ứng tuyển là task 361, xem CV là task 362.
+Phạm vi TKNHTTDNB1-360 (một hồ sơ ứng viên liên kết mọi lần ứng tuyển của cùng một người), story TKNHTTDNB1-48 (S4-09): một trang gồm thông tin cá nhân, CV xem trước ngay trong trang, lịch sử ứng tuyển các vị trí, nhãn và ghi chú; hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này; chỉ recruiter phụ trách và hiring manager của vị trí đó mở được. Task 360 chỉ thêm phần dữ liệu (migration V32 và việc liên kết khi lưu hồ sơ). Task 363 thêm quy tắc ai được xem và nhật ký truy cập (migration V33, V33_1). Task 361 thêm API đọc đầu tiên, hồ sơ và lịch sử ứng tuyển `GET /api/v1/candidates/{id}/unified-profile` (không migration); xem CV là task 362.
 
 Tiêu chí của story S4-09:
 
-- "Hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này": phần dữ liệu đã có (360). Mỗi lần ứng tuyển được gắn với đúng một hồ sơ ứng viên theo email đã chuẩn hóa; API hiển thị là task 361.
-- "Một trang gồm thông tin cá nhân, CV xem trước…": chưa có (361, 362).
-- "Chỉ recruiter phụ trách và hiring manager của vị trí đó mở được": quy tắc và nhật ký đã có (363), các API 361, 362 sẽ dùng. **Chưa đạt với HR_MANAGER và ADMIN** (giữ `CANDIDATES_READ_ALL`, câu hỏi 6 và 25 ý 4), xem [Ai được xem](#ai-được-xem-task-363).
+- "Hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này": đã có. Mỗi lần ứng tuyển được gắn với đúng một hồ sơ ứng viên theo email đã chuẩn hóa (360); API hồ sơ (361) trả mọi lần ứng tuyển **người xem được đọc**, mới nhất trước. Lần ứng tuyển ngoài phạm vi người xem không hiện gì (câu hỏi 25, ý 7), xem [API hồ sơ và lịch sử](#api-hồ-sơ-và-lịch-sử-task-361).
+- "Một trang gồm thông tin cá nhân, CV xem trước…, lịch sử ứng tuyển các vị trí, nhãn và ghi chú": thông tin cá nhân (theo từng lần ứng tuyển) và lịch sử ứng tuyển có từ task 361, cùng tên tệp, loại và dung lượng CV; nội dung CV để xem trước là task 362; nhãn và ghi chú luôn rỗng tới S5-04.
+- "Chỉ recruiter phụ trách và hiring manager của vị trí đó mở được": quy tắc và nhật ký đã có (363); API hồ sơ (361) dùng, API CV (362) sẽ dùng. **Chưa đạt với HR_MANAGER và ADMIN** (giữ `CANDIDATES_READ_ALL`, câu hỏi 6 và 25 ý 4), xem [Ai được xem](#ai-được-xem-task-363).
 
 ## Hồ sơ ứng viên hợp nhất (task 360)
 
@@ -64,7 +64,7 @@ Liên kết là một bảng riêng chứ không phải một cột trên `job_a
 
 ### Chưa làm
 
-- API đọc hồ sơ ứng viên, lịch sử ứng tuyển và CV: task 361, 362 (quyền xem và nhật ký truy cập đã có từ task 363).
+- API xem CV: task 362 (API hồ sơ và lịch sử ứng tuyển có từ task 361; quyền xem và nhật ký truy cập từ task 363).
 - Gộp hồ sơ ứng viên theo số điện thoại hoặc gộp tay, so sánh cạnh nhau, hoàn tác trong 24 giờ: S5-01.
 - Xác minh email trước khi gộp (câu hỏi 25, ý 1).
 - Xóa hồ sơ ứng viên theo yêu cầu của chính ứng viên (câu hỏi 25, ý 3).
@@ -72,7 +72,7 @@ Liên kết là một bảng riêng chứ không phải một cột trên `job_a
 
 ## Ai được xem (task 363)
 
-Task 363 thêm quy tắc ai được đọc hồ sơ ứng viên và CV, cùng nhật ký mọi lần đọc. Chưa có API nào dùng: API hồ sơ (361) và CV (362) là nơi đầu tiên gọi. Quy tắc nằm ở một chỗ, `vn.ttcs.recruitment.candidate.CandidateAccess`; không thêm mã quyền, không thêm route.
+Task 363 thêm quy tắc ai được đọc hồ sơ ứng viên và CV, cùng nhật ký mọi lần đọc. API hồ sơ (task 361) là nơi đầu tiên dùng; API CV (task 362) sẽ dùng. Quy tắc nằm ở một chỗ, `vn.ttcs.recruitment.candidate.CandidateAccess`; không thêm mã quyền, không thêm route.
 
 ### Quy tắc
 
@@ -87,7 +87,7 @@ Quyết định theo **mã quyền**, không theo tên vai trò:
 - Người tạo yêu cầu tuyển dụng không được tính. Lịch sử phân công (V17) cũng không: sau khi bàn giao, chỉ recruiter mới đọc được; recruiter hỗ trợ bị bỏ thì mất quyền ngay.
 - "Hiring manager của vị trí đó" được hiểu là trưởng phòng ban của yêu cầu tuyển dụng, hoặc trưởng một phòng ban cấp trên (cùng quy tắc cây phòng ban với `REQUISITIONS_*_SCOPED`).
 - Interviewer chưa có vòng phỏng vấn (S6) nên chưa đọc được gì, trừ khi đồng thời là recruiter được phân công hoặc trưởng phòng ban, vì quy tắc theo mã quyền.
-- Quyền tính theo **từng lần ứng tuyển**: một người nộp vào nhiều yêu cầu thì người đọc `SCOPED` chỉ được đọc các lần thuộc phạm vi của mình (API 361 quyết định phần hiển thị).
+- Quyền tính theo **từng lần ứng tuyển**: một người nộp vào nhiều yêu cầu thì người đọc `SCOPED` chỉ được đọc các lần thuộc phạm vi của mình (API hồ sơ của task 361 chỉ trả các lần đó).
 - Một đoạn SQL duy nhất `CandidateAccess.READABLE` dùng cho cả danh sách và một bản ghi (`findApplication`), nên hai nơi không thể trả lời khác nhau. Quyền được đọc lại từ database ở mỗi lần gọi: gỡ một dòng `role_permissions` có hiệu lực ngay ở lần gọi sau.
 
 ### Approver (V33_1)
@@ -142,6 +142,105 @@ access.recordDenied(reader, CandidateAccessKind.CV, candidateId, applicationId);
 - CHECK: lần được phép và mọi lần đọc CV phải có `application_id`; lần bị từ chối luôn có phạm vi `SCOPED` (người có `CANDIDATES_READ_ALL` không bao giờ bị từ chối). Chỉ mục theo `(candidate_id, occurred_at)` và `(actor_id, occurred_at)`.
 - Chưa có API đọc nhật ký, chưa có thời hạn lưu và chưa định ai được xem (câu hỏi 25, ý 6).
 
+## API hồ sơ và lịch sử (task 361)
+
+`GET /api/v1/candidates/{id}/unified-profile` (Bearer), đúng đường dẫn frontend đang gọi (`candidateProfileService`). `{id}` là id hồ sơ ứng viên (`candidates.id`, task 360). Mọi response, kể cả lỗi, có `Cache-Control: no-store`. Không thêm mã quyền và không có migration. `GET /api/v1/candidates/{id}` không tồn tại (để dành cho một tài nguyên sau này); các route ghi chú, nhãn, chấm sao của frontend thuộc S5-04 và bị từ chối mặc định.
+
+### Thứ tự kiểm và lỗi
+
+| Trường hợp | Kết quả | Nhật ký |
+|---|---|---|
+| Không có token, token hết hạn, phiên bị thu hồi, tài khoản bị khóa | 401 `UNAUTHORIZED` | không |
+| Không có `CANDIDATES_READ_ALL` hay `CANDIDATES_READ_SCOPED` (matcher, rồi `requireReader` đọc lại quyền từ database) | 403 `FORBIDDEN`, với mọi id, có thật hay không | không |
+| `{id}` không phải UUID | 400 `VALIDATION_ERROR` "Tham số đường dẫn hoặc bộ lọc không hợp lệ." | không |
+| Hồ sơ không tồn tại, hoặc không còn lần ứng tuyển nào | 404 `CANDIDATE_NOT_FOUND` "Không tìm thấy hồ sơ ứng viên." | không |
+| Có hồ sơ nhưng không có lần ứng tuyển nào trong phạm vi người gọi | 403 `FORBIDDEN` | một dòng `DENIED` `PROFILE`, không có `application_id`, ghi sau khi transaction đọc đã kết thúc |
+| Được phép | 200 | một dòng `GRANTED` `PROFILE` cho **mỗi** lần ứng tuyển được trả, trong chính transaction đọc |
+
+Bước 404 đứng trước bước phạm vi và chỉ phụ thuộc bản ghi, nên mọi người có quyền đọc ứng viên nhận cùng một câu trả lời cho một id không tồn tại. Phần đọc chạy trong một transaction REPEATABLE READ (read-write chỉ vì ghi nhật ký): kiểm tồn tại, phạm vi (nhóm recruiter, cây phòng ban) và các dòng trả về dùng cùng một snapshot; không khóa gì. `CandidateProfileService` không tự mở transaction bằng annotation: transaction đọc là một `TransactionTemplate`, nên dòng `DENIED` được ghi sau khi nó đã kết thúc và một request không bao giờ giữ hai kết nối database.
+
+### Response 200
+
+```json
+{"id":"6f1c…","fullName":"Nguyễn Văn A","email":"NguyenVanA@Example.com","phone":"0912345678","contactMismatch":false,
+ "currentApplicationId":"a1b2…","createdAt":"2026-03-02T02:00:00Z","updatedAt":"2026-10-15T03:00:00Z",
+ "tags":[],"notes":[],
+ "applications":[
+  {"id":"a1b2…","isCurrent":true,"jobPostingId":"…","jobTitle":"Lập trình viên Java",
+   "departmentName":"Phòng CNTT","appliedAt":"2026-10-15T03:00:00Z","stage":"NEW","stageName":"Hồ sơ mới",
+   "fullName":"Nguyễn Văn A","email":"NguyenVanA@Example.com","phone":"0912345678",
+   "source":{"type":"CAREER_PAGE","label":"Trang tuyển dụng","details":"LinkedIn"},
+   "recruiterId":"…","recruiterName":"Trần Thị B","hiringManagerId":"…","hiringManagerName":"Phạm Văn C",
+   "coverLetter":"…","cvFileName":"CV Nguyễn Văn A.pdf","cvFileType":"pdf","cvFileSize":12345}]}
+```
+
+Phần đầu hồ sơ:
+
+| Trường | Ý nghĩa |
+|---|---|
+| `id` | id hồ sơ ứng viên |
+| `fullName`, `phone` | họ tên và số điện thoại **chung** của mọi lần ứng tuyển được trả; `null` khi chúng không giống hệt nhau |
+| `contactMismatch` | `true` khi các lần ứng tuyển được trả có họ tên hoặc số điện thoại khác nhau |
+| `email` | email (đúng như đã gõ) của lần ứng tuyển mới nhất được trả; mọi lần có cùng email chuẩn hóa, email chuẩn hóa không bao giờ được trả |
+| `currentApplicationId` | lần ứng tuyển mới nhất được trả (`received_at`, rồi `id`) |
+| `createdAt`, `updatedAt` | `appliedAt` sớm nhất và mới nhất **trong các lần được trả**; không dùng `candidates.created_at`, vì nó có thể là ngày của một lần ngoài phạm vi |
+| `tags`, `notes` | luôn `[]` tới S5-04 |
+| `applications` | các lần ứng tuyển người gọi được đọc, mới nhất trước; không bao giờ rỗng (rỗng thì đã trả 403) |
+
+Mỗi lần ứng tuyển (khóa không có giá trị thì bị bỏ, không gửi `null`):
+
+| Trường | Ý nghĩa |
+|---|---|
+| `id`, `isCurrent` | id lần ứng tuyển; `true` chỉ cho lần mới nhất |
+| `jobPostingId`, `jobTitle` | tin tuyển dụng và **tên vị trí lúc nộp** (bản chụp `posting_title`; đổi tên tin sau đó không đổi giá trị này) |
+| `departmentName` | tên **hiện tại** của phòng ban của yêu cầu tuyển dụng |
+| `appliedAt` | thời điểm nhận hồ sơ |
+| `stage`, `stageName` | giai đoạn nội bộ (`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`, `HIRED`, `REJECTED`, `WITHDRAWN`) và nhãn tiếng Việt của nó (`ApplicationStage`) |
+| `fullName`, `email`, `phone` | bản chụp của chính lần ứng tuyển đó, như người nộp đã nhập |
+| `source` | `{type: "CAREER_PAGE", label: "Trang tuyển dụng", details}`; `details` là tên giá trị danh mục "Nguồn biết tin" người nộp đã chọn, bỏ khi không chọn. Giới thiệu nội bộ (task 350) sẽ thêm `INTERNAL_REFERRAL` |
+| `recruiterId`, `recruiterName` | recruiter **chính** hiện tại của yêu cầu (chỉ id và họ tên); bỏ khi yêu cầu chưa có recruiter chính. Recruiter hỗ trợ không bao giờ hiện ở đây |
+| `hiringManagerId`, `hiringManagerName` | trưởng trực tiếp của phòng ban của yêu cầu (chỉ id và họ tên) |
+| `coverLetter` | thư giới thiệu; bỏ khi không có |
+| `cvFileName`, `cvFileType`, `cvFileSize` | tên tệp lúc tải lên, `pdf` hoặc `docx` theo loại đã lưu (không theo đuôi tên tệp), dung lượng theo byte. Chỉ là thông tin của tệp: nội dung CV xem ở API của task 362 |
+
+Không bao giờ trả: đường dẫn tệp CV (`cvFileUrl`), nội dung hay mã băm CV, mã tra cứu hay mã băm của nó, `requisitionId`, email chuẩn hóa, email của bất kỳ nhân viên nào, mã ứng viên (`candidateCode`), chấm sao (`rating`), chức danh hiện tại, số năm kinh nghiệm.
+
+Hồ sơ của yêu cầu đã tuyển đủ, đã hủy hay tạm dừng, và của tin đã đóng, gỡ hay hết hạn vẫn được liệt kê: lịch sử ứng tuyển không phụ thuộc trạng thái yêu cầu hay tin.
+
+### Chỉ các lần ứng tuyển người xem được đọc
+
+Danh sách được lọc **trong SQL** bằng `CandidateAccess.READABLE` (`CandidateProfileRepository`), cùng đoạn điều kiện với `findApplication`. Một lần ứng tuyển ngoài phạm vi không thêm gì vào response: không id, không vị trí, không ngày, không giai đoạn, không phòng ban, không người phụ trách, và không làm thay đổi số phần tử hay `createdAt`/`updatedAt`. Ví dụ: chị Lan nộp vào "Kế toán" (tháng 3), "Lập trình viên Java" (tháng 6), "Kiểm thử" (tháng 10); recruiter của vị trí Java chỉ thấy lần nộp tháng 6, với `createdAt` = `updatedAt` = ngày đó; HR_MANAGER thấy cả ba.
+
+Lý do: nếu hiện "tóm tắt" các lần khác, mọi người đọc theo phạm vi sẽ thấy quyết định của nhóm khác (bị loại, đang offer). Và vì email không được xác minh, một recruiter có thể tự nộp một hồ sơ công khai bằng email của người khác vào tin mình phụ trách để mở phạm vi đó; với quy tắc này, recruiter đó chỉ thấy đúng hồ sơ mình đã nộp. Có hiện thêm vị trí, ngày và giai đoạn của các lần khác hay không là câu hỏi 25 (ý 7) và 19 (ý 8) cho BA/PO.
+
+### Thông tin liên hệ theo từng lần ứng tuyển
+
+Mỗi lần ứng tuyển giữ họ tên, email và số điện thoại của chính nó. Phần đầu hồ sơ chỉ hiện `fullName` và `phone` khi mọi lần ứng tuyển được trả có **cùng** họ tên và **cùng** số điện thoại (so đúng từng ký tự); chỉ cần một khác biệt thì cả hai là `null` và `contactMismatch` là `true`. Không bao giờ lấy họ tên hay số điện thoại của lần nộp mới nhất làm thông tin của người đó, vì ai biết email cũng nộp được một hồ sơ với tên và số điện thoại khác (mục "Email không được xác minh"); HR gọi điện theo phần đầu hồ sơ thì có thể gọi nhầm người. Phần đầu được tính trên **các lần người gọi được đọc**: hai người đọc khác phạm vi có thể thấy phần đầu khác nhau.
+
+### Ví dụ (PowerShell)
+
+```powershell
+$body = @{ email = 'hr@example.test'; password = '<mật khẩu>' } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/auth/login -ContentType 'application/json' -Body $body
+$headers = @{ Authorization = "Bearer $($login.accessToken)" }
+# <id>: SELECT candidate_id FROM candidate_applications WHERE application_id = '<id lần ứng tuyển>';
+$profile = Invoke-RestMethod -Uri 'http://localhost:8080/api/v1/candidates/<id>/unified-profile' -Headers $headers
+$profile.applications | Select-Object jobTitle, appliedAt, stage, fullName, phone
+```
+
+Sprint 4 chưa có danh sách ứng viên (S5-02); trang hồ sơ chỉ mở từ email báo rút hồ sơ (task 346) hoặc đường dẫn trực tiếp (câu hỏi 25, ý 9).
+
+### Ghi chú cho frontend (task 358)
+
+- Giữ đường dẫn `GET /candidates/{id}/unified-profile`. Thêm giá trị `INTERVIEW` vào kiểu giai đoạn (frontend đang có `INTERVIEWING`, nên một hồ sơ ở `INTERVIEW` làm trang lỗi); hiện `stageName` của server thay vì tự dịch.
+- Mọi lần ứng tuyển trong response đều xem được: không có cờ `accessible`, không có dòng tóm tắt. Không tự lọc thêm.
+- Mỗi lần ứng tuyển có `fullName`, `email`, `phone` và `coverLetter` của riêng nó. Khi `contactMismatch` là `true`, `fullName` và `phone` ở phần đầu là `null`: hiện cảnh báo "Các lần ứng tuyển có họ tên hoặc số điện thoại khác nhau" cùng giá trị của từng lần, và **không** tạo liên kết `tel:` từ `null`.
+- Không có `cvFileUrl`: tải CV bằng API của task 362; dùng `cvFileName` để hiển thị.
+- Người phụ trách chỉ có id và họ tên (`recruiterId`/`recruiterName`, `hiringManagerId`/`hiringManagerName`); `recruiterId` vắng khi yêu cầu chưa có recruiter chính.
+- Không có `currentTitle`, `experienceYears`, `candidateCode`, `rating`, `jobCode`; `tags`, `notes` luôn rỗng.
+- Xử lý 401 (đăng nhập lại), 403 (không có quyền, hoặc không có lần ứng tuyển nào trong phạm vi: "Bạn không có quyền xem hồ sơ ứng viên này"), 404 (hồ sơ không tồn tại). **Không** hiện dữ liệu mẫu (mock) khi gặp lỗi.
+- Mở lần ứng tuyển `currentApplicationId` trước, như hiện nay.
+
 ## Kiểm thử
 
 - `CandidateProfileMigrationTest`: nâng cấp từ migration ngay trước V32 với ba hồ sơ ứng tuyển viết bằng SQL (hai hồ sơ ở hai yêu cầu, email gõ khác nhau `A@Example.TEST` và `a@example.test` giữa hai NBSP, cùng email chuẩn hóa; một hồ sơ của người khác) → đúng hai hồ sơ ứng viên, email chuẩn hóa trùng email của các hồ sơ ứng tuyển, ba liên kết, `created_at` là lần nhận sớm nhất, `linked_at` là thời điểm nhận; `job_applications` không đổi; Flyway `validate()` qua. Trên database dừng ở V32: unique email, CHECK email, mỗi lần ứng tuyển một liên kết, hai khóa ngoại, xóa hồ sơ ứng viên còn liên kết bị từ chối (23503), xóa hồ sơ ứng tuyển xóa liên kết và giữ hồ sơ ứng viên.
@@ -149,5 +248,6 @@ access.recordDenied(reader, CandidateAccessKind.CV, candidateId, applicationId);
 - Các test của module hồ sơ ứng tuyển (lưu trữ, nộp hồ sơ, xác nhận, hạn mức IP, pipeline) chạy lại không đổi.
 - `CandidateAccessIntegrationTest` (task 363): cây phòng ban TOP → PARENT → CHILD và SIBLING, ba lần ứng tuyển (hai của cùng một người ở CHILD và SIBLING), người đọc lấy từ phiên thật qua `requireReader`. HR_MANAGER và ADMIN đọc tất cả (ghim có chủ ý, câu hỏi 25 ý 4); recruiter chính và hỗ trợ chỉ đọc yêu cầu của mình, recruiter khác không đọc gì; bàn giao chuyển quyền ngay; Approver (V33_1) không đọc gì khi không có liên hệ, đọc được khi là trưởng phòng ban hoặc recruiter được phân công; trưởng phòng ban đọc phòng ban mình và mọi phòng ban con cháu, trưởng phòng ban ngang hàng thì không; người tạo yêu cầu không đọc được; Interviewer chỉ đọc khi là trưởng phòng ban; tài khoản không vai trò 403; token hết hạn, phiên bị thu hồi, tài khoản bị khóa hoặc bị vô hiệu hóa 401; gỡ hoặc thêm quyền có hiệu lực ở lần gọi sau; với mọi cặp người đọc × lần ứng tuyển, kết quả SQL bằng quy tắc Java (`isAssigned`, `findManagedDepartmentIds`), và danh sách luôn khớp `findApplication`; nhật ký: một dòng `GRANTED` cho mỗi lần ứng tuyển, thời điểm cắt tới micro giây, rollback không để lại dòng; một dòng `DENIED` đã commit, ném lỗi nếu còn transaction; `UPDATE`/`DELETE` bị chặn (23514), `TRUNCATE` được; các CHECK.
 - `RolePermissionSeedMigrationTest`: `EXPECTED_GRANTS` của APPROVER có `CANDIDATES_READ_SCOPED` thay cho `CANDIDATES_READ_ALL`; chỉ HR_MANAGER và ADMIN có `CANDIDATES_READ_ALL`; vẫn 106 dòng.
+- `CandidateProfileIntegrationTest` (task 361, HTTP thật): không token 401; không có quyền đọc ứng viên 403 với id có thật lẫn id lạ, không ghi nhật ký; id lạ và hồ sơ không còn lần ứng tuyển nào 404 `CANDIDATE_NOT_FOUND` với cả sáu vai trò có quyền, id sai định dạng 400; người đọc `SCOPED` không có lần nào trong phạm vi (Recruiter, Approver, Interviewer) 403 và đúng một dòng `DENIED` không có lần ứng tuyển; HR_MANAGER và ADMIN thấy cả ba lần ứng tuyển, mới nhất trước, đúng tập khóa của phần đầu và của từng lần (khóa trống bị bỏ), nguồn, người phụ trách, thư giới thiệu, thông tin CV; recruiter chính, hỗ trợ và trưởng phòng ban chỉ thấy lần trong phạm vi; lần ngoài phạm vi không để lộ id, tin, tên vị trí, phòng ban, người phụ trách, ngày hay giai đoạn, và `createdAt`/`updatedAt` lấy từ lần được đọc; hồ sơ "cài" bằng email người khác chỉ hiện cho recruiter của nó đúng hồ sơ đó; khác họ tên hoặc khác số điện thoại làm phần đầu `null` và `contactMismatch`, phần đầu tính trên phạm vi người đọc; response không chứa nội dung, mã băm CV, mã tra cứu hay mã băm của nó, email chuẩn hóa, email nhân viên, `requisitionId`, `cvFileUrl`; mỗi lần đọc ghi một dòng `GRANTED` cho mỗi lần ứng tuyển được trả; yêu cầu đã tuyển đủ hoặc hủy vẫn được liệt kê, tên vị trí là bản chụp, tên phòng ban là tên hiện tại, recruiter hỗ trợ không bao giờ hiện là recruiter.
 
-Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 25, ý (1)–(6); câu hỏi 3 và 6 (Approver, Admin).
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 25, ý (1)–(9); câu hỏi 3 và 6 (Approver, Admin); câu hỏi 19, ý 8 (recruiter thấy cả hồ sơ hay chỉ đơn vào yêu cầu của mình).

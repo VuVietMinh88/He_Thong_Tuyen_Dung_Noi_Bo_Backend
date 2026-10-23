@@ -315,6 +315,12 @@ public class SecurityConfiguration {
                         // Task 310: the review and publication history is read like the posting.
                         .requestMatchers(HttpMethod.GET, "/api/v1/job-postings/*/history")
                                 .hasAnyAuthority("PERM_JOB_POSTINGS_WRITE_ALL", "PERM_JOB_POSTINGS_WRITE_SCOPED")
+                        // Task 361 (story S4-09): the unified candidate profile. Both CANDIDATES read permissions
+                        // pass the matcher; CandidateProfileService checks the code again before any lookup (403
+                        // before 404), then returns only the applications CandidateAccess.READABLE allows (403 when
+                        // none, logged).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/unified-profile")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")
