@@ -143,6 +143,22 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
         assertThat(count("interview_sessions")).isEqualTo(1);
     }
 
+    @Test
+    void onlyExplicitRecruiterOverrideWithReasonMaySaveConflictAndRecordsDecision() throws Exception {
+        created(create(other.applicationId(), hrToken, schedule(START, panel, "Room")));
+        var request = schedule(START, panel, "Room"); request.put("overrideConflicts", true);
+        error(create(first.applicationId(), recruiterToken, request), 400, "VALIDATION_ERROR");
+        request.put("overrideReason", "Đã thống nhất người tham gia sẽ đổi ca");
+        error(create(first.applicationId(), hrToken, request), 403, "FORBIDDEN");
+        var created = created(create(first.applicationId(), recruiterToken, request));
+        UUID id = UUID.fromString(created.path("id").asText());
+        assertThat(jdbc.queryForObject("SELECT conflict_override FROM interview_events WHERE interview_id=?", Boolean.class, id)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT override_reason FROM interview_events WHERE interview_id=?", String.class, id))
+                .isEqualTo(request.get("overrideReason"));
+        assertThat(jdbc.queryForObject("SELECT actor_id FROM interview_events WHERE interview_id=?", UUID.class, id)).isEqualTo(recruiter);
+        assertThat(jdbc.queryForObject("SELECT occurred_at FROM interview_events WHERE interview_id=?", Timestamp.class, id).toInstant())
+                .isEqualTo(ApplicationTestSupport.NOW);
+    }
 
 
 
