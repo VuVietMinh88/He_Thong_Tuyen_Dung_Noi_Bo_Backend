@@ -39,3 +39,73 @@ Mặc định của V66 tái tạo đúng thư đang gửi trước đây; hai t
 
 Câu hỏi BA/PO: mặc định bật/tắt của hai thư mới; có cần lưu lịch sử từng phiên bản mẫu (hiện chỉ giữ người sửa cuối và
 `version`).
+
+## API quản lý mẫu và xem trước (task 532)
+
+| Method | Endpoint | Quyền (đọc lại từ database ở service) |
+|---|---|---|
+| GET | `/api/v1/messaging/templates` | `NOTIFICATIONS_READ_ALL` |
+| GET | `/api/v1/messaging/templates/{type}` | `NOTIFICATIONS_READ_ALL` |
+| PUT | `/api/v1/messaging/templates/{type}` | `NOTIFICATIONS_READ_ALL` + `NOTIFICATIONS_WRITE_ALL` |
+| POST | `/api/v1/messaging/templates/{type}/preview` | `NOTIFICATIONS_READ_ALL` + `CANDIDATES_READ_ALL`/`CANDIDATES_READ_SCOPED` và phạm vi của hồ sơ |
+
+Theo seed hiện tại: ADMIN, HR_MANAGER, RECRUITER đọc và sửa được mẫu (đều có `NOTIFICATIONS_*_ALL`); HIRING_MANAGER,
+INTERVIEWER (chỉ `NOTIFICATIONS_READ_SCOPED`) và APPROVER bị 403. `{type}` phải viết hoa đúng tên loại, sai thì 404
+`EMAIL_TEMPLATE_NOT_FOUND`.
+
+Phản hồi một mẫu (GET danh sách trả mảng các phần tử như dưới):
+
+```json
+{"type":"INTERVIEW_THANKS","displayName":"Cảm ơn sau phỏng vấn","subject":"Cảm ơn bạn đã tham gia phỏng vấn",
+ "body":"Xin chào {{candidateName}},\n\nCảm ơn bạn ...","autoSend":false,
+ "variables":[{"name":"candidateName","label":"Tên ứng viên"},{"name":"positionTitle","label":"Tên vị trí ứng tuyển"},
+              {"name":"interviewTime","label":"Thời gian phỏng vấn"},{"name":"companyName","label":"Tên công ty"}],
+ "mandatoryContent":"Không có nội dung bắt buộc ngoài phần chân email.","version":0,
+ "updatedAt":"2026-10-20T00:00:00Z","updatedBy":null,"updatedByName":null}
+```
+
+PUT thay toàn bộ phần sửa được:
+
+```json
+{"expectedVersion":0,"subject":"Kết quả ứng tuyển {{positionTitle}}","body":"Chào {{candidateName}},\n\nRất tiếc ...","autoSend":true}
+```
+
+- 400 `VALIDATION_ERROR`: thiếu trường, quá dài, tiêu đề có CR/LF hoặc ký tự điều khiển, có thẻ HTML (`fieldErrors`
+  nêu trường). CRLF trong nội dung được lưu thành `\n`; CR đứng riêng bị từ chối.
+- 400 `EMAIL_TEMPLATE_INVALID`: biến lạ hoặc sai dạng (`fieldErrors.subject`/`fieldErrors.body` liệt kê biến lạ và biến
+  hợp lệ). 400 `INVALID_JSON`: trường lạ (kể cả `supportedVariables`), `autoSend` không phải `true`/`false`,
+  `expectedVersion` không phải số nguyên.
+- 409 `EMAIL_TEMPLATE_VERSION_CONFLICT`: người khác vừa lưu; tải lại. 503 `EMAIL_TEMPLATE_BUSY`: hết thời gian chờ khóa.
+
+Lưu theo thứ tự khóa của hệ thống: tài khoản → phiên → dòng mẫu `FOR UPDATE`; quyền được đọc lại sau mỗi lần chờ khóa.
+
+POST preview — xem trước với dữ liệu thật (mẫu đã lưu hoặc bản nháp chưa lưu):
+
+```json
+{"applicationId":"<uuid>","interviewId":"<uuid, tùy chọn>","subject":"<nháp, tùy chọn>","body":"<nháp, tùy chọn>"}
+```
+
+```json
+{"type":"REJECTION","applicationId":"...","interviewId":null,"draft":true,"autoSend":false,"templateVersion":0,
+ "subject":"Kết quả vị trí Java","text":"Chào Nguyễn Văn A,\n\n...","html":"<!DOCTYPE html>..."}
+```
+
+- Thứ tự kiểm: quyền (401/403) → loại mẫu (404) → nháp hợp lệ (400 `EMAIL_TEMPLATE_INVALID`) → hồ sơ (404
+  `APPLICATION_NOT_FOUND`) → phạm vi hồ sơ (403, ghi nhật ký truy cập `DENIED`) → lịch phỏng vấn cho
+  `INTERVIEW_INVITATION`/`INTERVIEW_THANKS`: `interviewId` phải thuộc hồ sơ (404 `INTERVIEW_NOT_FOUND`), không gửi thì
+  lấy lịch sắp tới gần nhất, nếu không có thì lịch gần nhất; hồ sơ chưa có lịch nào → 409
+  `EMAIL_PREVIEW_INTERVIEW_REQUIRED`.
+- Bản xem trước được ghi nhật ký `candidate_access_events` (`PROFILE`, `GRANTED`), không gửi thư, không lưu nháp.
+- `text` là phần text/plain, `html` là phần HTML (null với `APPLICATION_RECEIPT` vì thư xác nhận là văn bản thuần).
+- Phần bắt buộc giữ nguyên như thư thật, nhưng mã tra cứu, liên kết tra cứu/rút hồ sơ, liên kết phản hồi, liên kết
+  phòng họp và điều khoản offer được thay bằng chú thích trong ngoặc vuông: bản xem trước không bao giờ chứa bí mật hay
+  mức lương.
+
+Ghi chú cho frontend: màn hình sửa mẫu hiển thị danh sách `variables` để chèn, `mandatoryContent` để người dùng biết phần
+nào hệ thống tự thêm; gửi lại `version` đang có trong `expectedVersion`; xem trước cần chọn một hồ sơ ứng tuyển (và
+lịch phỏng vấn với hai loại phỏng vấn); hiển thị `html` trong iframe sandbox hoặc chỉ hiển thị `text`.
+
+Câu hỏi BA/PO: RECRUITER có được sửa mẫu dùng chung toàn công ty không (seed V3 hiện cho phép vì có
+`NOTIFICATIONS_WRITE_ALL`; code không đổi quyền này). Hệ quả cụ thể: **một recruiter bất kỳ** có thể sửa nội dung mọi thư
+gửi ứng viên của toàn công ty và tắt "gửi tự động" của mẫu Thư offer; khi đó mọi lần gửi offer của HR trên toàn công ty
+bị chặn với 409 `OFFER_EMAIL_DISABLED` (task 533) cho tới khi có người bật lại.

@@ -110,6 +110,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static final String OFFERS_READ_SCOPED = "OFFERS_READ_SCOPED";
     private static final String OFFERS_WRITE_ALL = "OFFERS_WRITE_ALL";
     private static final String OFFERS_WRITE_SCOPED = "OFFERS_WRITE_SCOPED";
+    private static final String NOTIFICATIONS_READ_ALL = "NOTIFICATIONS_READ_ALL";
+    private static final String NOTIFICATIONS_WRITE_ALL = "NOTIFICATIONS_WRITE_ALL";
 
     private static final Rule PUBLIC = new Rule(List.of(), false, false);
 
@@ -403,7 +405,14 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415),
             // Task 352: the referrer's own list, read like a colleague's avatar; nobody here has referred anyone, so
             // every permitted caller gets an empty array.
-            endpoint("GET", "/api/v1/referrals/my-referrals", permission(SELF_PROFILE_READ), null, 200));
+            endpoint("GET", "/api/v1/referrals/my-referrals", permission(SELF_PROFILE_READ), null, 200),
+            // Story S8-01 (tasks 531-533): company-wide email templates. "{type}" becomes CANDIDATE_SOURCE, no template
+            // type, so a permitted read stops at 404; the empty body stops a permitted save or preview at 400.
+            endpoint("GET", "/api/v1/messaging/templates", permission(NOTIFICATIONS_READ_ALL), null, 200),
+            endpoint("GET", "/api/v1/messaging/templates/{type}", permission(NOTIFICATIONS_READ_ALL), null, 404),
+            endpoint("PUT", "/api/v1/messaging/templates/{type}", allOf(NOTIFICATIONS_READ_ALL, NOTIFICATIONS_WRITE_ALL), INVALID_BODY, 400),
+            endpoint("POST", "/api/v1/messaging/templates/{type}/preview", new Rule(List.of(NOTIFICATIONS_READ_ALL), false,
+                    false, false, List.of(List.of(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED)), Set.of()), INVALID_BODY, 400));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",
@@ -415,6 +424,8 @@ class ApiAuthorizationMatrixIntegrationTest {
             "interview_question_usage", "hiring_decisions", "offers", "offer_events",
             "offer_response_tokens", "offer_delivery_outbox", "offer_negotiations", "onboarding_templates",
             "onboarding_template_items", "onboarding_checklists", "onboarding_checklist_items",
+            // Story S8-01: email templates.
+            "email_templates",
             "job_applications", "application_cvs", "application_email_outbox", "cv_extraction_jobs",
             "cv_extraction_attempts", "application_confirmed_contacts", "application_contact_history");
 
@@ -864,7 +875,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                 new Attack(Identity.RECRUITER, "GET", "/api/v1/requisitions/" + requisition + "/active-pipeline", null),
                 new Attack(Identity.APPROVER, "GET", "/api/v1/requisitions/" + approved + "/active-pipeline", null),
                 new Attack(Identity.INTERVIEWER, "GET", "/api/v1/requisitions/" + ready + "/active-pipeline", null),
-                new Attack(Identity.NO_ROLE, "GET", "/api/v1/requisitions/" + requisition + "/active-pipeline", null));
+                new Attack(Identity.NO_ROLE, "GET", "/api/v1/requisitions/" + requisition + "/active-pipeline", null),
+                // Story S8-01: only NOTIFICATIONS_WRITE_ALL saves a template; a save that slipped through would change
+                // email_templates.
+                new Attack(Identity.HIRING_MANAGER, "PUT", "/api/v1/messaging/templates/REJECTION", Map.of(
+                        "expectedVersion", 0, "subject", "Bị đổi", "body", "Bị đổi", "autoSend", true)),
+                new Attack(Identity.APPROVER, "PUT", "/api/v1/messaging/templates/OFFER", Map.of(
+                        "expectedVersion", 0, "subject", "Bị đổi", "body", "Bị đổi", "autoSend", false)));
 
         return attacks.stream().map(attack -> dynamicTest(attack.toString(), () -> {
             Map<String, List<Map<String, Object>>> before = snapshot();
@@ -1113,10 +1130,21 @@ class ApiAuthorizationMatrixIntegrationTest {
     }
 
     // Arrays are equal only to themselves, so BYTEA columns such as user_avatars.image are compared as hex text.
+    // SQL arrays (email_templates.supported_variables) too: a java.sql.Array is equal only to itself, so it is compared
+    // as the list of its elements.
     private static Map<String, Object> comparable(Map<String, Object> row) {
         Map<String, Object> copy = new LinkedHashMap<>();
-        row.forEach((column, value) -> copy.put(column, value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes) : value));
+        row.forEach((column, value) -> copy.put(column, value instanceof byte[] bytes ? HexFormat.of().formatHex(bytes)
+                : value instanceof java.sql.Array array ? elements(array) : value));
         return copy;
+    }
+
+    private static List<Object> elements(java.sql.Array array) {
+        try {
+            return Arrays.asList((Object[]) array.getArray());
+        } catch (java.sql.SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
     private HttpResponse<String> request(String method, String path, String payload, String token) throws Exception {

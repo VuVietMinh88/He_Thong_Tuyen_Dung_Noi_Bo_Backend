@@ -53,6 +53,16 @@ public final class InterviewMailContent {
     }
 
     public static MailBody body(InterviewMailPayload payload, ZoneId zone) {
+        return body(payload, zone, null);
+    }
+
+    /**
+     * Task 533: the body with the opening of a candidate invitation taken from the INTERVIEW_INVITATION template
+     * (its rendered paragraphs replace the greeting and the first sentence). The details, the venue or meeting link,
+     * the preparation and the reply link stay the fixed part below it. Other kinds, and a null opening, keep the fixed
+     * text, so updates, cancellations and staff emails do not change.
+     */
+    public static MailBody body(InterviewMailPayload payload, ZoneId zone, java.util.List<String> invitationOpening) {
         Kind kind = kind(payload);
         Objects.requireNonNull(zone, "zone");
         Instant startsAt = Objects.requireNonNull(payload.startsAt(), "startsAt");
@@ -71,9 +81,11 @@ public final class InterviewMailContent {
         }
 
         String name = singleLine(payload.recipientName());
-        MailBody.Builder body = MailBody.builder()
-                .paragraph(name.isEmpty() ? "Xin chào," : "Xin chào " + name + ",")
-                .paragraph(switch (kind) {
+        MailBody.Builder body = MailBody.builder();
+        if (kind == Kind.INVITATION && invitationOpening != null && !invitationOpening.isEmpty()) {
+            invitationOpening.forEach(body::paragraph);
+        } else {
+            body.paragraph(name.isEmpty() ? "Xin chào," : "Xin chào " + name + ",").paragraph(switch (kind) {
                     case INVITATION -> "Bạn được mời tham gia buổi phỏng vấn với thông tin dưới đây.";
                     case UPDATED -> "Lịch phỏng vấn của bạn đã được cập nhật. Thông tin dưới đây thay thế thông tin"
                             + " trong các email trước về buổi phỏng vấn này.";
@@ -82,6 +94,7 @@ public final class InterviewMailContent {
                     case REMOVED -> "Bạn không còn trong danh sách tham gia buổi phỏng vấn dưới đây. Bạn không cần"
                             + " tham dự và không cần phản hồi email này.";
                 });
+        }
 
         field(body, "Vị trí", singleLine(payload.positionTitle()));
         field(body, "Vòng phỏng vấn", singleLine(payload.roundName()));

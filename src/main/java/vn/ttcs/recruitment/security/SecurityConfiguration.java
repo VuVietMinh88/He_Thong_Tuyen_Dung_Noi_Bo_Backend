@@ -581,6 +581,20 @@ public class SecurityConfiguration {
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasRole("ADMIN"),
                                         AuthorityAuthorizationManager.hasAuthority("PERM_USER_ADMIN_WRITE_ALL")))
+                        // Story S8-01 (tasks 531-533): candidate email templates are company-wide settings.
+                        // EmailTemplateService reads the codes again; the preview also checks the application's
+                        // candidate scope (CandidateAccess) and logs the profile read.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/messaging/templates", "/api/v1/messaging/templates/*")
+                                .hasAuthority("PERM_NOTIFICATIONS_READ_ALL")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/messaging/templates/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_NOTIFICATIONS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_NOTIFICATIONS_WRITE_ALL")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/messaging/templates/*/preview")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAuthority("PERM_NOTIFICATIONS_READ_ALL"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
+                                                "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/cv-extractions")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv-extractions/*")
