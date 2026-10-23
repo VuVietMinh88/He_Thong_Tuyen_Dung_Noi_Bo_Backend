@@ -152,3 +152,29 @@ Câu hỏi BA/PO: thư cập nhật/hủy lịch có nên tuân theo cờ của 
 nên chặn gửi offer (hiện tại) hay cho phép ghi nhận offer đã trao tay ngoài hệ thống. Lưu ý: cờ này là cấu hình chung
 toàn công ty và theo seed RECRUITER cũng sửa được (task 532), nên một recruiter tắt cờ Thư offer là chặn mọi lần gửi
 offer của HR.
+
+## Nhật ký từng lần gửi email (task 537)
+
+Không thêm endpoint (API đọc ở task 539). Migration `V66_2__create_email_attempts.sql` thêm `email_attempts`: mỗi lần
+xử lý gửi một thư của `email_messages` là một dòng **chỉ thêm, không sửa, không xóa** (trigger
+`email_attempts_immutable` chặn `UPDATE` và `DELETE`, SQLSTATE 23514, như các nhật ký bất biến khác của hệ thống; khóa
+ngoại tới thư là `ON DELETE RESTRICT`, nên thư — và hồ sơ, lịch phỏng vấn, offer của thư — đã có lần gửi không xóa được).
+Database kiểm thử dùng một lần được dọn bằng `TRUNCATE` (không kích hoạt trigger theo dòng).
+
+| Cột | Ý nghĩa |
+|---|---|
+| `attempt_number` | thứ tự lần gửi của thư, tăng liên tục kể cả qua các lần gửi lại (unique `(message_id, attempt_number)`) |
+| `delivery`, `delivery_id` | outbox và dòng outbox của lần đó |
+| `template_type`, `template_version` | loại mẫu và phiên bản mẫu hiện hành lúc kết thúc lần gửi; `template_version` rỗng với thư cập nhật/hủy lịch phỏng vấn (`variant` `UPDATED`/`CANCELLED`) vì các thư này dùng văn bản cố định, không dùng mẫu |
+| `recipient_email` | người nhận |
+| `result` | `SENT`, `RETRY_SCHEDULED` (lỗi tạm thời, sẽ thử lại), `FAILED` (lỗi cuối), `CANCELLED` (thư lỗi thời/người nhận không còn hợp lệ, không gửi), `LEASE_EXPIRED` (worker dừng giữa chừng, không biết kết quả) |
+| `error_code` | mã lỗi an toàn của outbox (`SMTP_TEMPORARY`, `RECIPIENT_REFUSED`, `RETRIES_EXHAUSTED`, `DELIVERY_UNCERTAIN`, `OBSOLETE`, `RECIPIENT_UNAVAILABLE`, `PAYLOAD_INVALID`); không bao giờ là nội dung trả lời của SMTP, token hay nội dung thư; rỗng đúng khi `SENT` |
+| `attempted_at` | thời điểm kết thúc lần gửi |
+
+Dòng được ghi bởi chính trigger `sync_email_message_status` (V66_1, thay thế ở V66_2) trên các outbox, trong transaction
+có rào lease của worker: rời trạng thái `PROCESSING` là kết thúc một lần gửi; một lần nhận lại dòng vẫn `PROCESSING`
+với số lần tăng nghĩa là lease trước đã hết hạn. Vì vậy không đường code nào (gửi được, lỗi tạm, lỗi cuối, hủy khi
+lịch đổi, lease hết hạn) kết thúc một lần gửi mà không có dòng nhật ký. Thư của người phỏng vấn (không thuộc
+`email_messages`) không có dòng nhật ký.
+
+Ghi chú cho frontend: hiển thị qua API task 539; `result` và `error_code` là mã cố định để dịch sang nhãn tiếng Việt.

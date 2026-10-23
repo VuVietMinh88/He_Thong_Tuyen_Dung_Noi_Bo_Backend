@@ -74,7 +74,7 @@ class CandidateNoticeEmailDecisionIntegrationTest extends InterviewEvaluationTes
         assertThat(messages("INTERVIEW_THANKS")).singleElement().satisfies(row -> assertThat(row)
                 .containsEntry("status", "SUPPRESSED").containsEntry("delivery", null));
 
-        jdbc.update("TRUNCATE email_messages");
+        jdbc.update("TRUNCATE email_messages CASCADE");
         seeded.autoSend("INTERVIEW_THANKS", true);
         // ONBOARDED needs a completed checklist (V64) and follows HIRED; HIRED stands for both final hiring stages.
         for (String stage : new String[] {"WITHDRAWN", "REJECTED", "HIRED"}) {

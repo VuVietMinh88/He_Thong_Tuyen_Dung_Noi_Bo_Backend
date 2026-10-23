@@ -204,5 +204,6 @@ Test dùng PostgreSQL tạm thời thật để kiểm transaction, khóa hàng 
 
 **Email ứng viên, thông báo và SLA (V66.x, `database/migrations-shared`).** Story S8-01: V66 `email_templates` (mẫu,
 biến được hỗ trợ, cờ gửi tự động của năm loại thư ứng viên), V66_1 `email_messages` (mỗi thư ứng viên được quyết định
-bởi một sự kiện, `QUEUED`/`SUPPRESSED`/…, trigger `sync_email_message_status` giữ trạng thái khớp với outbox). Chi tiết ở
+bởi một sự kiện, `QUEUED`/`SUPPRESSED`/…, trigger `sync_email_message_status` giữ trạng thái khớp với outbox). Story S8-02: V66_2 `email_attempts` (nhật ký bất
+biến từng lần gửi, ghi bởi cùng trigger). Chi tiết ở
 [email, thông báo và SLA](../api/messaging.md).
