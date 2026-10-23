@@ -62,7 +62,7 @@ class MigrationLineageUpgradeTest {
         DataSource feedback = newDatabase();
         for (var entry : Map.of("s5", s5, "feedback", feedback).entrySet()) {
             Flyway flyway = configured(entry.getValue(), entry.getKey()).load();
-            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(52);
+            assertThat(flyway.migrate().migrationsExecuted).isEqualTo(54);
             flyway.validate();
             assertThat(flyway.migrate().migrationsExecuted).isZero();
         }
@@ -105,9 +105,11 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "s5").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(12);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(14);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM application_stage_events WHERE offer_id IS NOT NULL",
+                Integer.class)).as("existing stage events have no offer link").isZero();
         assertThat(jdbc.queryForObject("SELECT content FROM application_cvs WHERE application_id=?", byte[].class,
                 application)).isEqualTo(cv);
         assertUnifiedFeatures(jdbc);
@@ -131,7 +133,7 @@ class MigrationLineageUpgradeTest {
         var history = history(jdbc);
 
         Flyway upgrade = configured(dataSource, "feedback").load();
-        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(21);
+        assertThat(upgrade.migrate().migrationsExecuted).isEqualTo(23);
         upgrade.validate();
         assertPreserved(jdbc, before, history);
         assertUnifiedFeatures(jdbc);
@@ -239,7 +241,7 @@ class MigrationLineageUpgradeTest {
         // This edit is deliberate test fixture setup. Production requires staff to resolve the duplicate first.
         jdbc.update("UPDATE user_accounts SET phone=NULL WHERE id=?", first);
         Flyway retry = configured(dataSource, "s5").load();
-        assertThat(retry.migrate().migrationsExecuted).isEqualTo(10);
+        assertThat(retry.migrate().migrationsExecuted).isEqualTo(12);
         retry.validate();
         assertThat(retry.migrate().migrationsExecuted).isZero();
     }
@@ -291,8 +293,10 @@ class MigrationLineageUpgradeTest {
     }
 
     private static List<String> rows(JdbcTemplate jdbc, String table) {
-        return jdbc.queryForList("SELECT t::text FROM \"" + table.replace("\"", "\"\"")
-                + "\" t ORDER BY t::text", String.class);
+        // V62 adds a nullable offer link. Compare every pre-existing event field; verify the new link separately.
+        String projection = table.equals("application_stage_events") ? "(to_jsonb(t)-'offer_id')::text" : "t::text";
+        return jdbc.queryForList("SELECT " + projection + " FROM \"" + table.replace("\"", "\"\"")
+                + "\" t ORDER BY 1", String.class);
     }
 
     private static void assertPreserved(JdbcTemplate jdbc, Map<String, List<String>> before, List<String> history) {

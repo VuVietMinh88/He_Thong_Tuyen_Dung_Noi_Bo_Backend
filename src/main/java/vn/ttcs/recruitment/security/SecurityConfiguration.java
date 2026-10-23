@@ -28,6 +28,8 @@ import vn.ttcs.recruitment.application.ApplicationTrackingRequestFilter;
 import vn.ttcs.recruitment.application.ApplicationTrackingRoutes;
 import vn.ttcs.recruitment.invitation.http.InterviewInvitationRoutes;
 import vn.ttcs.recruitment.invitation.http.InterviewInvitationRequestFilter;
+import vn.ttcs.recruitment.offerdelivery.http.OfferRoutes;
+import vn.ttcs.recruitment.offerdelivery.http.OfferRequestFilter;
 
 import java.util.List;
 
@@ -46,7 +48,8 @@ public class SecurityConfiguration {
             }
             // Task 339: a candidate has no account; the frontend attaches any stored bearer, which must not block a
             // lookup (or, from task 345, a withdrawal). The credential is the tracking code and email in the body.
-            if (ApplicationTrackingRoutes.isPublicPost(request) || InterviewInvitationRoutes.isPublicPost(request)) {
+            if (ApplicationTrackingRoutes.isPublicPost(request) || InterviewInvitationRoutes.isPublicPost(request)
+                    || OfferRoutes.isPublicPost(request)) {
                 return null;
             }
             // These endpoints authenticate their body; a stale bearer must not block recovery.
@@ -92,7 +95,8 @@ public class SecurityConfiguration {
                                                   BearerTokenResolver bearerTokenResolver,
                                                   ApplicationIntakeFilter intakeFilter,
                                                   ApplicationTrackingRequestFilter trackingFilter,
-                                                  InterviewInvitationRequestFilter invitationFilter) throws Exception {
+                                                  InterviewInvitationRequestFilter invitationFilter,
+                                                  OfferRequestFilter offerFilter) throws Exception {
         return http
                 .cors(withDefaults())
                 // These APIs accept bearer headers/body tokens only, never browser authentication cookies.
@@ -104,6 +108,7 @@ public class SecurityConfiguration {
                 .addFilterBefore(intakeFilter, BearerTokenAuthenticationFilter.class)
                 .addFilterBefore(trackingFilter, BearerTokenAuthenticationFilter.class)
                 .addFilterBefore(invitationFilter, BearerTokenAuthenticationFilter.class)
+                .addFilterBefore(offerFilter, BearerTokenAuthenticationFilter.class)
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/health", "/api/v1/health").permitAll()
@@ -116,6 +121,9 @@ public class SecurityConfiguration {
                         // code in the path.
                         .requestMatchers(HttpMethod.POST, ApplicationTrackingRoutes.WITHDRAW).permitAll()
                         .requestMatchers(HttpMethod.POST, InterviewInvitationRoutes.LOOKUP, InterviewInvitationRoutes.RESPOND).permitAll()
+                        .requestMatchers(HttpMethod.POST, OfferRoutes.LOOKUP, OfferRoutes.RESPOND).permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/offers/reply",
+                                "/api/v1/public/offers/reply.js").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/public/interview-invitations/reply",
                                 "/api/v1/public/interview-invitations/reply.js").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
@@ -384,6 +392,34 @@ public class SecurityConfiguration {
                         // Interview scopes are checked again against the application or invited panel in the service.
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interview-participants")
                                 .hasAnyAuthority("PERM_INTERVIEWS_WRITE_ALL", "PERM_INTERVIEWS_WRITE_SCOPED")
+                        // Offer readers are restricted again to the application scope or the named approval step.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/offers/approvers")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER", "RECRUITER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/offers", "/api/v1/offers/*",
+                                "/api/v1/offers/*/preview", "/api/v1/offers/*/history")
+                                .hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/offers/*/approval")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("HR_MANAGER", "APPROVER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/offers", "/api/v1/offers/*/submit",
+                                "/api/v1/offers/*/cancel", "/api/v1/offers/*/send")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER", "RECRUITER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/offers/*")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyRole("ADMIN", "HR_MANAGER", "RECRUITER"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_READ_ALL", "PERM_OFFERS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_OFFERS_WRITE_ALL", "PERM_OFFERS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/interviews",
                                 "/api/v1/interviews/me", "/api/v1/interviews/*", "/api/v1/interviews/*/invitation")
                                 .hasAnyAuthority("PERM_INTERVIEWS_READ_ALL", "PERM_INTERVIEWS_READ_SCOPED")
