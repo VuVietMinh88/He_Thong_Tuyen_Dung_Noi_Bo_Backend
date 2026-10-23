@@ -30,6 +30,29 @@ class InterviewSchedulingApiIntegrationTest extends ScreeningTestSupport {
     }
 
     @Test
+    void schedulingDirectoryIsScopedPagedAndContainsOnlyEligibleMinimalIdentities() throws Exception {
+        String path = "/api/v1/applications/" + first.applicationId() + "/interview-participants";
+        JsonNode result = ok(call("GET", path + "?q=Interviewer&size=1", null, recruiterToken));
+        assertThat(result.path("totalElements").asLong()).isEqualTo(2);
+        assertThat(result.path("items").size()).isEqualTo(1);
+        assertThat(result.path("items").get(0).path("fullName").asText()).isEqualTo("Interviewer One");
+        assertThat(result.path("items").get(0).size()).isEqualTo(2);
+        assertThat(result.toString()).doesNotContain("@", "phone", "password", "roles", "enabled");
+        assertThat(ok(call("GET", path + "?q=Interviewer&size=1&page=1", null, recruiterToken))
+                .path("items").get(0).path("id").asText()).isEqualTo(otherPanel.toString());
+        error(call("GET", path, null, panelToken), 403, "FORBIDDEN");
+        error(call("GET", path, null, token(manager)), 403, "FORBIDDEN");
+        error(call("GET", "/api/v1/applications/" + other.applicationId() + "/interview-participants", null, recruiterToken), 403, "FORBIDDEN");
+        error(call("GET", path, null, null), 401, "UNAUTHORIZED");
+        error(call("GET", path + "?size=101", null, hrToken), 400, "VALIDATION_ERROR");
+        assertThat(ok(call("GET", path + "?q=%25", null, recruiterToken)).path("items").isEmpty()).isTrue();
+        jdbc.update("UPDATE user_accounts SET enabled=false WHERE id=?", panel);
+        jdbc.update("UPDATE user_accounts SET admin_locked_at=?,admin_lock_reason='Test lock',admin_locked_by=? WHERE id=?",
+                Timestamp.from(ApplicationTestSupport.NOW), hr, otherPanel);
+        assertThat(ok(call("GET", path + "?q=Interviewer", null, recruiterToken)).path("totalElements").asLong()).isZero();
+    }
+
+    @Test
     void createStoresAppointmentPanelAndImmutableEventWithoutMovingApplication() throws Exception {
         JsonNode created = created(create(first.applicationId(), recruiterToken, schedule(START, panel, "Phòng 1")));
         UUID id = UUID.fromString(created.path("id").asText());

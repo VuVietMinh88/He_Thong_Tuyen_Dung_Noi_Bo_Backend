@@ -27,6 +27,23 @@ public class InterviewRepository {
 
     public InterviewRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc = jdbc; }
 
+    InterviewParticipantPage eligibleParticipants(String query, int page, int size) {
+        String where = """
+                FROM user_accounts a
+                WHERE a.enabled AND a.admin_locked_at IS NULL
+                  AND strpos(lower(a.full_name), lower(:query)) > 0
+                  AND EXISTS (SELECT 1 FROM user_roles ur
+                    JOIN role_permissions rp ON rp.role_code=ur.role
+                    WHERE ur.user_id=a.id AND rp.permission_code IN
+                      ('EVALUATIONS_WRITE_ALL','EVALUATIONS_WRITE_SCOPED'))
+                """;
+        var parameters = params("query", query).addValue("size", size).addValue("offset", (long) page * size);
+        Long count = jdbc.queryForObject("SELECT count(*) " + where, parameters, Long.class);
+        var items = jdbc.query("SELECT a.id,a.full_name " + where + " ORDER BY lower(a.full_name),a.id LIMIT :size OFFSET :offset",
+                parameters, (row, n) -> new InterviewParticipantPage.Item(row.getObject("id", UUID.class), row.getString("full_name")));
+        return new InterviewParticipantPage(items, count == null ? 0 : count, page, size);
+    }
+
     Optional<InterviewView> find(UUID id) {
         return jdbc.query(SELECT + " WHERE i.id=:id", params("id", id), InterviewRepository::view)
                 .stream().findFirst();
