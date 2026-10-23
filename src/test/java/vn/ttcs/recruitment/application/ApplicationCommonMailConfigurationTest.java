@@ -31,7 +31,9 @@ class ApplicationCommonMailConfigurationTest {
             else TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context,"app.password-reset.mail-from=legacy@example.test");
             if(mode.equals("common"))TestPropertySourceUtils.addInlinedPropertiesToEnvironment(context,"app.mail.from=common@example.test");
             context.registerBean(JavaMailSender.class,() -> sender);
-            context.register(AccountInvitationMailSender.class,PasswordResetMailSender.class,ApplicationConfirmationMailSender.class);
+            // Task 345: the confirmation sender builds the withdrawal link from the settings.
+            context.register(AccountInvitationMailSender.class,PasswordResetMailSender.class,ApplicationConfirmationMailSender.class,
+                    ApplicationConfirmationSettings.class);
             context.refresh();
             context.getBean(AccountInvitationMailSender.class).send("recipient@example.test","TestOnlyPassword","test-token",Duration.ofHours(24));
             context.getBean(PasswordResetMailSender.class).send("recipient@example.test","test-token");

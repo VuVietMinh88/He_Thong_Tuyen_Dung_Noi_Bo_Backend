@@ -15,9 +15,13 @@ import java.time.format.DateTimeFormatter;
 public class ApplicationConfirmationMailSender {
     private final JavaMailSender sender;
     private final DateTimeFormatter time;
+    private final ApplicationConfirmationSettings settings;
 
-    public ApplicationConfirmationMailSender(JavaMailSender sender,@Value("${app.business-zone}") ZoneId zone) {
-        this.sender=sender;time=DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(zone);
+    // Task 345: the settings build the withdrawal link (task 344) at send time from the decrypted code, so the payload,
+    // its encryption and V28 stay as they are, and a confirmation already queued gets the link too.
+    public ApplicationConfirmationMailSender(JavaMailSender sender,@Value("${app.business-zone}") ZoneId zone,
+            ApplicationConfirmationSettings settings) {
+        this.sender=sender;time=DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withZone(zone);this.settings=settings;
     }
 
     void send(ApplicationConfirmationPayload payload,String messageId) {
@@ -33,6 +37,10 @@ public class ApplicationConfirmationMailSender {
                     +"Mã tra cứu: "+payload.trackingCode()+"\n\n"
                     +"Bạn có thể dùng liên kết sau để tra cứu hồ sơ:\n"+payload.trackingUrl()+"\n\n"
                     +"Vui lòng giữ mã và liên kết này để theo dõi hồ sơ.\n\n"
+                    // Task 345 (story S4-06): the withdrawal link ships with the withdrawal API, never before it.
+                    +"Nếu không muốn tiếp tục ứng tuyển, bạn có thể rút hồ sơ tại liên kết sau. Hệ thống sẽ hỏi email "
+                    +"đã dùng khi nộp hồ sơ và yêu cầu bạn xác nhận lại trước khi rút:\n"
+                    +settings.withdrawalUrl(payload.trackingCode())+"\n\n"
                     +"Email này xác nhận hồ sơ đã được tiếp nhận.\nKết quả tuyển dụng sẽ được thông báo sau.\n\n"
                     +"Hệ thống tuyển dụng nội bộ\n",false);
             message.setHeader("Message-ID",messageId);

@@ -56,6 +56,29 @@ class ApplicationTrackingRequestFilterTest {
         }
     }
 
+    // Task 345: the exact POST of the withdrawal is guarded like the lookup; its frontend PATCH, a GET and a longer path
+    // are not this filter's (default deny refuses them).
+    @Test
+    void theExactPostOfTheWithdrawalIsGuardedToo() throws Exception {
+        var filter = new ApplicationTrackingRequestFilter(json, 1);
+        assertRefused(filter, request("POST", ApplicationTrackingRoutes.WITHDRAW, "text/plain"), 415,
+                "APPLICATION_TRACKING_JSON_REQUIRED");
+        var guarded = new MockHttpServletResponse();
+        filter.doFilter(request("POST", ApplicationTrackingRoutes.WITHDRAW, "application/json"), guarded,
+                (req, res) -> { });
+        assertThat(guarded.getHeader("Cache-Control")).isEqualTo("no-store");
+        for (var request : new MockHttpServletRequest[] {request("GET", ApplicationTrackingRoutes.WITHDRAW, "text/plain"),
+                request("PATCH", ApplicationTrackingRoutes.WITHDRAW, "text/plain"),
+                request("POST", ApplicationTrackingRoutes.WITHDRAW + "/", "text/plain"),
+                request("PATCH", "/api/v1/public/applications/code/withdraw", "text/plain")}) {
+            var response = new MockHttpServletResponse();
+            var calls = new AtomicInteger();
+            filter.doFilter(request, response, (req, res) -> calls.incrementAndGet());
+            assertThat(calls).as(request.getMethod() + " " + request.getServletPath()).hasValue(1);
+            assertThat(response.getHeader("Cache-Control")).isNull();
+        }
+    }
+
     @Test
     void refusalsAreWrittenBeforeTheChainWithNoStore() throws Exception {
         var filter = new ApplicationTrackingRequestFilter(json, 1);

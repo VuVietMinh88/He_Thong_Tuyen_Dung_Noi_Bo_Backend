@@ -29,14 +29,19 @@ record ReadableApplication(
         String sourceName,
         String cvFilename,
         String cvContentType,
-        Integer cvSizeBytes) {
+        Integer cvSizeBytes,
+        // Task 345: when the candidate withdrew and the optional reason, from the WITHDRAWN stage event; both null when
+        // the application was not withdrawn by the candidate.
+        Instant withdrawnAt,
+        String withdrawalReason) {
 
     private static final String PDF = "application/pdf";
     private static final String DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     ApplicationDetail detail(boolean current) {
         return new ApplicationDetail(id, current, jobPostingId, postingTitle, departmentName, receivedAt, stage,
-                stage.displayName(), fullName, email, phone, ApplicationSource.careerPage(sourceName),
+                stage.displayName(), withdrawnAt, withdrawalReason, fullName, email, phone,
+                ApplicationSource.careerPage(sourceName),
                 primaryRecruiterId, primaryRecruiterName, managerId, managerName, coverLetter, cvFilename,
                 cvFileType(cvContentType), cvSizeBytes);
     }

@@ -42,7 +42,7 @@ public class SecurityConfiguration {
                 return null;
             }
             // Task 339: a candidate has no account; the frontend attaches any stored bearer, which must not block a
-            // lookup. The credential is the tracking code and email in the body.
+            // lookup (or, from task 345, a withdrawal). The credential is the tracking code and email in the body.
             if (ApplicationTrackingRoutes.isPublicPost(request)) {
                 return null;
             }
@@ -106,6 +106,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, ApplicationIntakeRoutes.SOURCES).permitAll()
                         // Task 339: the candidate's lookup; only this method and path, never a GET with the secret in it.
                         .requestMatchers(HttpMethod.POST, ApplicationTrackingRoutes.LOOKUP).permitAll()
+                        // Task 345: the candidate's withdrawal; the same credential in the body, never a PATCH with the
+                        // code in the path.
+                        .requestMatchers(HttpMethod.POST, ApplicationTrackingRoutes.WITHDRAW).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
                                 "/api/v1/auth/activate-account").permitAll()

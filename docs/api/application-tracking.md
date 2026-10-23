@@ -2,7 +2,7 @@
 
 Phạm vi TKNHTTDNB1-340 (ánh xạ trạng thái nội bộ thành trạng thái công khai), TKNHTTDNB1-339 (tra cứu bằng mã tra cứu và email) và TKNHTTDNB1-341 (không tiết lộ nhận xét nội bộ, đánh giá hay tên người phỏng vấn), story TKNHTTDNB1-44 (S4-05): ứng viên tra cứu trạng thái hồ sơ của mình bằng mã tra cứu, để biết hồ sơ đã được xem chưa mà không phải gọi điện hỏi. Task 340 thêm quy tắc ánh xạ dùng chung `PublicApplicationStatus` (mục "Trạng thái công khai (task 340)"), không thêm API, migration hay mã quyền. Task 339 thêm API công khai `POST /api/v1/public/applications/lookup` (mục "Tra cứu hồ sơ (task 339)") và migration V31 cho hạn mức theo IP, không thêm mã quyền. Task 341 không đổi API: ghim bằng test và tài liệu rằng API công khai chỉ trả bốn trường được phép (mục "Dữ liệu công khai (task 341)"). Hồ sơ được nộp qua [API nhận hồ sơ công khai](public-applications.md) (task 326); mã tra cứu được trả trong response nộp hồ sơ và gửi trong [email xác nhận](application-confirmation.md) (task 329).
 
-Story TKNHTTDNB1-45 (S4-06, "Rút hồ sơ") dùng lại chính mã tra cứu. Task TKNHTTDNB1-344 tạo liên kết rút hồ sơ `#rut=<mã>` và bước kiểm liên kết dưới khóa `ApplicationWithdrawalAccess` (mục "Liên kết rút hồ sơ (task 344)"); chưa thêm API, migration, mã quyền hay đoạn nào trong email. API rút hồ sơ và đoạn mời rút hồ sơ trong email xác nhận là task 345.
+Story TKNHTTDNB1-45 (S4-06, "Rút hồ sơ") dùng lại chính mã tra cứu. Task TKNHTTDNB1-344 tạo liên kết rút hồ sơ `#rut=<mã>` và bước kiểm liên kết dưới khóa `ApplicationWithdrawalAccess` (mục "Liên kết rút hồ sơ (task 344)"); chưa thêm API, migration, mã quyền hay đoạn nào trong email. Task TKNHTTDNB1-345 thêm API công khai `POST /api/v1/public/applications/withdraw`, migration V34 (lịch sử giai đoạn của hồ sơ), đoạn mời rút hồ sơ trong email xác nhận và `actions.canWithdraw` trong kết quả tra cứu (mục "Rút hồ sơ (task 345)"); không thêm mã quyền.
 
 Tiêu chí của story S4-05:
 
@@ -55,12 +55,13 @@ HTTP/1.1 200
 Cache-Control: no-store
 Content-Type: application/json
 
-{"postingTitle":"Lập trình viên Java","receivedAt":"2026-10-15T03:00:00Z","status":"RECEIVED","statusName":"Đã nhận"}
+{"postingTitle":"Lập trình viên Java","receivedAt":"2026-10-15T03:00:00Z","status":"RECEIVED","statusName":"Đã nhận","actions":{"canWithdraw":true}}
 ```
 
 - `postingTitle`: tên vị trí **lúc nộp hồ sơ** (`job_applications.posting_title`); đổi tên tin sau đó không đổi giá trị này.
 - `receivedAt`: thời điểm hệ thống nhận hồ sơ (UTC, ISO 8601).
 - `status`, `statusName`: trạng thái công khai của mục "Trạng thái công khai (task 340)", không bao giờ là giai đoạn nội bộ.
+- `actions.canWithdraw` (từ task 345): `true` khi hồ sơ còn rút được, tức giai đoạn còn trong quy trình; xem mục "Rút hồ sơ (task 345)".
 - Không có gì khác: không có mã hồ sơ, mã yêu cầu tuyển dụng, mã tin, giai đoạn nội bộ, họ tên, email, số điện thoại, nguồn biết tin, thư giới thiệu, CV hay tên nhân viên. Trạng thái của yêu cầu tuyển dụng hay tin tuyển dụng (tạm dừng, đã đóng) không được đọc.
 - Mã tra cứu và email được bỏ ký tự vô hình ở hai đầu (khoảng trắng, khoảng trắng không ngắt, ký tự rộng 0) theo cùng quy tắc với API nộp hồ sơ; email không phân biệt hoa thường (`Locale.ROOT`, như lúc lưu). Một giá trị chỉ gồm ký tự vô hình được coi là không nhập.
 - API không bao giờ trả 401 hay 403: route là `permitAll`, và Bearer token cũ bị bỏ qua (frontend gắn Bearer đã lưu vào mọi request; nếu không bỏ qua, một token hết hạn sẽ đưa ứng viên sang trang đăng nhập). Gửi kèm token hợp lệ của nhân viên cũng không đổi gì.
@@ -165,6 +166,7 @@ Tiêu chí thứ ba của story S4-05: "Không tiết lộ nhận xét nội b�
 | `postingTitle` | `job_applications.posting_title` (bản chụp lúc nộp) | Ứng viên đã thấy tên này trên tin lúc nộp |
 | `receivedAt` | `job_applications.received_at` | Thời điểm của chính lần nộp |
 | `status`, `statusName` | `job_applications.stage`, chỉ qua `PublicApplicationStatus.of` (task 340) | Tiêu chí thứ hai của story; giai đoạn nội bộ không ra ngoài |
+| `actions.canWithdraw` (task 345) | `job_applications.stage`, chỉ qua `ApplicationStage.active()` | Cho trang tra cứu biết có hiện nút rút hồ sơ không; giai đoạn còn trong quy trình luôn có trạng thái khác `COMPLETED`, giai đoạn kết thúc luôn là `COMPLETED`, nên cờ này không cho biết thêm gì ngoài `status` |
 
 Câu SQL chỉ đọc bảng `job_applications`: ba cột trên, cộng `tracking_code_hash`, `normalized_email`, `tracking_revoked_at` để tìm đúng dòng. Nó không nối (join) bảng nào khác: tài khoản nhân viên, yêu cầu tuyển dụng, nhóm recruiter, phòng ban, tin, danh mục, CV, hàng đợi email, các bảng lịch sử. Response là một record riêng chỉ có trường công khai (danh sách cho phép), không phải dòng dữ liệu nội bộ bị ẩn bớt trường (danh sách cấm), nên một cột mới của bảng nội bộ không tự xuất hiện trong response.
 
@@ -174,6 +176,8 @@ Ngoài API tra cứu, ứng viên nhận dữ liệu hồ sơ ở đúng hai ch�
 - [Email xác nhận](application-confirmation.md) (task 329), gửi tới email đã nộp: họ tên đã nộp, tên vị trí (bản chụp), thời điểm tiếp nhận, mã tra cứu và liên kết tra cứu.
 
 API tra cứu không trả lại các dữ liệu đó.
+
+Response 200 của API rút hồ sơ (task 345, record `ApplicationWithdrawalView`) cũng là một danh sách cho phép: `postingTitle`, `receivedAt`, `status`, `statusName` như trên (không có `actions`) và `withdrawnAt`, thời điểm rút. `PublicApplicationResponsesTest` và `PublicApplicationPrivacyIntegrationTest` ghim nó như response tra cứu; lý do rút không bao giờ được trả lại.
 
 ### Không bao giờ trả cho ứng viên qua API tra cứu
 
@@ -265,3 +269,116 @@ Người gọi đọc đồng hồ **sau** lời gọi này (sau lần chờ kh�
 - Không lưu mã hay email vào `localStorage`/`sessionStorage`; phục vụ trang với `Content-Security-Policy: frame-ancestors 'none'`.
 
 Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 26, ý (1)–(3).
+
+## Rút hồ sơ (task 345)
+
+Story S4-06 (TKNHTTDNB1-45): "Rút hồ sơ qua liên kết trong email xác nhận, có xác nhận lại trước khi thực hiện". Ứng viên không có tài khoản rút một lần ứng tuyển ra khỏi quy trình bằng đúng cặp mã tra cứu và email của API tra cứu, kèm `confirm: true`. API công khai, không thêm mã quyền; migration V34 (`application_stage_events`, xem [dữ liệu](../database/README.md)); ma trận quyền có thêm một dòng công khai (1581 ca).
+
+```http
+POST /api/v1/public/applications/withdraw
+Content-Type: application/json
+
+{"trackingCode":"<43 ký tự base64url>","email":"nguyenvana@example.com","reason":"Đã tìm được công việc khác","confirm":true}
+```
+
+```http
+HTTP/1.1 200
+Cache-Control: no-store
+Content-Type: application/json
+
+{"postingTitle":"Lập trình viên Java","receivedAt":"2026-10-15T03:00:00Z","status":"COMPLETED","statusName":"Kết thúc","withdrawnAt":"2026-10-16T02:00:00Z"}
+```
+
+- `trackingCode`, `email`: như API tra cứu (cùng thông báo lỗi, bỏ ký tự vô hình ở hai đầu, email không phân biệt hoa thường).
+- `confirm`: bắt buộc là giá trị JSON `true`. Thiếu, `null` hay `false` trả 400 `VALIDATION_ERROR` và không rút gì. Chuỗi hay số (ví dụ `"true"`, `"TRUE"`, `1`) không được đổi thành `true`: trả 400 `INVALID_JSON`, cũng không rút gì. Frontend chỉ gửi `true` từ hộp thoại hỏi lại ứng viên (bước "xác nhận lại trước khi thực hiện" của tiêu chí), nên một liên kết bị trình quét thư mở, hay một form gửi thiếu bước đó, không rút được hồ sơ.
+- `reason`: không bắt buộc, tối đa 500 ký tự, văn bản thuần (`@PlainText`, cho phép xuống dòng và tab; ký tự điều khiển khác và thẻ HTML bị từ chối). `\r\n` và `\r` được đổi thành `\n`; lý do không có ký tự nhìn thấy được (chỉ khoảng trắng, khoảng trắng không ngắt, ký tự rộng 0, xuống dòng) coi như không ghi và được lưu `NULL`. Lý do chỉ người có phạm vi xem ứng viên thấy trong hồ sơ ứng viên (task 361); nó không bao giờ được trả lại cho ứng viên hay đưa vào email.
+- Không có trường nào khác: trường lạ (ví dụ `stage`) trả 400 `INVALID_JSON`; `confirm` là chuỗi, số, mảng hay object cũng vậy.
+- Response 200, cho lần gọi đầu và mọi lần gọi lại: đúng năm khóa. Tên vị trí và thời điểm nộp là bản chụp như API tra cứu; trạng thái công khai của `WITHDRAWN` (`COMPLETED`, "Kết thúc", task 340); `withdrawnAt` là thời điểm rút (UTC, tới micro giây). `withdrawnAt` là `null` chỉ khi hồ sơ đã ở `WITHDRAWN` mà không có dòng lịch sử (đổi bằng SQL trước task 345). Không có id, giai đoạn nội bộ, lý do hay dữ liệu liên hệ.
+- Như API tra cứu: Bearer cũ bị bỏ qua, không bao giờ trả 401/403, cùng bộ lọc bảo vệ và cùng cổng đồng thời.
+
+Thứ tự kiểm tra: CORS → bộ lọc bảo vệ (`no-store`; query string; kiểu nội dung; kích thước; đọc trọn thân, tối đa 8 KiB; cổng đồng thời) → bỏ qua Bearer → `permitAll` → đọc JSON (400) → kiểm dữ liệu, gồm `confirm` và `reason` (400) → mã đúng cách viết chuẩn (400) → địa chỉ IP của client (400) → hạn mức dùng chung với tra cứu (429/503) → transaction rút hồ sơ (404/409/200) → lỗi bất ngờ (503). Mọi bước kiểm dữ liệu chạy trước mọi truy cập database, nên yêu cầu sai dạng không tính lượt và không đổi gì.
+
+### Lỗi (task 345)
+
+Mọi lỗi của API tra cứu ở mục "Tra cứu hồ sơ (task 339)" (400 dữ liệu và query string, `INVALID_JSON`, `APPLICATION_CLIENT_IP_INVALID`; 413; 415; 429; 503 `APPLICATION_TRACKING_BUSY` và `APPLICATION_TRACKING_UNAVAILABLE`), thêm:
+
+| HTTP | `code` | Khi nào / thông báo |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | `fieldErrors.confirm` "Vui lòng xác nhận rút hồ sơ." (thiếu, `null` hoặc `false`); `fieldErrors.reason` "Lý do tối đa 500 ký tự." hoặc "Chỉ được nhập văn bản thuần có ký tự nhìn thấy được, không chứa thẻ HTML hoặc ký tự điều khiển." (ví dụ có ký tự NUL hoặc `<script`) |
+| 404 | `APPLICATION_LOOKUP_NOT_FOUND` | Giống hệt từng byte 404 của API tra cứu (status, thân, header): mã không tồn tại, email sai, mã đã thu hồi, kể cả mã bị thu hồi trong lúc yêu cầu đang chờ khóa |
+| 409 | `APPLICATION_NOT_WITHDRAWABLE` | "Hồ sơ đã có kết quả nên không thể rút nữa.": hồ sơ ở `HIRED` hoặc `REJECTED`; không ghi gì |
+| 503 | `APPLICATION_TRACKING_UNAVAILABLE` | Như tra cứu, thêm: chờ khóa quá 2 giây, câu lệnh quá 3 giây, commit thất bại; không còn gì của lần rút |
+
+### Rút được khi nào, gọi lại thì sao
+
+| Giai đoạn đọc được dưới khóa | Kết quả |
+|---|---|
+| `NEW`, `SCREENING`, `INTERVIEW`, `OFFER` | Chuyển sang `WITHDRAWN` và ghi một dòng lịch sử; 200 với `withdrawnAt` là lúc này |
+| `WITHDRAWN` | Lần gọi lại: không ghi gì; 200 với `withdrawnAt` của lần rút đầu (hoặc `null` khi không có dòng lịch sử) |
+| `HIRED`, `REJECTED` | 409 `APPLICATION_NOT_WITHDRAWABLE` |
+
+- `switch` trên giai đoạn liệt kê đủ bảy giá trị, không có nhánh `default`: thêm một giai đoạn thì code không biên dịch được cho tới khi có người quyết định giai đoạn đó có rút được không.
+- Gọi lại luôn trả 200 với cùng thân, dù lý do hay thời điểm gửi lần sau khác: ứng viên bấm hai lần, hoặc mạng gửi lại, không gặp lỗi và không ghi đè lý do.
+- Không kiểm trạng thái yêu cầu tuyển dụng hay tin: ứng viên rút được cả khi yêu cầu đã tạm dừng, đã tuyển đủ, đã hủy, khi tin đã đóng hay đã quá hạn nộp (câu hỏi 26, ý 4).
+
+### Khóa và transaction (task 345)
+
+1. Hạn mức V31 chạy trước, trong transaction riêng đã commit, như tra cứu: lượt được tính dù kết quả là 200, 404 hay 409.
+2. Một transaction REQUIRES_NEW, READ COMMITTED, tối đa 5 giây, `lock_timeout` 2 giây, `statement_timeout` 3 giây (như transaction nhận hồ sơ của task 329).
+3. `ApplicationWithdrawalAccess.lock` (task 344): khóa yêu cầu tuyển dụng `FOR NO KEY UPDATE`, rồi dòng hồ sơ `FOR NO KEY UPDATE`, và kiểm lại mã, email và mã chưa thu hồi trên dòng đã khóa. Không tìm thấy → 404.
+4. Đọc đồng hồ **sau** lần chờ khóa cuối cùng, cắt tới micro giây (độ chính xác của PostgreSQL).
+5. `UPDATE job_applications SET stage = 'WITHDRAWN' WHERE id = ? AND stage = ?` với đúng giai đoạn đã khóa (phải đổi đúng một dòng), rồi chèn dòng `application_stage_events` (`CANDIDATE`, không có tài khoản, giai đoạn trước, lý do, thời điểm) bằng `JdbcTemplate` trong **cùng** transaction. Hai việc commit cùng nhau hoặc không việc nào. Không ghi dòng lịch sử trong transaction riêng: khóa ngoại của nó chỉ lấy `FOR KEY SHARE` trên dòng hồ sơ đang khóa, nên một transaction riêng không phải chờ và sẽ commit dòng lịch sử ngay cả khi việc đổi giai đoạn thất bại lúc commit.
+6. Lỗi khóa, quá thời gian, commit thất bại hay lỗi bất ngờ: 503 `APPLICATION_TRACKING_UNAVAILABLE`, không còn gì của lần rút.
+
+Hai lần rút cùng một hồ sơ chạy lần lượt trên khóa của yêu cầu; lần sau đọc thấy `WITHDRAWN` và là một lần gọi lại. Rút hồ sơ và đóng yêu cầu (task 292), tạm dừng hay đổi nhóm recruiter cũng chạy lần lượt, vì tất cả đều khóa yêu cầu trước. Unique index `application_stage_events_one_withdrawal_idx` là chốt cuối nếu sau này một đường ghi bỏ qua khóa, và trigger `application_stage_events_immutable` chặn mọi `UPDATE` dòng lịch sử.
+
+### Sau khi rút
+
+- Hồ sơ ra khỏi quy trình ngay khi commit: `ApplicationPipelineSource` chỉ đếm giai đoạn còn hoạt động, nên bước kiểm khi đóng yêu cầu (task 291) và `GET /requisitions/{id}/active-pipeline` không còn tính hồ sơ đó. Rút hồ sơ cuối cùng còn trong quy trình thì đóng yêu cầu vì đã tuyển đủ không cần `confirmActiveCandidates` (xem [tạm dừng, đóng và hủy yêu cầu](requisition-status.md#dành-cho-module-ứng-viên)).
+- API tra cứu hiện `COMPLETED` ("Kết thúc") và `actions.canWithdraw: false`. Mã vẫn tra cứu được (câu hỏi 26, ý 2).
+- Hồ sơ ứng viên hợp nhất (task 361) có thêm `withdrawnAt` và `withdrawalReason` ở lần ứng tuyển đó, chỉ với người được đọc lần ứng tuyển đó; `updatedAt` tính cả `withdrawnAt` (xem [hồ sơ ứng viên](candidate-profiles.md#response-200)).
+- Email vẫn giữ chỗ trong yêu cầu đó: nộp lại vào cùng yêu cầu vẫn trả 409 `APPLICATION_ALREADY_SUBMITTED` (task 327, [chặn hồ sơ trùng](application-duplicates.md)). Rút là kết thúc; có cần cho HR hoàn tác việc rút không, và ai được làm, là câu hỏi 26, ý 6.
+- Email báo cho recruiter chính và cho ứng viên sau khi rút là task 346.
+
+### Ai rút được hồ sơ
+
+Quyền duy nhất API kiểm là giữ mã tra cứu của đúng lần ứng tuyển đó cùng email đã dùng khi nộp. Vì vậy ai đọc được email xác nhận (bị chuyển tiếp, hộp thư dùng chung) đều rút được hồ sơ. Email báo cho ứng viên của task 346 giúp ứng viên phát hiện việc rút không do mình làm. Mã bị lộ được thu hồi theo mục "Thu hồi mã (task 339)"; sau đó rút hồ sơ trả 404. Hệ thống không lưu dấu vết kỹ thuật của yêu cầu rút (IP, trình duyệt); có cần lưu không là câu hỏi 26, ý 7.
+
+### `actions.canWithdraw` trong tra cứu
+
+Response của API tra cứu có thêm `actions` với đúng một khóa: `canWithdraw` là `true` khi giai đoạn còn trong quy trình (`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`) và `false` khi đã có kết quả hoặc đã rút (theo mẫu `actions.canUnpublish` của cổng việc làm). Giá trị lấy từ cùng cột `stage`, nên API tra cứu vẫn chỉ đọc bảng `job_applications` (test khóa mọi bảng khác vẫn qua). Mọi giai đoạn còn trong quy trình có trạng thái công khai khác `COMPLETED` và mọi giai đoạn kết thúc có `COMPLETED`, nên cờ này không cho ứng viên biết thêm gì ngoài `status`.
+
+### Đoạn rút hồ sơ trong email xác nhận
+
+Email xác nhận (task 329) có thêm một đoạn sau liên kết tra cứu, kèm liên kết `#rut=<mã>` của task 344: "Nếu không muốn tiếp tục ứng tuyển, bạn có thể rút hồ sơ tại liên kết sau. Hệ thống sẽ hỏi email đã dùng khi nộp hồ sơ và yêu cầu bạn xác nhận lại trước khi rút:". Đoạn được dựng lúc gửi từ mã đã giải mã, nên thư còn trong hàng đợi lúc deploy cũng có liên kết; thư đã gửi trước task 345 thì không (câu hỏi 26, ý 3). Xem [email xác nhận](application-confirmation.md#nội-dung-thư).
+
+### Ví dụ (PowerShell)
+
+```powershell
+$body = @{ trackingCode = '<43 ký tự>'; email = 'nguyenvana@example.com'; reason = 'Đã tìm được công việc khác'; confirm = $true } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/v1/public/applications/withdraw' `
+    -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+```
+
+Không gửi header `Authorization`. Gọi lại cùng lệnh trả cùng kết quả.
+
+### Kiểm thử (task 345)
+
+- `ApplicationTextTest` (unit): văn bản chỉ gồm NBSP, U+2007, U+202F, U+0085, U+180E, U+200B, U+FEFF, U+2060, U+3000 hay ký tự điều khiển → không có văn bản; văn bản có ký tự nhìn thấy được giữ nguyên như đã gửi; `\r\n` và `\r` → `\n`; request rút hồ sơ đổi xuống dòng rồi bỏ lý do vô hình, bỏ ký tự vô hình hai đầu của mã và email, `toString` không lộ dữ liệu.
+- `ApplicationStageEventMigrationTest`: nâng cấp từ migration ngay trước V34 giữ nguyên mọi hồ sơ, bảng mới rỗng; rút từ bốn giai đoạn còn hoạt động và thay đổi của nhân viên được nhận; CHECK từ chối `CANDIDATE` có tài khoản, `STAFF` không có tài khoản, loại người làm lạ, `CANDIDATE` sang giai đoạn khác `WITHDRAWN` hoặc từ `HIRED`/`REJECTED`, trước bằng sau, giai đoạn lạ, lý do rỗng hoặc chỉ khoảng trắng; cột `VARCHAR(500)` từ chối lý do 501 ký tự; lần rút thứ hai của một hồ sơ bị unique index từ chối (23505); `UPDATE` bị chặn (23514); xóa tài khoản còn được tham chiếu bị từ chối; xóa hồ sơ xóa lịch sử của nó.
+- `ApplicationWithdrawalIntegrationTest` (HTTP thật): bốn giai đoạn còn hoạt động → 200 đúng năm khóa, `WITHDRAWN`, một dòng lịch sử `CANDIDATE` đúng giai đoạn trước, lý do và thời điểm micro giây, một lượt hạn mức; số hồ sơ đang xử lý giảm từng hồ sơ, đóng yêu cầu bị 409 khi còn một hồ sơ và được 200 không cần xác nhận sau hồ sơ cuối; `canWithdraw` đúng theo bảy giai đoạn, sau khi rút là `COMPLETED` và `false`; gọi lại → cùng thân, không ghi thêm; `WITHDRAWN` bằng SQL → 200 với `withdrawnAt` `null`; `HIRED`, `REJECTED` → 409, không đổi gì; email sai, mã lạ, mã đã thu hồi → đúng 404 của tra cứu; thiếu, `null`, `false` `confirm`, `confirm` là `"true"`, `"TRUE"`, `1`, `"false"`, `0`, mảng hay object (`INVALID_JSON`), lý do 501 ký tự, có NUL hoặc `<script`, mã không chuẩn, mã ngắn, email sai, trường lạ, query string, `text/plain`, quá 8 KiB → 400/415/413, không tính lượt, không đổi gì; xuống dòng Windows lưu thành `\n`, đúng 500 ký tự được nhận, lý do vô hình và không có lý do lưu `NULL`; yêu cầu tạm dừng, tuyển đủ, hủy, tin đã đóng, quá hạn nộp vẫn rút được; nộp lại cùng yêu cầu vẫn trùng (409); không Bearer và Bearer cũ đều 200; hồ sơ ứng viên hiện thời điểm và lý do rút cho người trong phạm vi, không hiện gì của lần đã rút cho người chỉ đọc được lần khác; lỗi lúc commit (trigger ràng buộc hoãn tới commit) → 503, giai đoạn không đổi và **không** có dòng lịch sử nào.
+- `ApplicationWithdrawalLockIntegrationTest` (HTTP thật, `pg_blocking_pids` và thử khóa `NOWAIT`, không `sleep`): hai lần rút cùng lúc → hai 200 cùng thân, một dòng lịch sử; lần rút chờ yêu cầu đang bị giữ (trong lúc dòng hồ sơ vẫn khóa được), rồi thành công sau khi bên giữ commit `FILLED`; khi dòng hồ sơ bị giữ, lần rút giữ yêu cầu (khóa chia sẻ bị từ chối ngay) và lần đóng yêu cầu xếp hàng sau nó, rồi đóng được mà không cần xác nhận; mã bị thu hồi trong lúc chờ → 404, không ghi gì.
+- `ApplicationTrackingQuotaIntegrationTest` (`max-attempts=3`): tra cứu, rút, tra cứu dùng hết ba lượt của cùng bucket; lần rút sau bị 429 và không rút gì.
+- `ApplicationTrackingRequestFilterTest`: đúng POST của đường dẫn rút hồ sơ được bảo vệ như tra cứu; GET, PATCH và đường dẫn khác thì không thuộc bộ lọc.
+- Cập nhật có chủ ý: `PublicApplicationResponsesTest` (`PublicApplicationView` thêm `actions` với đúng `canWithdraw`; `ApplicationWithdrawalView` đúng năm thành phần, JSON đúng năm khóa kể cả `withdrawnAt` `null`), `PublicApplicationPrivacyIntegrationTest` (năm khóa của tra cứu; response rút hồ sơ không chứa gì nội bộ hay lý do), `ApplicationLookupIntegrationTest` (năm khóa, `canWithdraw` theo giai đoạn), `ApplicationConfirmationIntegrationTest` của TRAN DUC LUONG (thư có "rút hồ sơ" và `https://portal.example.test/tra-cuu#rut=<mã>`), `ApplicationCommonMailConfigurationTest` của TRAN DUC LUONG (đăng ký thêm `ApplicationConfirmationSettings`, bean mà người gửi thư nay cần).
+- `ApiAuthorizationMatrixIntegrationTest`: dòng công khai `POST /api/v1/public/applications/withdraw` (400 với thân `{}` cho mọi vai trò, khi không đăng nhập và với Bearer cũ); `PATCH /api/v1/public/applications/{id}/withdraw` của frontend bị từ chối.
+
+### Ghi chú cho frontend (task 343)
+
+- Đổi `PATCH /public/applications/{code}/withdraw` với `{reason}` (CORS không cho phép PATCH, và mã nằm trên đường dẫn) thành `POST /api/v1/public/applications/withdraw` với `{trackingCode, email, reason, confirm: true}`. Chỉ gọi sau khi ứng viên nhập email và bấm xác nhận trong hộp thoại hỏi lại; không gọi khi tải trang, kể cả khi trang mở từ liên kết `#rut=`.
+- Hiện nút rút hồ sơ theo `actions.canWithdraw` của API tra cứu, không tự suy từ `status` (trang tra cứu đang chỉ cho rút khi `RECEIVED`, `IN_REVIEW` hoặc `INTERVIEW`, nên hồ sơ `INTERVIEWING` sẽ mất nút).
+- Server không bắt buộc lý do; frontend có thể vẫn bắt chọn lý do, tối đa 500 ký tự.
+- 200 cũng là kết quả của lần gọi lại: hiện "Đã rút hồ sơ" và `withdrawnAt`. Hiện `message` của server cho 404 và 409; xử lý 400, 413, 415, 429, 503 như API tra cứu (không đưa người dùng sang `/login` hay `/unauthorized`).
+- Không lưu mã hay email vào `localStorage`/`sessionStorage`.
+
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 26, ý (4)–(7).

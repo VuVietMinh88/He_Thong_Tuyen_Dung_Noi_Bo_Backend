@@ -134,6 +134,9 @@ Bạn có thể dùng liên kết sau để tra cứu hồ sơ:
 
 Vui lòng giữ mã và liên kết này để theo dõi hồ sơ.
 
+Nếu không muốn tiếp tục ứng tuyển, bạn có thể rút hồ sơ tại liên kết sau. Hệ thống sẽ hỏi email đã dùng khi nộp hồ sơ và yêu cầu bạn xác nhận lại trước khi rút:
+{liên kết rút hồ sơ}
+
 Email này xác nhận hồ sơ đã được tiếp nhận.
 Kết quả tuyển dụng sẽ được thông báo sau.
 
@@ -142,6 +145,14 @@ Hệ thống tuyển dụng nội bộ
 
 Không đính kèm CV/thông tin nội bộ. Mẫu cố định theo nền kích hoạt/reset; quản lý template và
 resend HR theo story riêng. Snapshot tên vị trí/thời gian không thay theo tin sửa sau đó.
+
+Đoạn rút hồ sơ (task 345, story S4-06): `{liên kết rút hồ sơ}` là
+`ApplicationConfirmationSettings.withdrawalUrl(mã)` của task 344, tức cùng trang tra cứu với cùng mã,
+sau `#rut=` thay cho `#ma=` (xem [liên kết rút hồ sơ](application-tracking.md#liên-kết-rút-hồ-sơ-task-344)).
+`ApplicationConfirmationMailSender` dựng đoạn này **lúc gửi** từ mã đã giải mã: payload, mã hóa,
+AAD và V28 không đổi, và thư còn trong hàng đợi lúc deploy cũng có liên kết. Thư đã gửi trước task 345
+không có đoạn này; ứng viên vẫn rút được từ trang tra cứu (câu hỏi 26, ý 3). Đoạn chỉ có cùng API rút
+hồ sơ, vì thư đã gửi thì không lấy lại được.
 
 ## Kiểm thử và phạm vi
 

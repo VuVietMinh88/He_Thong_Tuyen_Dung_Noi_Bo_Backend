@@ -19,17 +19,39 @@ import static vn.ttcs.recruitment.application.PublicResponseContract.assertNoInt
 
 /**
  * Task 341 (story S4-05, "Không tiết lộ nhận xét nội bộ hay tên người phỏng vấn"): the records a candidate receives are
- * whitelists. The lookup's view has exactly its four public fields; the intake's receipt carries nothing but the
- * candidate's own receipt. The last tests check PublicResponseContract itself, since the guarantee is only as good as
- * the check that pins it.
+ * whitelists. The lookup's view has exactly its four public fields (from task 345 also actions.canWithdraw); the
+ * withdrawal's answer (task 345) has its five; the intake's receipt carries nothing but the candidate's own receipt.
+ * The last tests check PublicResponseContract itself, since the guarantee is only as good as the check that pins it.
  */
 class PublicApplicationResponsesTest {
     private static final Instant RECEIVED_AT = Instant.parse("2026-10-15T03:00:00Z");
 
+    // Task 345 adds actions, whose only component is canWithdraw.
     @Test
-    void theLookupViewIsExactlyItsFourPublicFields() {
-        assertExactComponents(PublicApplicationView.class, "postingTitle", "receivedAt", "status", "statusName");
+    void theLookupViewIsExactlyItsFourPublicFieldsAndItsActions() {
+        assertExactComponents(PublicApplicationView.class, "postingTitle", "receivedAt", "status", "statusName",
+                "actions");
+        assertExactComponents(PublicApplicationView.Actions.class, "canWithdraw");
         assertNoInternalComponents(PublicApplicationView.class);
+    }
+
+    // Task 345: the withdrawal answers the lookup's public fields, without actions, plus the time of the withdrawal.
+    @Test
+    void theWithdrawalViewIsExactlyItsFivePublicFields() {
+        assertExactComponents(ApplicationWithdrawalView.class, "postingTitle", "receivedAt", "status", "statusName",
+                "withdrawnAt");
+        assertNoInternalComponents(ApplicationWithdrawalView.class);
+
+        var json = JsonMapper.builder().build();
+        var view = ApplicationWithdrawalView.of("Lập trình viên Java", RECEIVED_AT, Instant.parse("2026-10-16T02:00:00Z"));
+        assertThat(view).isEqualTo(new ApplicationWithdrawalView("Lập trình viên Java", RECEIVED_AT, "COMPLETED",
+                "Kết thúc", Instant.parse("2026-10-16T02:00:00Z")));
+        assertJsonKeys(json.readTree(json.writeValueAsString(view)), "postingTitle", "receivedAt", "status",
+                "statusName", "withdrawnAt");
+        // A WITHDRAWN row without an event still answers every key, withdrawnAt as null.
+        var node = json.readTree(json.writeValueAsString(ApplicationWithdrawalView.of("Kế toán", RECEIVED_AT, null)));
+        assertJsonKeys(node, "postingTitle", "receivedAt", "status", "statusName", "withdrawnAt");
+        assertThat(node.get("withdrawnAt").isNull()).isTrue();
     }
 
     // applicationId, trackingCode and trackingUrl are the candidate's own receipt, returned once to the person who
@@ -42,26 +64,31 @@ class PublicApplicationResponsesTest {
                 "applicationId", "trackingCode", "trackingUrl");
     }
 
-    // The view is built from the stage but never carries it: only task 340's public code and label.
+    // The view is built from the stage but never carries it: only task 340's public code and label, and (task 345)
+    // whether the stage is still in the pipeline, which is exactly whether the status is not COMPLETED.
     @ParameterizedTest
     @EnumSource(ApplicationStage.class)
     void theViewCarriesThePublicStatusNeverTheStage(ApplicationStage stage) {
         var view = PublicApplicationView.of("Lập trình viên Java", RECEIVED_AT, stage);
 
         assertThat(view).isEqualTo(new PublicApplicationView("Lập trình viên Java", RECEIVED_AT,
-                PublicApplicationStatus.of(stage).name(), PublicApplicationStatus.of(stage).displayName()));
+                PublicApplicationStatus.of(stage).name(), PublicApplicationStatus.of(stage).displayName(),
+                new PublicApplicationView.Actions(stage.active())));
         assertThat(List.of(view.status(), view.statusName())).doesNotContain(stage.name(), stage.displayName());
+        assertThat(view.actions().canWithdraw()).isEqualTo(!view.status().equals("COMPLETED"));
     }
 
     @Test
-    void theViewSerializesToExactlyItsFourKeys() {
+    void theViewSerializesToExactlyItsFourKeysAndItsActions() {
         var json = JsonMapper.builder().build();
         var node = json.readTree(json.writeValueAsString(
                 PublicApplicationView.of("Lập trình viên Java", RECEIVED_AT, ApplicationStage.OFFER)));
 
-        assertJsonKeys(node, "postingTitle", "receivedAt", "status", "statusName");
+        assertJsonKeys(node, "postingTitle", "receivedAt", "status", "statusName", "actions");
         assertThat(node.get("status").asString()).isEqualTo("INTERVIEWING");
         assertThat(node.get("statusName").asString()).isEqualTo("Mời phỏng vấn");
+        assertJsonKeys(node.get("actions"), "canWithdraw");
+        assertThat(node.get("actions").get("canWithdraw").asBoolean()).isTrue();
     }
 
     // What a Sprint 5 or 6 change could add by mistake: each one is refused.

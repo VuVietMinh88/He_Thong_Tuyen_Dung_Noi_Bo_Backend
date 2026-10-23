@@ -20,9 +20,12 @@ import java.util.UUID;
  * as uploaded, pdf or docx from the stored type, the size in bytes; the bytes are task 362's GET
  * /applications/{id}/cv.
  * <p>
+ * Task 345 (story S4-06): withdrawnAt and withdrawalReason (the frontend's ApplicationRecord name) come from the
+ * candidate's withdrawal (V34); a reader sees them only for an application in their scope, like everything here.
+ * <p>
  * Never here: a CV URL, the CV bytes or hash, the tracking code or its hash, the requisition id, the normalized email,
  * any staff email, a candidate code or a rating. NON_NULL leaves out what an application does not have (cover letter,
- * recruiter, CV). toString shows ids only.
+ * recruiter, CV, withdrawal). toString shows ids only.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ApplicationDetail(
@@ -35,6 +38,10 @@ public record ApplicationDetail(
         Instant appliedAt,
         ApplicationStage stage,
         String stageName,
+        // Task 345: when the candidate withdrew the application and the reason they gave (optional, at most 500
+        // characters, as typed, line breaks included); left out unless the candidate withdrew it.
+        Instant withdrawnAt,
+        String withdrawalReason,
         String fullName,
         String email,
         String phone,

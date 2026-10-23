@@ -11,6 +11,8 @@ chỉ bật khi cấu hình triển khai và writer sẵn sàng.
   Không bỏ dấu chấm hoặc phần `+tag`; giữ email sau trim trong snapshot gốc.
 - Áp dụng ở mọi stage: NEW, SCREENING, INTERVIEW, OFFER, HIRED, REJECTED, WITHDRAWN.
   Thay CV, tên, phone hoặc đổi tiêu đề tin không giải phóng quyền nộp lại.
+  Ứng viên tự rút hồ sơ (task 345, [rút hồ sơ](application-tracking.md#rút-hồ-sơ-task-345)) chỉ chuyển
+  hồ sơ sang WITHDRAWN: email vẫn giữ chỗ trong requisition đó, nộp lại vẫn trả 409 (câu hỏi 26, ý 6).
 - Cùng chức danh/tên tin nhưng requisition khác được nộp bằng cùng email.
 - V21 hiện giới hạn một tin mỗi requisition. Không mở rộng mô hình hoặc sửa migration
   để tạo nhiều tin; khóa chống trùng vẫn là requisition thay vì chức danh hoặc tên tin.

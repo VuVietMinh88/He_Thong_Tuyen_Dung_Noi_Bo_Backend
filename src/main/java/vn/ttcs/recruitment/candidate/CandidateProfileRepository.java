@@ -25,11 +25,14 @@ class CandidateProfileRepository {
     // of the requisition's department (manager_user_id is NOT NULL, V5). The posting title is the snapshot taken when the
     // application was received; the department name is the current one. Never cv.content, cv.sha256,
     // a.tracking_code_hash, a.normalized_email, a.requisition_id in the output, or any user_accounts.email.
+    // Task 345: the time and the optional reason of the candidate's withdrawal come from the application's one WITHDRAWN
+    // stage event (V34 unique index), so the join never adds a row.
     private static final String READABLE_APPLICATIONS = """
             SELECT a.id, a.job_posting_id, a.posting_title, a.received_at, a.stage, a.full_name, a.email, a.phone,
                    a.cover_letter, d.name AS department_name, d.manager_user_id, m.full_name AS manager_name,
                    p.recruiter_id, pu.full_name AS recruiter_name, src.name AS source_name,
-                   cv.filename, cv.content_type, cv.size_bytes
+                   cv.filename, cv.content_type, cv.size_bytes,
+                   w.occurred_at AS withdrawn_at, w.reason AS withdrawal_reason
             FROM candidate_applications ca
             JOIN job_applications a ON a.id = ca.application_id
             JOIN recruitment_requisitions r ON r.id = a.requisition_id
@@ -39,6 +42,7 @@ class CandidateProfileRepository {
             LEFT JOIN user_accounts pu ON pu.id = p.recruiter_id
             LEFT JOIN recruitment_catalog_items src ON src.id = a.source_id
             LEFT JOIN application_cvs cv ON cv.application_id = a.id
+            LEFT JOIN application_stage_events w ON w.application_id = a.id AND w.stage_after = 'WITHDRAWN'
             WHERE ca.candidate_id = :candidate
             """ + " AND " + CandidateAccess.READABLE + " ORDER BY a.received_at DESC, a.id DESC";
 
@@ -81,6 +85,8 @@ class CandidateProfileRepository {
                         row.getString("source_name"),
                         row.getString("filename"),
                         row.getString("content_type"),
-                        row.getObject("size_bytes", Integer.class)));
+                        row.getObject("size_bytes", Integer.class),
+                        row.getTimestamp("withdrawn_at") == null ? null : row.getTimestamp("withdrawn_at").toInstant(),
+                        row.getString("withdrawal_reason")));
     }
 }
