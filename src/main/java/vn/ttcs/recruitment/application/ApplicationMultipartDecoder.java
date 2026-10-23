@@ -31,6 +31,10 @@ public class ApplicationMultipartDecoder {
     private static final Map<String, Integer> REFERRAL_LIMITS = Map.of(
             "jobPostingId", 128, "fullName", 1024, "email", 2048, "phone", 256, "referralNote", 8192,
             "candidateConsent", 16);
+    // Task 407: the byte budgets of the manual intake form's text parts (the public form's, plus the consent).
+    private static final Map<String, Integer> MANUAL_LIMITS = Map.of(
+            "fullName", 1024, "email", 2048, "phone", 256, "sourceId", 128, "coverLetter", 20000,
+            "candidateConsent", 16);
     private final Validator validator;
 
     public ApplicationMultipartDecoder(Validator validator) { this.validator = validator; }
@@ -81,6 +85,33 @@ public class ApplicationMultipartDecoder {
         if (!errors.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                 "Vui lòng kiểm tra thông tin giới thiệu.", errors);
         return new ReferralForm(postingId, submission, note, form.filename(), form.bytes());
+    }
+
+    // Task 407 (story S5-08): the manual intake form, read by the same bounded streaming loop as the public intake.
+    // Exactly fullName, email, phone, the optional sourceId and coverLetter, candidateConsent and one file cv, in any
+    // order; the requisition is the path's, the staff member the JWT's. Any other part, a repeated part, an 8th part,
+    // bad UTF-8 or a missing cv is refused like the intake's. Then every field is checked by ApplicationSubmission's
+    // rules and all field errors are answered together; candidateConsent must be exactly "true". No message repeats a
+    // submitted value.
+    ManualForm decodeManual(HttpServletRequest request) {
+        RawForm form = read(request, MANUAL_LIMITS, 7);
+        var fields = form.fields();
+        var errors = new LinkedHashMap<String, String>();
+        UUID sourceId = null;
+        String source = fields.get("sourceId");
+        if (source != null && !source.isBlank()) {
+            try { sourceId = uuid(source.strip(), "sourceId"); }
+            catch (ApiException exception) { errors.put("sourceId", "Trường không hợp lệ."); }
+        }
+        var submission = new ApplicationSubmission(fields.get("fullName"), fields.get("email"), fields.get("phone"),
+                sourceId, fields.get("coverLetter"));
+        validator.validate(submission).forEach(error -> errors.putIfAbsent(error.getPropertyPath().toString(), "Trường không hợp lệ."));
+        if (!"true".equals(fields.get("candidateConsent"))) {
+            errors.put("candidateConsent", "Vui lòng xác nhận ứng viên đã đồng ý cho công ty lưu hồ sơ.");
+        }
+        if (!errors.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                "Vui lòng kiểm tra thông tin hồ sơ.", errors);
+        return new ManualForm(submission, form.filename(), form.bytes());
     }
 
     // The streaming loop of the intake (TRAN DUC LUONG's decode, unchanged in behaviour): at most maxParts parts, the
@@ -174,6 +205,11 @@ public class ApplicationMultipartDecoder {
     // Task 351: a checked referral form. note is the normalized referral note; the consent was "true".
     record ReferralForm(UUID postingId, ApplicationSubmission submission, String note, String filename, byte[] bytes) {
         @Override public String toString() { return "ReferralForm[" + postingId + ", personal data redacted]"; }
+    }
+
+    // Task 407: a checked manual intake form.
+    record ManualForm(ApplicationSubmission submission, String filename, byte[] bytes) {
+        @Override public String toString() { return "ManualForm[personal data redacted]"; }
     }
 
     private record RawForm(Map<String, String> fields, String filename, byte[] bytes) {
