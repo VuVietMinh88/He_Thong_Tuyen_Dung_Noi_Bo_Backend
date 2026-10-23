@@ -229,6 +229,10 @@ class ApplicationReferralContractTest {
                 .isEqualTo(ReferralAttemptOutcome.POSTING_UNAVAILABLE);
         assertThat(ReferralAttemptOutcome.of(new DuplicateApplicationException()))
                 .isEqualTo(ReferralAttemptOutcome.DUPLICATE);
+        assertThat(ReferralAttemptOutcome.of(new ApiException(HttpStatus.CONFLICT, "JOB_POSTING_EXPIRED", "x")))
+                .isEqualTo(ReferralAttemptOutcome.POSTING_UNAVAILABLE);
+        assertThat(ReferralAttemptOutcome.of(new ApiException(HttpStatus.CONFLICT, "UNEXPECTED_CONFLICT", "x")))
+                .isEqualTo(ReferralAttemptOutcome.FAILED);
         for (HttpStatus status : List.of(HttpStatus.BAD_REQUEST, HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN)) {
             assertThat(ReferralAttemptOutcome.of(new ApiException(status, "X", "x"))).isEqualTo(ReferralAttemptOutcome.REFUSED);
         }

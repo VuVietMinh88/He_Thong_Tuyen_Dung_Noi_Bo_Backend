@@ -178,19 +178,32 @@ class ApplicationIntakeIntegrationTest {
 
     @ParameterizedTest @EnumSource(value=JobPostingStatus.class,names="PUBLISHED",mode=EnumSource.Mode.EXCLUDE)
     void noOtherPostingStatusReceivesApplications(JobPostingStatus status) throws Exception {
-        if (status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
+        if (status == JobPostingStatus.CLOSED || status == JobPostingStatus.UNPUBLISHED || status == JobPostingStatus.EXPIRED) {
             jdbc.update("UPDATE job_postings SET status=? WHERE id=?", status.name(), posting);
         } else {
             jdbc.update("UPDATE job_postings SET status=?,published_by=null,published_at=null WHERE id=?",status.name(),posting);
         }
-        assertError(submit(valid(),false),404,"JOB_POSTING_NOT_FOUND"); assertEmpty();
+        assertError(submit(valid(),false), status == JobPostingStatus.EXPIRED ? 409 : 404,
+                status == JobPostingStatus.EXPIRED ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+        assertEmpty();
+        assertThat(quota.calls.get()).isEqualTo(1);
     }
 
     @Test void deadlineUsesTheEntireVietnameseDay() throws Exception {
         jdbc.update("UPDATE job_postings SET application_deadline=? WHERE id=?",LocalDate.of(2026,10,14),posting);
         clock.set(Instant.parse("2026-10-14T16:59:59Z")); assertThat(submit(valid(),false).statusCode()).isEqualTo(201);
-        clock.set(Instant.parse("2026-10-14T17:00:00Z")); assertError(submit(valid(),false),404,"JOB_POSTING_NOT_FOUND");
+        clock.set(Instant.parse("2026-10-14T17:00:00Z")); assertError(submit(valid(),false),409,"JOB_POSTING_EXPIRED");
         assertThat(count()).isEqualTo(1);
+        assertThat(quota.calls.get()).isEqualTo(2);
+    }
+
+    @Test void expiredPostingIsRefusedBeforeCvParsing() throws Exception {
+        jdbc.update("UPDATE job_postings SET application_deadline=? WHERE id=?", LocalDate.of(2026,10,13), posting);
+        var invalidCv = valid();
+        invalidCv.set(3, file("cv.pdf", new byte[]{1, 2, 3}));
+        assertError(submit(invalidCv, false), 409, "JOB_POSTING_EXPIRED");
+        assertEmpty();
+        assertThat(quota.calls.get()).isEqualTo(1);
     }
 
     @Test void sourcesArePublicActiveIdAndNameOnlyAndIndependentOfIntake() throws Exception {
@@ -374,6 +387,21 @@ class ApplicationIntakeIntegrationTest {
             var pending=executor.submit(()->submit(valid(),false)); assertThat(writer.entered.await(10,TimeUnit.SECONDS)).isTrue();
             jdbc.update("UPDATE recruitment_requisitions SET status='PAUSED' WHERE id=?",requisition);
             writer.release.countDown(); assertError(pending.get(20,TimeUnit.SECONDS),404,"JOB_POSTING_NOT_FOUND"); assertEmpty();
+        } finally { writer.release.countDown(); }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"UNPUBLISHED", "EXPIRED"})
+    void postingLifecycleChangeAfterPreflightIsRecheckedByStorage(String status) throws Exception {
+        writer.entered=new CountDownLatch(1); writer.release=new CountDownLatch(1);
+        try(var executor=Executors.newSingleThreadExecutor()) {
+            var pending=executor.submit(()->submit(valid(),false));
+            assertThat(writer.entered.await(10,TimeUnit.SECONDS)).isTrue();
+            jdbc.update("UPDATE job_postings SET status=? WHERE id=?", status, posting);
+            writer.release.countDown();
+            assertError(pending.get(20,TimeUnit.SECONDS), status.equals("EXPIRED") ? 409 : 404,
+                    status.equals("EXPIRED") ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+            assertEmpty();
+            assertThat(quota.calls.get()).isEqualTo(1);
         } finally { writer.release.countDown(); }
     }
 

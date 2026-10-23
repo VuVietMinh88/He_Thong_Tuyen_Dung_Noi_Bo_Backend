@@ -122,8 +122,17 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("PUT", "/api/v1/accounts/{id}", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/accounts/{id}/roles/{role}", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
             endpoint("DELETE", "/api/v1/accounts/{id}/roles/{role}", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
+            // Feedback item 8: the complete role set in one request; "{}" has neither roles nor expectedRoles, so it
+            // stops at validation.
+            endpoint("PUT", "/api/v1/accounts/{id}/roles", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("PUT", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), INVALID_BODY, 400),
             endpoint("DELETE", "/api/v1/accounts/{id}/lock", adminWith(USER_ADMIN_WRITE_ALL), null, 404),
+            // Feedback item 10: the work an account still holds, for the lock dialog; the unknown id stops a permitted
+            // call at 404 ACCOUNT_NOT_FOUND.
+            endpoint("GET", "/api/v1/accounts/{id}/handover-items", adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL), null, 404),
+            // The handover itself also needs REQUISITIONS_WRITE_ALL; the empty body stops a permitted call at 400 before
+            // any lock.
+            endpoint("POST", "/api/v1/accounts/{id}/handover", adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL, REQUISITIONS_WRITE_ALL), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/departments", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/tree", permission(ORGANIZATION_READ_ALL), null, 200),
             endpoint("GET", "/api/v1/departments/{id}", permission(ORGANIZATION_READ_ALL), null, 404),
@@ -612,8 +621,15 @@ class ApiAuthorizationMatrixIntegrationTest {
                         Map.of("code", "TARGET", "name", "Taken over", "managerUserId", hiringManager, "active", false)),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + hrManager + "/roles/ADMIN", null),
                 new Attack(Identity.APPROVER, "DELETE", "/api/v1/accounts/" + admin + "/roles/ADMIN", null),
+                new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + hrManager + "/roles",
+                        Map.of("roles", List.of("ADMIN", "HR_MANAGER"), "expectedRoles", List.of("HR_MANAGER"))),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter + "/lock", Map.of("reason", "Không được phép")),
                 new Attack(Identity.HR_MANAGER, "DELETE", "/api/v1/accounts/" + locked + "/lock", null),
+                // Feedback item 10: HR_MANAGER assigns recruiters (REQUISITIONS_WRITE_ALL) but may not hand over the
+                // work of an account; one that slipped through would replace RECRUITER as primary of "requisition".
+                new Attack(Identity.HR_MANAGER, "POST", "/api/v1/accounts/" + recruiter + "/handover",
+                        Map.of("note", "Bàn giao thay", "requisitions",
+                                List.of(Map.of("requisitionId", requisition, "toUserId", backup)))),
                 new Attack(Identity.HR_MANAGER, "PUT", "/api/v1/accounts/" + recruiter,
                         Map.of("fullName", "Renamed by HR", "departmentId", department)),
                 new Attack(Identity.NO_ROLE, "GET", "/api/v1/accounts", null),
@@ -861,7 +877,13 @@ class ApiAuthorizationMatrixIntegrationTest {
                 "PATCH /api/v1/applications/" + UNKNOWN_ID + "/stage",
                 "PUT /api/v1/applications/" + UNKNOWN_ID + "/stage",
                 "PUT /api/v1/applications/" + UNKNOWN_ID + "/stage-changes",
-                "DELETE /api/v1/applications/" + UNKNOWN_ID + "/stage-changes")) {
+                "DELETE /api/v1/applications/" + UNKNOWN_ID + "/stage-changes",
+                // Task 356: only the daily task expires a posting; there is no route to expire one by hand.
+                "POST /api/v1/job-postings/" + UNKNOWN_ID + "/expire",
+                // Feedback item 8: the role set is only replaced, never wiped, patched or added to as a whole.
+                "DELETE /api/v1/accounts/" + UNKNOWN_ID + "/roles",
+                "PATCH /api/v1/accounts/" + UNKNOWN_ID + "/roles",
+                "POST /api/v1/accounts/" + UNKNOWN_ID + "/roles")) {
             String[] parts = route.split(" ");
             assertForbidden(route, request(parts[0], parts[1], null, token));
         }
@@ -890,11 +912,15 @@ class ApiAuthorizationMatrixIntegrationTest {
         assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("HR_MANAGER"), readOnly)).isFalse();
         assertThat(adminWith(ORGANIZATION_READ_ALL).allows(Set.of("ADMIN"), readOnly)).isTrue();
         assertThat(adminWith(ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readWrite)).isTrue();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("ADMIN"), readOnly)).isFalse();
+        assertThat(adminWithAll(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL).allows(Set.of("HR_MANAGER"), readWrite)).isFalse();
         assertThat(List.of(PUBLIC, permission(ORGANIZATION_READ_ALL), allOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL),
-                anyOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), adminWith(USER_ADMIN_WRITE_ALL)))
+                anyOf(ORGANIZATION_READ_ALL, ORGANIZATION_WRITE_ALL), adminWith(USER_ADMIN_WRITE_ALL),
+                adminWithAll(USER_ADMIN_WRITE_ALL, REQUISITIONS_READ_ALL)))
                 .extracting(Rule::toString).containsExactly("PUBLIC", "ORGANIZATION_READ_ALL",
                         "ORGANIZATION_READ_ALL + ORGANIZATION_WRITE_ALL", "ORGANIZATION_READ_ALL | ORGANIZATION_WRITE_ALL",
-                        "ROLE_ADMIN + USER_ADMIN_WRITE_ALL");
+                        "ROLE_ADMIN + USER_ADMIN_WRITE_ALL", "ROLE_ADMIN + USER_ADMIN_WRITE_ALL + REQUISITIONS_READ_ALL");
     }
 
     private static Map<String, Object> positionBody(String code, String name) {
@@ -986,7 +1012,10 @@ class ApiAuthorizationMatrixIntegrationTest {
         URI uri = URI.create("http://127.0.0.1:" + environment.getRequiredProperty("local.server.port") + path);
         var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(20)).header("Content-Type", "application/json")
                 .method(method, payload == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(payload));
-        if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
+        if (method.equals("POST") && path.equals("/api/v1/auth/forgot-password")) {
+            // The browser id the frontend sends; a new browser each time, so the per-browser limit never applies.
+            builder.header("X-Device-Id", UUID.randomUUID().toString());
+        } else if (method.equals("POST") && path.equals("/api/v1/auth/login")) {
             builder.header("X-Device-Id", deviceId);
         }
         if (token != null) { builder.header("Authorization", "Bearer " + token); }
@@ -1029,6 +1058,8 @@ class ApiAuthorizationMatrixIntegrationTest {
     private static Rule anyOf(String... codes) { return new Rule(List.of(codes), true, false); }
 
     private static Rule adminWith(String code) { return new Rule(List.of(code), false, true); }
+
+    private static Rule adminWithAll(String... codes) { return new Rule(List.of(codes), false, true); }
 
     // PUBLIC has no codes. Otherwise the caller needs every code (any one with anyOf), plus ROLE_ADMIN when required.
     private record Rule(List<String> permissions, boolean anyOf, boolean requiresAdminRole) {

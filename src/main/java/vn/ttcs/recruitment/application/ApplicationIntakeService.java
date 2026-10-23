@@ -8,6 +8,7 @@ import vn.ttcs.recruitment.catalog.RecruitmentCatalogItemRepository;
 import vn.ttcs.recruitment.catalog.RecruitmentCatalogType;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.jobposting.JobPostingService;
+import vn.ttcs.recruitment.jobposting.JobPostingApplicationGate;
 
 import java.io.ByteArrayInputStream;
 import java.util.List;
@@ -29,7 +30,9 @@ public class ApplicationIntakeService {
     }
 
     // Called by the guard before body parsing. The writer must still use storage's locked final checks.
-    void requirePosting(UUID postingId) { postings.getPublic(postingId); }
+    void requirePosting(UUID postingId) {
+        if (!postings.getPublic(postingId).applicationOpen()) throw JobPostingApplicationGate.expired();
+    }
 
     // Deliberately not transactional: multipart/CV parsing must finish before the receipt/outbox transaction starts.
     public ApplicationReceipt submit(UUID postingId, HttpServletRequest request) {

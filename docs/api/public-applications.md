@@ -99,7 +99,8 @@ JSON chung `{code,message,fieldErrors}`, không echo PII, tên file hay lỗi SQ
 |---|---|
 | 400 | VALIDATION_ERROR, INVALID_MULTIPART, CV hỏng/rỗng/mã hóa |
 | 400 | APPLICATION_CV_ACTIVE_CONTENT (task 362): DOCX liên kết ra ngoài (mẫu, OLE, khung, ảnh trên máy chủ khác, hyperlink không phải http/https/mailto) hoặc PDF có Launch, JavaScript, tệp đính kèm; xem [nội dung tự động trong CV](candidate-profiles.md#nội-dung-tự-động-trong-cv-task-362) |
-| 404 | JOB_POSTING_NOT_FOUND: tin/requisition không nhận hoặc hết hạn |
+| 404 | JOB_POSTING_NOT_FOUND: tin không tồn tại/đã gỡ/đã đóng hoặc requisition không còn APPROVED |
+| 409 | JOB_POSTING_EXPIRED: tin quá hạn theo ngày nghiệp vụ hoặc đã chuyển EXPIRED |
 | 409 | APPLICATION_ALREADY_SUBMITTED: email chuẩn hóa đã nộp cho requisition, fieldErrors.email |
 | 413 | APPLICATION_CV_TOO_LARGE: file >10 MiB/request >11 MiB |
 | 415 | APPLICATION_FORM_TYPE_UNSUPPORTED, APPLICATION_CV_TYPE_UNSUPPORTED |

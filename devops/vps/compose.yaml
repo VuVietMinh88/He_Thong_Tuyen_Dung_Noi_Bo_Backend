@@ -37,6 +37,7 @@ services:
       DB_URL: jdbc:postgresql://database:5432/recruitment
       DB_USERNAME: recruitment
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      APP_MIGRATION_LINEAGE: ${APP_MIGRATION_LINEAGE:-s5}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
       CORS_ALLOWED_ORIGINS: https://internal-hire.com,https://www.internal-hire.com
       BOOTSTRAP_ADMIN_ENABLED: ${BOOTSTRAP_ADMIN_ENABLED:-true}

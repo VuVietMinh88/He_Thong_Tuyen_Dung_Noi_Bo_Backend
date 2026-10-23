@@ -12,7 +12,7 @@ import vn.ttcs.recruitment.common.ApiException;
 enum ReferralAttemptOutcome {
     /** 201: the application, its referral and the candidate's confirmation were stored. */
     STORED,
-    /** 404: the posting is unknown or not open (any more). */
+    /** 404: unknown/hidden posting, or 409 JOB_POSTING_EXPIRED: no longer open. */
     POSTING_UNAVAILABLE,
     /** 409: this email already applied to the posting's requisition (the shared rule of task 327). */
     DUPLICATE,
@@ -29,8 +29,11 @@ enum ReferralAttemptOutcome {
         }
         if (failure instanceof ApiException api) {
             HttpStatus status = api.getStatus();
-            if (status == HttpStatus.NOT_FOUND) return POSTING_UNAVAILABLE;
-            if (status == HttpStatus.CONFLICT) return DUPLICATE;
+            if (status == HttpStatus.NOT_FOUND
+                    || (status == HttpStatus.CONFLICT && "JOB_POSTING_EXPIRED".equals(api.getCode()))) {
+                return POSTING_UNAVAILABLE;
+            }
+            if (status == HttpStatus.CONFLICT && "APPLICATION_ALREADY_SUBMITTED".equals(api.getCode())) return DUPLICATE;
             if (status == HttpStatus.BAD_REQUEST || status == HttpStatus.UNAUTHORIZED || status == HttpStatus.FORBIDDEN) {
                 return REFUSED;
             }

@@ -187,7 +187,7 @@ class CandidateLinkIntegrationTest {
     // The profile's unique index is the last wait of store(), so the deadline is checked again after it (the rule of
     // task 326's catalog wait, one wait later): a first application that passes the check at 23:59:59 on the deadline
     // day and then waits for a concurrent first application of the same email until after midnight is refused like a
-    // late one (404) and leaves no application, CV, link or profile of its own.
+    // late one (409 JOB_POSTING_EXPIRED) and leaves no application, CV, link or profile of its own.
     @Test
     void aWaitAtTheProfileThatEndsAfterTheDeadlineRefusesTheApplication() throws Exception {
         jdbc.update("UPDATE job_postings SET application_deadline = ? WHERE id IN (?, ?)", LocalDate.of(2026, 10, 15),
@@ -220,8 +220,8 @@ class CandidateLinkIntegrationTest {
                 var firstStored = first.get(20, TimeUnit.SECONDS);
                 assertThatThrownBy(() -> second.get(20, TimeUnit.SECONDS)).isInstanceOf(ExecutionException.class)
                         .cause().isInstanceOf(ApiException.class)
-                        .hasFieldOrPropertyWithValue("status", HttpStatus.NOT_FOUND)
-                        .hasFieldOrPropertyWithValue("code", "JOB_POSTING_NOT_FOUND");
+                        .hasFieldOrPropertyWithValue("status", HttpStatus.CONFLICT)
+                        .hasFieldOrPropertyWithValue("code", "JOB_POSTING_EXPIRED");
 
                 assertThat(count("job_applications")).isEqualTo(1);
                 assertThat(count("application_cvs")).isEqualTo(1);

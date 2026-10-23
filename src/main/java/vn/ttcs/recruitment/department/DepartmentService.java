@@ -314,9 +314,12 @@ public class DepartmentService {
         return new DepartmentException(HttpStatus.CONFLICT, "DEPARTMENT_CODE_EXISTS", "Mã phòng ban đã được sử dụng.");
     }
 
+    // Also the message of DepartmentManagerHandover (feedback item 10), which names the request field as well.
+    static final String INVALID_MANAGER_MESSAGE =
+            "Người quản lý phải là tài khoản tồn tại và được phép truy cập hệ thống khi được bổ nhiệm.";
+
     private static DepartmentException invalidManager() {
-        return new DepartmentException(HttpStatus.BAD_REQUEST, "INVALID_DEPARTMENT_MANAGER",
-                "Người quản lý phải là tài khoản tồn tại và được phép truy cập hệ thống khi được bổ nhiệm.");
+        return new DepartmentException(HttpStatus.BAD_REQUEST, "INVALID_DEPARTMENT_MANAGER", INVALID_MANAGER_MESSAGE);
     }
 
     private static DepartmentException invalidTree() {

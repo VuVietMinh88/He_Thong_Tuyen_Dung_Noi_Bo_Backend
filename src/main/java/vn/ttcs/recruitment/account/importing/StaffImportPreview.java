@@ -4,7 +4,8 @@ import java.util.List;
 
 /**
  * What the administrator sees before importing: every filled-in row of the first sheet, in file order, each
- * marked valid or invalid with its errors. {@code totalRows = validRows + invalidRows}.
+ * marked valid or invalid with its errors, and with its warnings, which never make a row invalid.
+ * {@code totalRows = validRows + invalidRows}.
  */
 public record StaffImportPreview(int totalRows, int validRows, int invalidRows, List<StaffImportCheckedRow> rows) {
 

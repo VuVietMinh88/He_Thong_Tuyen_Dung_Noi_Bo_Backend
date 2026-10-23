@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -195,8 +196,10 @@ class RoleManagementIntegrationTest {
 
         ok(request("PUT", rolePath(target, "APPROVER"), null, adminToken));
         ok(request("DELETE", rolePath(target, "INTERVIEWER"), null, adminToken));
-
         assertThat(accounts.findById(target).orElseThrow().getRoles()).containsExactly(Role.APPROVER);
+
+        ok(request("PUT", rolesPath(target), rolesBody(target, "HIRING_MANAGER"), adminToken));
+        assertThat(accounts.findById(target).orElseThrow().getRoles()).containsExactly(Role.HIRING_MANAGER);
         assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(accountBefore);
         assertThat(jdbc.queryForList("SELECT * FROM auth_sessions ORDER BY id")).isEqualTo(sessionsBefore);
     }
@@ -215,8 +218,11 @@ class RoleManagementIntegrationTest {
 
         ok(request("PUT", rolePath(target, "RECRUITER"), null, adminToken));
         ok(request("DELETE", rolePath(target, "INTERVIEWER"), null, adminToken));
-
         assertThat(accounts.findById(target).orElseThrow().getRoles()).containsExactly(Role.RECRUITER);
+
+        ok(request("PUT", rolesPath(target), rolesBody(target, "APPROVER", "INTERVIEWER"), adminToken));
+        assertThat(accounts.findById(target).orElseThrow().getRoles())
+                .containsExactlyInAnyOrder(Role.APPROVER, Role.INTERVIEWER);
         assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(before);
         assertThat(jdbc.queryForMap("SELECT * FROM account_activation_tokens WHERE user_id = ?", target)).isEqualTo(invitation);
     }
@@ -229,7 +235,20 @@ class RoleManagementIntegrationTest {
         for (String method : List.of("PUT", "DELETE")) {
             assertThat(request(method, rolePath(adminId, "RECRUITER"), null, token).statusCode()).isEqualTo(403);
         }
+        assertThat(request("PUT", rolesPath(adminId), rolesBody(adminId, "RECRUITER"), token).statusCode()).isEqualTo(403);
         assertThat(accounts.findById(adminId).orElseThrow().getRoles()).containsExactly(Role.ADMIN);
+    }
+
+    @Test
+    void hrManagerCannotGiveItselfAdministratorRolesThroughTheSetEndpoint() throws Exception {
+        UUID hr = account("hrself@example.test", Set.of(Role.HR_MANAGER));
+        String token = login("hrself@example.test").path("accessToken").asText();
+        List<Map<String, Object>> before = roleRows(hr);
+
+        var rejected = request("PUT", rolesPath(hr), rolesBody(hr, "ADMIN", "HR_MANAGER"), token);
+        assertThat(rejected.statusCode()).isEqualTo(403);
+        assertThat(body(rejected).path("code").asText()).isEqualTo("FORBIDDEN");
+        assertThat(roleRows(hr)).isEqualTo(before);
     }
 
     @Test
@@ -241,6 +260,7 @@ class RoleManagementIntegrationTest {
             for (String method : List.of("PUT", "DELETE")) {
                 assertThat(request(method, rolePath(adminId, "RECRUITER"), null, token).statusCode()).isEqualTo(403);
             }
+            assertThat(request("PUT", rolesPath(adminId), rolesBody(adminId, "RECRUITER"), token).statusCode()).isEqualTo(403);
         } finally {
             jdbc.update("DELETE FROM role_permissions WHERE role_code = 'HR_MANAGER' AND permission_code = 'USER_ADMIN_WRITE_ALL'");
         }
@@ -254,6 +274,8 @@ class RoleManagementIntegrationTest {
             for (String method : List.of("PUT", "DELETE")) {
                 assertThat(request(method, rolePath(adminId, "RECRUITER"), null, adminToken).statusCode()).isEqualTo(403);
             }
+            assertThat(request("PUT", rolesPath(adminId), rolesBody(adminId, "ADMIN", "RECRUITER"), adminToken).statusCode())
+                    .isEqualTo(403);
         } finally {
             jdbc.update("INSERT INTO role_permissions (role_code, permission_code) VALUES ('ADMIN', 'USER_ADMIN_WRITE_ALL')");
         }
@@ -265,10 +287,13 @@ class RoleManagementIntegrationTest {
         for (String method : List.of("PUT", "DELETE")) {
             assertThat(request(method, rolePath(adminId, "RECRUITER"), null, null).statusCode()).isEqualTo(401);
         }
+        assertThat(request("PUT", rolesPath(adminId), rolesBody(adminId, "ADMIN", "RECRUITER"), null).statusCode()).isEqualTo(401);
         jdbc.update("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ?", Timestamp.from(START), adminId);
         for (String method : List.of("PUT", "DELETE")) {
             assertThat(request(method, rolePath(adminId, "RECRUITER"), null, adminToken).statusCode()).isEqualTo(401);
         }
+        assertThat(request("PUT", rolesPath(adminId), rolesBody(adminId, "ADMIN", "RECRUITER"), adminToken).statusCode())
+                .isEqualTo(401);
         assertThat(accounts.findById(adminId).orElseThrow().getRoles()).containsExactly(Role.ADMIN);
     }
 
@@ -290,14 +315,27 @@ class RoleManagementIntegrationTest {
             assertThat(request(method, "/api/v1/accounts/not-a-uuid/roles/RECRUITER", null, adminToken).statusCode())
                     .isEqualTo(400);
         }
+        UUID missing = UUID.randomUUID();
+        var absent = request("PUT", rolesPath(missing), rolesBody(missing, "RECRUITER"), adminToken);
+        assertThat(absent.statusCode()).isEqualTo(404);
+        assertThat(body(absent).path("code").asText()).isEqualTo("ACCOUNT_NOT_FOUND");
+        var malformed = request("PUT", "/api/v1/accounts/not-a-uuid/roles", rolesBody(adminId, "RECRUITER"), adminToken);
+        assertThat(malformed.statusCode()).isEqualTo(400);
+        assertThat(body(malformed).path("code").asText()).isEqualTo("VALIDATION_ERROR");
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"PUT", "DELETE"})
+    @ValueSource(strings = {"PUT", "DELETE", "SET"})
     void losingAdminWhileWaitingForTheAccountLockCannotChangeTargetRoles(String method) throws Exception {
         UUID target = account("waiting@example.test", Set.of(Role.INTERVIEWER));
-        String changedRole = method.equals("PUT") ? "RECRUITER" : "INTERVIEWER";
-        var response = whileActorLocked(method, target, changedRole, connection -> {
+        String set = rolesBody(target, "RECRUITER");
+        Callable<HttpResponse<String>> call = switch (method) {
+            case "PUT" -> () -> request("PUT", rolePath(target, "RECRUITER"), null, adminToken);
+            case "DELETE" -> () -> request("DELETE", rolePath(target, "INTERVIEWER"), null, adminToken);
+            // The set endpoint drops INTERVIEWER and adds RECRUITER in the same request.
+            default -> () -> request("PUT", rolesPath(target), set, adminToken);
+        };
+        var response = whileActorLocked(call, connection -> {
             try (var change = connection.prepareStatement(
                     "UPDATE user_roles SET role = 'HR_MANAGER' WHERE user_id = ? AND role = 'ADMIN'")) {
                 change.setObject(1, adminId);
@@ -388,18 +426,22 @@ class RoleManagementIntegrationTest {
                 .containsExactlyInAnyOrder(Role.INTERVIEWER, Role.RECRUITER, Role.APPROVER);
     }
 
-    @Test
-    void simultaneousCrossDemotionsKeepOneAdministratorAndRejectTheNowUnauthorizedActor() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"DELETE", "SET"})
+    void simultaneousCrossDemotionsKeepOneAdministratorAndRejectTheNowUnauthorizedActor(String method) throws Exception {
         UUID secondAdmin = account("crossadmin@example.test", Set.of(Role.ADMIN));
         String secondToken = login("crossadmin@example.test").path("accessToken").asText();
+        // Each administrator removes the other's ADMIN; the set endpoint leaves INTERVIEWER in its place.
+        Callable<HttpResponse<String>> demoteSecond = demotion(method, secondAdmin, adminToken);
+        Callable<HttpResponse<String>> demoteFirst = demotion(method, adminId, secondToken);
         // PostgreSQL's UUID ordering is the same ordering used by the repository's row-lock query.
         UUID firstAccount = jdbc.queryForObject("SELECT id FROM user_accounts ORDER BY id LIMIT 1", UUID.class);
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             int blockerPid = lockAccount(connection, firstAccount);
             try (var executor = Executors.newFixedThreadPool(2)) {
-                var first = executor.submit(() -> request("DELETE", rolePath(secondAdmin, "ADMIN"), null, adminToken));
-                var second = executor.submit(() -> request("DELETE", rolePath(adminId, "ADMIN"), null, secondToken));
+                var first = executor.submit(demoteSecond);
+                var second = executor.submit(demoteFirst);
                 try {
                     awaitAccountWaiters(blockerPid, 2);
                     connection.commit();
@@ -411,6 +453,205 @@ class RoleManagementIntegrationTest {
             }
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM user_roles WHERE role = 'ADMIN'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void replacesTheWholeRoleSetInOneRequestAndKeepsTheRowsOfUnchangedRoles() throws Exception {
+        UUID target = account("replace@example.test", Set.of(Role.RECRUITER, Role.INTERVIEWER));
+        login("replace@example.test");
+        Map<String, Object> kept = roleRows(target).getFirst();
+        Map<String, Object> accountBefore = jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target);
+        List<Map<String, Object>> sessionsBefore = jdbc.queryForList("SELECT * FROM auth_sessions ORDER BY id");
+
+        var response = request("PUT", rolesPath(target), rolesBody(target, "INTERVIEWER", "APPROVER", "HR_MANAGER"), adminToken);
+        JsonNode result = ok(response);
+        assertThat(result.size()).isEqualTo(2);
+        assertThat(result.path("userId").asText()).isEqualTo(target.toString());
+        assertThat(strings(result.path("roles"))).containsExactly("APPROVER", "HR_MANAGER", "INTERVIEWER");
+        assertThat(response.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+
+        assertThat(accounts.findById(target).orElseThrow().getRoles())
+                .containsExactlyInAnyOrder(Role.APPROVER, Role.HR_MANAGER, Role.INTERVIEWER);
+        // INTERVIEWER stays the same row: only RECRUITER is deleted and the two new roles are inserted.
+        assertThat(kept.get("role")).isEqualTo("INTERVIEWER");
+        assertThat(roleRows(target)).contains(kept);
+        assertThat(jdbc.queryForMap("SELECT * FROM user_accounts WHERE id = ?", target)).isEqualTo(accountBefore);
+        assertThat(jdbc.queryForList("SELECT * FROM auth_sessions ORDER BY id")).isEqualTo(sessionsBefore);
+    }
+
+    @Test
+    void sendingTheCurrentSetAgainChangesNoRoleRows() throws Exception {
+        UUID target = account("unchanged@example.test", Set.of(Role.RECRUITER, Role.INTERVIEWER));
+        List<Map<String, Object>> before = roleRows(target);
+
+        // Order and repeated codes do not matter in either list: both are sets.
+        var response = request("PUT", rolesPath(target),
+                rolesBody(List.of("RECRUITER", "INTERVIEWER", "INTERVIEWER"), "RECRUITER", "INTERVIEWER", "RECRUITER"),
+                adminToken);
+        assertThat(strings(ok(response).path("roles"))).containsExactly("INTERVIEWER", "RECRUITER");
+        assertThat(roleRows(target)).isEqualTo(before);
+    }
+
+    @Test
+    void savingASetBuiltFromAnOutdatedViewIsRejectedWithoutUndoingTheOtherChange() throws Exception {
+        UUID target = account("outdated@example.test", Set.of(Role.RECRUITER));
+        account("otherwriter@example.test", Set.of(Role.ADMIN));
+        String otherToken = login("otherwriter@example.test").path("accessToken").asText();
+        // The page loads RECRUITER; another administrator then grants INTERVIEWER; the page saves RECRUITER + APPROVER.
+        String loaded = rolesBody(target, "RECRUITER", "APPROVER");
+        ok(request("PUT", rolePath(target, "INTERVIEWER"), null, otherToken));
+        List<Map<String, Object>> before = roleRows(target);
+
+        var rejected = request("PUT", rolesPath(target), loaded, adminToken);
+        assertThat(rejected.statusCode()).as(rejected.body()).isEqualTo(409);
+        assertThat(rejected.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+        JsonNode error = body(rejected);
+        assertThat(error.path("code").asText()).isEqualTo("ACCOUNT_ROLES_CHANGED");
+        assertThat(error.path("message").asText())
+                .isEqualTo("Vai trò của tài khoản đã thay đổi (có thể người khác vừa sửa). Vui lòng tải lại trước khi lưu.");
+        assertThat(roleRows(target)).isEqualTo(before);
+
+        // After reloading, the same choice keeps the other administrator's grant unless the user removes it.
+        String reloaded = rolesBody(target, "RECRUITER", "APPROVER", "INTERVIEWER");
+        assertThat(strings(ok(request("PUT", rolesPath(target), reloaded, adminToken)).path("roles")))
+                .containsExactly("APPROVER", "INTERVIEWER", "RECRUITER");
+    }
+
+    @Test
+    void revocationCommittedWhileTheSaveWaitsForTheTargetLockIsNotUndone() throws Exception {
+        UUID target = account("revokedwait@example.test", Set.of(Role.ADMIN, Role.HR_MANAGER));
+        // The page loaded ADMIN + HR_MANAGER and adds INTERVIEWER; meanwhile another administrator revokes ADMIN.
+        String loaded = rolesBody(target, "ADMIN", "HR_MANAGER", "INTERVIEWER");
+        var response = whileLocked(target, () -> request("PUT", rolesPath(target), loaded, adminToken), connection -> {
+            try (var revoke = connection.prepareStatement("DELETE FROM user_roles WHERE user_id = ? AND role = 'ADMIN'")) {
+                revoke.setObject(1, target);
+                assertThat(revoke.executeUpdate()).isEqualTo(1);
+            }
+        });
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(409);
+        assertThat(body(response).path("code").asText()).isEqualTo("ACCOUNT_ROLES_CHANGED");
+        assertThat(accounts.findById(target).orElseThrow().getRoles()).containsExactly(Role.HR_MANAGER);
+    }
+
+    @Test
+    void anAccountWithoutRolesIsGivenRolesWithAnEmptyExpectedSet() throws Exception {
+        UUID target = account("emptyset@example.test", Set.of(Role.INTERVIEWER));
+        ok(request("DELETE", rolePath(target, "INTERVIEWER"), null, adminToken));
+
+        var stale = request("PUT", rolesPath(target), rolesBody(List.of("INTERVIEWER"), "RECRUITER"), adminToken);
+        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(roleRows(target)).isEmpty();
+        assertThat(strings(ok(request("PUT", rolesPath(target), rolesBody(List.of(), "RECRUITER"), adminToken))
+                .path("roles"))).containsExactly("RECRUITER");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"expectedRoles\":[\"INTERVIEWER\"]}",
+            "{\"roles\":null,\"expectedRoles\":[\"INTERVIEWER\"]}",
+            "{\"roles\":[],\"expectedRoles\":[\"INTERVIEWER\"]}",
+            "{\"roles\":[null],\"expectedRoles\":[\"INTERVIEWER\"]}",
+            "{\"roles\":[\"RECRUITER\",null],\"expectedRoles\":[\"INTERVIEWER\"]}"})
+    void missingEmptyOrNullRolesAreRejectedWithoutChanges(String content) throws Exception {
+        UUID target = account("required@example.test", Set.of(Role.INTERVIEWER));
+        List<Map<String, Object>> before = roleRows(target);
+
+        var response = request("PUT", rolesPath(target), content, adminToken);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+        JsonNode error = body(response);
+        assertThat(error.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(error.path("fieldErrors").size()).isEqualTo(1);
+        assertThat(error.path("fieldErrors").path("roles").asText()).isEqualTo("Tài khoản phải có ít nhất một vai trò.");
+        assertThat(roleRows(target)).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"roles\":[\"RECRUITER\"]}", "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":null}",
+            "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":[null]}",
+            "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":[\"INTERVIEWER\",null]}"})
+    void missingOrNullExpectedRolesAreRejectedWithoutChanges(String content) throws Exception {
+        UUID target = account("expected@example.test", Set.of(Role.INTERVIEWER));
+        List<Map<String, Object>> before = roleRows(target);
+
+        var response = request("PUT", rolesPath(target), content, adminToken);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+        JsonNode error = body(response);
+        assertThat(error.path("code").asText()).isEqualTo("VALIDATION_ERROR");
+        assertThat(error.path("fieldErrors").size()).isEqualTo(1);
+        assertThat(error.path("fieldErrors").path("expectedRoles").asText())
+                .isEqualTo("Thiếu danh sách vai trò hiện tại của tài khoản đang xem.");
+        assertThat(roleRows(target)).isEqualTo(before);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"roles\":[\"CANDIDATE\"]}", "{\"roles\":[\"SUPER_ADMIN\"]}",
+            "{\"roles\":[\"RECRUITER\",\"admin\"]}", "{\"roles\":[0]}", "{\"roles\":[\"0\"]}",
+            "{\"roles\":[true]}", "{\"roles\":\"RECRUITER\"}", "{\"roles\":[\"RECRUITER\"],\"enabled\":true}",
+            "{\"roles\":[\"RECRUITER\"],\"userId\":null}", "{\"roles\":[\"RECRUITER\"]",
+            "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":[\"CANDIDATE\"]}",
+            "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":[4]}",
+            "{\"roles\":[\"RECRUITER\"],\"expectedRoles\":\"INTERVIEWER\"}"})
+    void unknownCodesPositionsAndUnknownFieldsAreInvalidJson(String content) throws Exception {
+        UUID target = account("strict@example.test", Set.of(Role.INTERVIEWER));
+        List<Map<String, Object>> before = roleRows(target);
+
+        var response = request("PUT", rolesPath(target), content, adminToken);
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(400);
+        assertThat(body(response).path("code").asText()).isEqualTo("INVALID_JSON");
+        assertThat(roleRows(target)).isEqualTo(before);
+    }
+
+    @Test
+    void cannotDropOwnAdminFromTheSetEvenWhenAddingRolesOrAnotherAdministratorExists() throws Exception {
+        account("setadmin@example.test", Set.of(Role.ADMIN));
+        List<Map<String, Object>> before = roleRows(adminId);
+
+        for (String content : List.of(rolesBody(adminId, "HR_MANAGER", "RECRUITER"), rolesBody(adminId, "INTERVIEWER"))) {
+            var rejected = request("PUT", rolesPath(adminId), content, adminToken);
+            assertThat(rejected.statusCode()).isEqualTo(409);
+            assertThat(rejected.headers().firstValue("Cache-Control").orElseThrow()).contains("no-store");
+            JsonNode error = body(rejected);
+            assertThat(error.path("code").asText()).isEqualTo("SELF_ADMIN_REVOCATION");
+            assertThat(error.path("message").asText()).isEqualTo("Bạn không thể thu hồi vai trò ADMIN của chính mình.");
+            assertThat(roleRows(adminId)).isEqualTo(before);
+        }
+
+        assertThat(strings(ok(request("PUT", rolesPath(adminId), rolesBody(adminId, "ADMIN", "HR_MANAGER"), adminToken))
+                .path("roles"))).containsExactly("ADMIN", "HR_MANAGER");
+        assertThat(strings(ok(request("PUT", rolesPath(adminId), rolesBody(adminId, "ADMIN"), adminToken)).path("roles")))
+                .containsExactly("ADMIN");
+    }
+
+    @Test
+    void administratorMayDropAnotherAdministratorsAdminWhoseTokenLosesItOnTheNextCall() throws Exception {
+        UUID other = account("demoted@example.test", Set.of(Role.ADMIN, Role.INTERVIEWER));
+        UUID target = account("bystander@example.test", Set.of(Role.INTERVIEWER));
+        String otherToken = login("demoted@example.test").path("accessToken").asText();
+        ok(request("PUT", rolesPath(target), rolesBody(target, "INTERVIEWER", "RECRUITER"), otherToken));
+
+        assertThat(strings(ok(request("PUT", rolesPath(other), rolesBody(other, "INTERVIEWER"), adminToken)).path("roles")))
+                .containsExactly("INTERVIEWER");
+        assertThat(request("PUT", rolesPath(target), rolesBody(target, "INTERVIEWER"), otherToken).statusCode()).isEqualTo(403);
+        assertThat(get("/api/v1/accounts", otherToken).statusCode()).isEqualTo(403);
+        assertThat(accounts.findById(target).orElseThrow().getRoles())
+                .containsExactlyInAnyOrder(Role.INTERVIEWER, Role.RECRUITER);
+    }
+
+    @Test
+    void sameAccessTokenGetsThePermissionsOfTheReplacedSetOnTheNextCall() throws Exception {
+        UUID target = account("switched@example.test", Set.of(Role.INTERVIEWER));
+        String token = login("switched@example.test").path("accessToken").asText();
+        assertThat(get("/api/v1/accounts", token).statusCode()).isEqualTo(403);
+
+        ok(request("PUT", rolesPath(target), rolesBody(target, "HR_MANAGER", "INTERVIEWER"), adminToken));
+        assertThat(get("/api/v1/accounts", token).statusCode()).isEqualTo(200);
+        assertThat(strings(ok(get("/api/v1/auth/permissions", token)).path("permissions")))
+                .contains("USER_ADMIN_READ_ALL", "EVALUATIONS_WRITE_SCOPED");
+
+        ok(request("PUT", rolesPath(target), rolesBody(target, "APPROVER"), adminToken));
+        assertThat(get("/api/v1/accounts", token).statusCode()).isEqualTo(403);
+        assertThat(strings(ok(get("/api/v1/auth/me", token)).path("roles"))).containsExactly("APPROVER");
+        assertThat(strings(ok(get("/api/v1/auth/permissions", token)).path("permissions")))
+                .contains("REQUISITIONS_READ_SCOPED").doesNotContain("USER_ADMIN_READ_ALL", "EVALUATIONS_WRITE_SCOPED");
     }
 
     @Test
@@ -435,11 +676,20 @@ class RoleManagementIntegrationTest {
 
     private HttpResponse<String> whileActorLocked(String method, UUID target, String role,
                                                   LockedChange change) throws Exception {
+        return whileActorLocked(() -> request(method, rolePath(target, role), null, adminToken), change);
+    }
+
+    private HttpResponse<String> whileActorLocked(Callable<HttpResponse<String>> call, LockedChange change) throws Exception {
+        return whileLocked(adminId, call, change);
+    }
+
+    private HttpResponse<String> whileLocked(UUID lockedAccount, Callable<HttpResponse<String>> call,
+                                             LockedChange change) throws Exception {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            int blockerPid = lockAccount(connection, adminId);
+            int blockerPid = lockAccount(connection, lockedAccount);
             try (var executor = Executors.newSingleThreadExecutor()) {
-                var request = executor.submit(() -> request(method, rolePath(target, role), null, adminToken));
+                var request = executor.submit(call);
                 try {
                     // Observe the real PostgreSQL wait, so invalidation happens after the JWT filter accepted it.
                     awaitAccountWaiters(blockerPid, 1);
@@ -490,8 +740,40 @@ class RoleManagementIntegrationTest {
         return accounts.saveAndFlush(new Account(email, "Role test", fixturePasswordHash, roles, START)).getId();
     }
 
+    // Removes the ADMIN of an administrator who holds only ADMIN. The body is built now, before the call waits.
+    private Callable<HttpResponse<String>> demotion(String method, UUID target, String token) throws Exception {
+        if (method.equals("DELETE")) {
+            return () -> request("DELETE", rolePath(target, "ADMIN"), null, token);
+        }
+        String set = rolesBody(target, "INTERVIEWER");
+        return () -> request("PUT", rolesPath(target), set, token);
+    }
+
     private String rolePath(UUID accountId, String role) {
         return "/api/v1/accounts/" + accountId + "/roles/" + role;
+    }
+
+    private String rolesPath(UUID accountId) {
+        return "/api/v1/accounts/" + accountId + "/roles";
+    }
+
+    // What the edit page sends right after loading the account: the new set and the roles it holds now (none for an
+    // account that does not exist).
+    private String rolesBody(UUID accountId, String... roles) throws Exception {
+        List<String> loaded = accounts.findById(accountId)
+                .map(account -> account.getRoles().stream().map(Role::name).sorted().toList())
+                .orElse(List.of());
+        return rolesBody(loaded, roles);
+    }
+
+    private String rolesBody(List<String> expectedRoles, String... roles) throws Exception {
+        return json.writeValueAsString(Map.of("roles", List.of(roles), "expectedRoles", expectedRoles));
+    }
+
+    // xmin is the transaction that wrote the row, so a row deleted and inserted again shows a new value.
+    private List<Map<String, Object>> roleRows(UUID accountId) {
+        return jdbc.queryForList("SELECT role, xmin::text AS version FROM user_roles WHERE user_id = ? ORDER BY role",
+                accountId);
     }
 
     private JsonNode login(String email) throws Exception {

@@ -1,7 +1,7 @@
 # 325 — Lưu hồ sơ ứng tuyển và tệp CV
 
-Task này cung cấp lớp lưu trữ nội bộ, **chưa có endpoint nhận hồ sơ hoặc tải CV**.
-API công khai, quota IP, mã/email xác nhận còn thuộc 326–329.
+Task 325 cung cấp lớp lưu trữ nội bộ. Bản backend hợp nhất đã có API công khai, quota IP,
+mã/email xác nhận (326–329), giới thiệu và tải CV theo quyền.
 
 ## Schema
 
@@ -25,22 +25,25 @@ quy tắc của task 363, xem [xem CV](candidate-profiles.md#xem-cv-task-362).
 ## Service và khóa
 
 `ApplicationStorageService.store(postingId,submission,validatedCv,trackingHash)` là Spring
-transaction READ_COMMITTED; gọi qua bean/proxy. Reception service tương lai cần transaction
+transaction READ_COMMITTED; gọi qua bean/proxy. Receipt/referral writer dùng transaction
 READ_COMMITTED chung với outbox. Unique/error mapping public thuộc 327, không trả SQL/PII.
 
 - Kiểm tra CV ngoài transaction, không parser khi giữ khóa.
-- Validate input dù không qua controller; khóa requisition FOR SHARE → tin FOR SHARE →
+- Validate input dù không qua controller; gọi `JobPostingApplicationGate`, khóa requisition FOR NO KEY UPDATE → tin FOR SHARE →
   nguồn CANDIDATE_SOURCE còn active nếu có.
 - Chỉ nhận PUBLISHED/APPROVED, còn hạn theo BusinessCalendar; kiểm lại ngày sau chờ khóa
   danh mục bằng cùng mốc ghi vào hồ sơ, và (task 360) thêm một lần sau liên kết hồ sơ ứng viên,
   chỗ chờ khóa cuối cùng.
+- Tin hết hạn trả 409 `JOB_POSTING_EXPIRED`; tin đã gỡ/đóng, yêu cầu không còn APPROVED hoặc
+  id không tồn tại trả 404 `JOB_POSTING_NOT_FOUND`, cùng quy tắc của cổng việc làm.
 - Insert hồ sơ và CV atomic; lỗi CV/rollback caller bỏ cả hai; unique chặn nộp đồng thời.
 - Task 360: ngay sau insert hồ sơ (sau bộ chặn trùng), trước CV, `CandidateLinks.link` gắn hồ sơ vào
   hồ sơ ứng viên của email chuẩn hóa trong cùng transaction; cần READ_COMMITTED, caller không được
   chạy `store()` trong REPEATABLE READ. Xem [hồ sơ ứng viên](candidate-profiles.md#khóa-và-transaction).
 - Task 350: `ReferralApplicationStorage.store` gọi `store()` trong transaction của bên gọi cho hồ sơ do nhân
-  viên giới thiệu: tự khóa yêu cầu `FOR NO KEY UPDATE` trước (quy tắc của task 321), rồi ghi dòng
-  `application_referrals` sau hồ sơ; `store()` không đổi. Xem [giới thiệu ứng viên](application-referrals.md#lưu-giới-thiệu-task-350).
+  viên giới thiệu, rồi ghi dòng `application_referrals`. Gate đảm nhiệm khóa chung; không tự khóa yêu cầu trước gate.
+  Callback của referral kiểm lại người gọi sau chờ khóa yêu cầu, tin, danh mục và liên kết ứng viên.
+  Xem [giới thiệu ứng viên](application-referrals.md#lưu-giới-thiệu-task-350).
 
 Input: tên 120, email 254, thư giới thiệu 5000 ký tự; văn bản thuần, trim Unicode ngoài cùng.
 Phone giữ số 0 đầu, bỏ dấu phân cách, nhận `+` đầu và 8–15 số; không thêm mã quốc gia.
@@ -79,9 +82,8 @@ concurrency/body/proxy. Bytes được giữ nguyên. Nguồn:
 HIRED/REJECTED/WITHDRAWN final. Không thêm khóa/read CV, xếp stage theo enum.
 Đóng/hủy sau nộp nhìn thấy pipeline và dùng xác nhận hiện có. 325 chỉ tạo NEW; ánh xạ stage
 sang [trạng thái công khai](application-tracking.md#trạng-thái-công-khai-task-340) có từ task 340.
-Multipart HTTP vẫn 5 MiB/6 MiB vì chưa có endpoint
-CV; 326 cần nâng và giữ limit riêng avatar/media/import. Outbox/IP/mã/link/tra cứu/rút/UI
-chưa có trong 325.
+Multipart nhận hồ sơ dùng giới hạn riêng 10 MiB/CV và 11 MiB/request; không thay giới hạn
+avatar/media/import. Outbox/IP/mã/link/tra cứu/rút thuộc các module đã nối vào bản hợp nhất.
 
 ## Kiểm thử
 
@@ -89,7 +91,7 @@ Tests mới: CvValidatorTest, ApplicationSubmissionTest, ApplicationStageTest,
 ApplicationStorageIntegrationTest. Kiểm tra biên 10 MiB, file giả/hỏng/mã hóa, XML/ZIP,
 bytes/hash/FK, upgrade V25→V26 giữ dữ liệu, unique song song, rollback, pipeline, mọi
 trạng thái không nhận, hai chiều race nộp–đóng và chờ khóa qua nửa đêm Việt Nam.
-Storage có 24 ca, gồm source/cover null, chặn xóa nguồn đã dùng và khôi phục schema sau upgrade.
+Storage còn kiểm source/cover null, chặn xóa nguồn đã dùng và khôi phục schema sau upgrade.
 
 Docker opt-in: `-Dtest.database.url=jdbc:postgresql://127.0.0.1:<port>/task325_test`.
 Factory test chỉ nhận localhost/tên database này, tạo schema và Hikari pool riêng mỗi context;

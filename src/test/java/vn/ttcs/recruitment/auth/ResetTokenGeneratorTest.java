@@ -8,6 +8,7 @@ import vn.ttcs.recruitment.auth.passwordreset.ForgotPasswordRequest;
 import vn.ttcs.recruitment.auth.passwordreset.PasswordResetMailSender;
 import vn.ttcs.recruitment.auth.passwordreset.ResetPasswordRequest;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
+import vn.ttcs.recruitment.mail.MailLayout;
 
 import java.net.URI;
 import java.util.Base64;
@@ -47,7 +48,7 @@ class ResetTokenGeneratorTest {
             "https://example.test/reset?next=untrusted", "https://user:password@example.test/reset",
             "https://example.test/reset#token"})
     void rejectsUntrustedResetPageConfiguration(String url) {
-        assertThatThrownBy(() -> new PasswordResetMailSender(mock(JavaMailSender.class),
+        assertThatThrownBy(() -> new PasswordResetMailSender(mock(JavaMailSender.class), mock(MailLayout.class),
                 "no-reply@example.test", URI.create(url))).isInstanceOf(IllegalStateException.class);
     }
 }

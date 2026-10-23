@@ -9,9 +9,9 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.catalog.RecruitmentCatalogItemRepository;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
+import vn.ttcs.recruitment.jobposting.JobPostingApplicationGate;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.UUID;
@@ -20,6 +20,7 @@ import java.util.UUID;
 @Service
 public class ApplicationStorageService {
     private final JdbcTemplate jdbc;
+    private final JobPostingApplicationGate postingGate;
     private final ApplicationRepository applications;
     private final ApplicationCvRepository cvs;
     private final CandidateLinks candidates;
@@ -28,10 +29,12 @@ public class ApplicationStorageService {
     private final BusinessCalendar calendar;
     private final Clock clock;
 
-    public ApplicationStorageService(JdbcTemplate jdbc, ApplicationRepository applications, ApplicationCvRepository cvs,
+    public ApplicationStorageService(JdbcTemplate jdbc, JobPostingApplicationGate postingGate,
+            ApplicationRepository applications, ApplicationCvRepository cvs,
             CandidateLinks candidates, RecruitmentCatalogItemRepository catalogs, Validator validator,
             BusinessCalendar calendar, Clock clock) {
         this.jdbc = jdbc;
+        this.postingGate = postingGate;
         this.applications = applications;
         this.cvs = cvs;
         this.candidates = candidates;
@@ -47,6 +50,13 @@ public class ApplicationStorageService {
     // REPEATABLE READ, or two concurrent first applications of one email would end in a serialization failure.
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public StoredApplication store(UUID postingId, ApplicationSubmission submission, ValidatedCv cv, byte[] trackingHash) {
+        return store(postingId, submission, cv, trackingHash, () -> { });
+    }
+
+    // Referrals recheck their authenticated caller after every lock wait. Anonymous intake uses the overload above.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public StoredApplication store(UUID postingId, ApplicationSubmission submission, ValidatedCv cv,
+                                   byte[] trackingHash, Runnable callerCheck) {
         if (postingId == null || submission == null || cv == null || trackingHash == null || trackingHash.length != 32) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Dữ liệu hồ sơ hoặc tệp CV không hợp lệ.");
         }
@@ -54,45 +64,32 @@ public class ApplicationStorageService {
         validator.validate(submission).forEach(error -> errors.putIfAbsent(error.getPropertyPath().toString(), "Trường không hợp lệ."));
         if (!errors.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Vui lòng kiểm tra thông tin hồ sơ.", errors);
 
-        var sources = jdbc.query("SELECT requisition_id FROM job_postings WHERE id = ?",
-                (row, number) -> row.getObject(1, UUID.class), postingId);
-        if (sources.isEmpty()) throw unavailable();
-        UUID requisitionId = sources.getFirst();
-        var statuses = jdbc.query("SELECT status FROM recruitment_requisitions WHERE id = ? FOR NO KEY UPDATE",
-                (row, number) -> row.getString(1), requisitionId);
-        if (statuses.isEmpty() || !"APPROVED".equals(statuses.getFirst())) throw unavailable();
-        var postings = jdbc.query("""
-                SELECT requisition_id, status, application_deadline, title FROM job_postings WHERE id = ? FOR SHARE
-                """, (row, number) -> new Posting(row.getObject(1, UUID.class), row.getString(2),
-                row.getObject(3, LocalDate.class), row.getString(4)), postingId);
-        if (postings.isEmpty()) throw unavailable();
-        Posting posting = postings.getFirst();
-        if (!posting.requisitionId().equals(requisitionId) || !"PUBLISHED".equals(posting.status())
-                || posting.deadline() == null || posting.deadline().isBefore(calendar.today())) throw unavailable();
-        if (submission.sourceId() != null && !catalogs.findActiveForShare(submission.sourceId(), "CANDIDATE_SOURCE").orElse(false)) {
+        var posting = postingGate.requireOpen(postingId, callerCheck);
+        // The gate holds the posting FOR SHARE, so its title cannot change before this transaction commits.
+        String title = jdbc.queryForObject("SELECT title FROM job_postings WHERE id = ?", String.class, postingId);
+        boolean sourceActive = submission.sourceId() == null
+                || catalogs.findActiveForShare(submission.sourceId(), "CANDIDATE_SOURCE").orElse(false);
+        callerCheck.run();
+        if (!sourceActive) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Nguồn biết tin không còn áp dụng.");
         }
         // Recheck the date after the requisition, posting and source catalog waits. The application and candidate
         // arbiters below can wait too, so a second check follows the candidate link.
         var receivedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
-        if (posting.deadline().isBefore(calendar.dateOf(receivedAt))) throw unavailable();
-        var application = new StoredApplication(UUID.randomUUID(), postingId, requisitionId, ApplicationStage.NEW,
+        if (posting.applicationDeadline().isBefore(calendar.dateOf(receivedAt))) throw JobPostingApplicationGate.expired();
+        var application = new StoredApplication(UUID.randomUUID(), postingId, posting.requisitionId(), ApplicationStage.NEW,
                 receivedAt);
-        applications.insert(application, submission, posting.title(), trackingHash.clone());
+        applications.insert(application, submission, title, trackingHash.clone());
         // Task 360: after the duplicate arbiter (a 409 links nothing), in this transaction: one profile per email.
         candidates.link(application.id(), submission.normalizedEmail(), receivedAt);
+        callerCheck.run();
         // The link is the last statement that can wait (on a concurrent first application of the same email; the
         // arbiter above on one that rolls back): an application whose last wait ends after the deadline's business
         // midnight is refused like a late one. receivedAt stays the first check's time; the refusal rolls back the
         // application and its link, and with a joined caller transaction its referral and outbox rows too.
-        if (posting.deadline().isBefore(calendar.dateOf(clock.instant()))) throw unavailable();
+        if (posting.applicationDeadline().isBefore(calendar.dateOf(clock.instant()))) throw JobPostingApplicationGate.expired();
         cvs.insert(application, cv);
         return application;
     }
 
-    private record Posting(UUID requisitionId, String status, LocalDate deadline, String title) { }
-
-    private static ApiException unavailable() {
-        return new ApiException(HttpStatus.NOT_FOUND, "JOB_POSTING_NOT_FOUND", "Tin tuyển dụng không còn nhận hồ sơ.");
-    }
 }

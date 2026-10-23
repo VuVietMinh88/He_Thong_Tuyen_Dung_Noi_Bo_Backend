@@ -249,7 +249,12 @@ class ApplicationStorageIntegrationTest {
         } else {
             jdbc.update("UPDATE job_postings SET status=?, published_by=null, published_at=null WHERE id=?",status.name(),posting);
         }
-        assertThatThrownBy(() -> storage.store(posting, submission("a@example.test"), cv, hash())).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> storage.store(posting, submission("a@example.test"), cv, hash()))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.getStatus().value()).isEqualTo(status == JobPostingStatus.EXPIRED ? 409 : 404);
+                    assertThat(error.getCode()).isEqualTo(status == JobPostingStatus.EXPIRED
+                            ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+                });
         assertThat(count()).isZero();
     }
 
@@ -344,6 +349,17 @@ class ApplicationStorageIntegrationTest {
             }));
             assertThat(stored.await(10,TimeUnit.SECONDS)).isTrue();
             try {
+                // Even another shared row lock must wait: public intake now uses the gate's NO KEY UPDATE, so a
+                // queued closure cannot be bypassed by a stream of new submissions holding only SHARE.
+                try (Connection probe = dataSource.getConnection()) {
+                    probe.setAutoCommit(false);
+                    try (var share = probe.prepareStatement(
+                            "SELECT 1 FROM recruitment_requisitions WHERE id = ? FOR SHARE NOWAIT")) {
+                        share.setObject(1, requisition);
+                        assertThatThrownBy(share::executeQuery).isInstanceOfSatisfying(java.sql.SQLException.class,
+                                error -> assertThat(error.getSQLState()).isEqualTo("55P03"));
+                    } finally { probe.rollback(); }
+                }
                 var closing = executor.submit(() -> new TransactionTemplate(transactions).execute(status -> {
                     jdbc.queryForObject("SELECT status FROM recruitment_requisitions WHERE id=? FOR NO KEY UPDATE",String.class,requisition);
                     return pipeline.activePipeline(requisition).count();

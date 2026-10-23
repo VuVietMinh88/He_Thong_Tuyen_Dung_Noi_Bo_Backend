@@ -27,6 +27,7 @@ import vn.ttcs.recruitment.application.ApplicationSubmission;
 import vn.ttcs.recruitment.application.CvValidator;
 import vn.ttcs.recruitment.application.DuplicateApplicationException;
 import vn.ttcs.recruitment.application.PostgresApplicationReceiptWriter;
+import vn.ttcs.recruitment.jobposting.JobPostingExpiry;
 
 import javax.sql.DataSource;
 import java.io.ByteArrayInputStream;
@@ -95,6 +96,7 @@ class ApplicationReferralIntegrationTest {
     @Autowired private ApplicationConfirmationWorker worker;
     @Autowired private PostgresApplicationReceiptWriter receipts;
     @Autowired private DataSource dataSource;
+    @Autowired private JobPostingExpiry expiry;
 
     private ApplicationTestSupport applications;
     private UUID posting;
@@ -322,24 +324,50 @@ class ApplicationReferralIntegrationTest {
                 attempt(referrer, second, "STORED"), attempt(other, second, "DUPLICATE"));
     }
 
-    // A requisition no longer APPROVED, a posting no longer PUBLISHED, a past deadline or an unknown posting: 404, nothing
-    // stored, the attempt POSTING_UNAVAILABLE.
+    // Hidden/unknown postings answer 404; an elapsed deadline or expired posting answers 409. Both leave the
+    // attempt POSTING_UNAVAILABLE (never DUPLICATE) and store no candidate data.
     @ParameterizedTest
-    @ValueSource(strings = {"PAUSED", "CLOSED", "PAST_DEADLINE", "UNKNOWN"})
+    @ValueSource(strings = {"PAUSED", "CLOSED", "UNPUBLISHED", "EXPIRED", "PAST_DEADLINE", "UNKNOWN"})
     void onlyAnOpenPostingTakesReferrals(String state) throws Exception {
         UUID target = posting;
         switch (state) {
             case "PAUSED" -> jdbc.update("UPDATE recruitment_requisitions SET status = 'PAUSED' WHERE id = ?", requisition);
-            case "CLOSED" -> jdbc.update("UPDATE job_postings SET status = 'CLOSED' WHERE id = ?", posting);
+            case "CLOSED", "UNPUBLISHED", "EXPIRED" -> jdbc.update("UPDATE job_postings SET status = ? WHERE id = ?", state, posting);
             case "PAST_DEADLINE" -> jdbc.update("UPDATE job_postings SET application_deadline = ? WHERE id = ?",
                     LocalDate.of(2026, 10, 14), posting);
             default -> target = UUID.randomUUID();
         }
         var response = applications.refer(token, target, EMAIL);
-        assertError(response, 404, "JOB_POSTING_NOT_FOUND");
-        assertThat(json.readTree(response.body()).get("message").asString()).isEqualTo("Tin tuyển dụng không còn nhận hồ sơ.");
+        boolean expired = state.equals("PAST_DEADLINE") || state.equals("EXPIRED");
+        assertError(response, expired ? 409 : 404, expired ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+        assertThat(json.readTree(response.body()).get("message").asString()).isEqualTo(expired
+                ? "Tin tuyển dụng đã hết hạn nộp hồ sơ." : "Không tìm thấy tin tuyển dụng.");
         assertNothingStored();
         assertThat(attempts()).containsExactly(attempt(referrer, target, "POSTING_UNAVAILABLE"));
+    }
+
+    // The lifecycle actions from the feedback backend and the referral writer from S5 share one live contract.
+    @ParameterizedTest
+    @ValueSource(strings = {"UNPUBLISHED", "EXPIRED"})
+    void aRealPostingLifecycleActionStopsReferralsAndKeepsItsHistory(String state) throws Exception {
+        if (state.equals("EXPIRED")) {
+            jdbc.update("UPDATE job_postings SET application_deadline = ? WHERE id = ?", LocalDate.of(2026, 10, 14), posting);
+            assertThat(expiry.expire(posting)).isTrue();
+        } else {
+            UUID hr = applications.account("Nhân sự", "unpublish-hr@staff.test", Role.HR_MANAGER);
+            var unpublished = applications.post("/api/v1/job-postings/" + posting + "/unpublish",
+                    "{\"expectedRevision\":1,\"reason\":\"Ngừng nhận hồ sơ\"}", "application/json",
+                    Map.of("Authorization", "Bearer " + applications.token(tokens, hr)));
+            assertThat(unpublished.statusCode()).as(unpublished.body()).isEqualTo(200);
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM job_postings WHERE id = ?", String.class, posting))
+                .isEqualTo(state);
+        assertThat(jdbc.queryForList("SELECT event_type FROM job_posting_events WHERE job_posting_id = ?",
+                String.class, posting)).containsExactly(state);
+        assertError(applications.refer(token, posting, EMAIL), state.equals("EXPIRED") ? 409 : 404,
+                state.equals("EXPIRED") ? "JOB_POSTING_EXPIRED" : "JOB_POSTING_NOT_FOUND");
+        assertNothingStored();
+        assertThat(attempts()).containsExactly(attempt(referrer, posting, "POSTING_UNAVAILABLE"));
     }
 
     // Nobody refers themselves: the candidate's email normalized like the account's. Refused after the account lock,
@@ -393,16 +421,11 @@ class ApplicationReferralIntegrationTest {
         assertThat(applications.referralAttempts()).isZero();
     }
 
-    // The writer's own requisition lock is FOR NO KEY UPDATE, never FOR SHARE, which only two referrers at once can
-    // show (so here, with the default limit of two referrals at once, not in the lock test's limit of one). A public
-    // intake's store() holds the requisition FOR SHARE (here a raw connection); a referral waits behind it, then the
-    // referral of a second referrer waits too. Once the intake lets go, both answer 201: the second one queued behind
-    // the first. A writer that took FOR SHARE would get it next to the intake's share lock, and so would the second
-    // referral; each would then wait in ReferralApplicationStorage's FOR NO KEY UPDATE for the other's share lock, a
-    // deadlock that PostgreSQL ends by aborting one of them (503 REFERRAL_SUBMISSION_UNAVAILABLE). The lock test's
-    // NOWAIT probe cannot tell the two apart: by then the storage has locked the requisition FOR NO KEY UPDATE itself.
+    // Both referrals must wait behind a shared requisition lock (simulated here by raw SQL), then succeed in sequence.
+    // A mistaken FOR SHARE would pass the blocker and defeat the gate's queueing rule. The real public intake now
+    // uses the same FOR NO KEY UPDATE gate as referrals.
     @Test
-    void twoReferrersBehindAPublicIntakeBothSucceed() throws Exception {
+    void twoReferrersBehindASharedRowLockBothSucceed() throws Exception {
         // Warm-up on another posting, so the waits below (inside the writers' 2 s lock_timeout) measure the locks.
         created(applications.refer(token, applications.publishedPosting("Khởi động"), "warm@example.test"));
         jdbc.update("DELETE FROM referral_attempts");
