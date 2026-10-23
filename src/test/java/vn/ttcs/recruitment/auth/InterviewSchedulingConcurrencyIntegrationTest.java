@@ -97,7 +97,36 @@ class InterviewSchedulingConcurrencyIntegrationTest {
 
     // Separate creators, sessions, applications and requisitions prevent unrelated row locks from accidentally
     // making the race pass. Only the shared room or shared panel member should make the second request fail.
+    @ParameterizedTest(name = "concurrent overlap on {0}")
+    @ValueSource(strings = {"INTERVIEWER", "ROOM"})
+    void concurrentConflictingCreatesKeepOnlyOneAppointmentAndEvent(String resource) throws Exception {
+        UUID secondPanel = resource.equals("INTERVIEWER") ? panelA : panelB;
+        String secondRoom = resource.equals("ROOM") ? "  PHONG A  " : "Phong B";
+        var responses = createTogether(
+                body(START, panelA, "Phong A", null),
+                body(START.plusSeconds(30 * 60), secondPanel, secondRoom, null));
 
+        assertThat(responses.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(201, 409);
+        for (var response : responses) {
+            if (response.statusCode() == 409) {
+                assertThat(json.readTree(response.body()).path("code").asText()).isEqualTo("INTERVIEW_CONFLICT");
+            }
+        }
+        assertThat(count("interview_sessions")).isEqualTo(1);
+        assertThat(count("interview_participants")).isEqualTo(1);
+        assertThat(count("interview_events")).isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT event_type FROM interview_events", String.class))
+                .containsExactly("INTERVIEW_SCHEDULED");
+    }
+
+    @Test
+    void adjacentAppointmentsCanConcurrentlyUseTheSamePanelAndRoom() throws Exception {
+        var responses = createTogether(body(START, panelA, "Phong A", null),
+                body(START.plusSeconds(60 * 60), panelA, "  PHONG A  ", null));
+        assertThat(responses.stream().map(HttpResponse::statusCode).toList()).containsExactly(201, 201);
+        assertThat(count("interview_sessions")).isEqualTo(2);
+        assertThat(count("interview_events")).isEqualTo(2);
+    }
 
     @ParameterizedTest(name = "grant removed during {0} lock wait")
     @ValueSource(strings = {"application", "resource"})
