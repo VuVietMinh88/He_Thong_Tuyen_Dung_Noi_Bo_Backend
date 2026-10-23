@@ -154,6 +154,15 @@ AAD và V28 không đổi, và thư còn trong hàng đợi lúc deploy cũng c�
 không có đoạn này; ứng viên vẫn rút được từ trang tra cứu (câu hỏi 26, ý 3). Đoạn chỉ có cùng API rút
 hồ sơ, vì thư đã gửi thì không lấy lại được.
 
+Hồ sơ được giới thiệu (task 351, story S4-07): ngay sau dòng chào, thư thêm đoạn "Hồ sơ này do một nhân
+viên của công ty gửi thay bạn qua kênh giới thiệu nội bộ, kèm xác nhận rằng bạn đã đồng ý. Nếu bạn không
+muốn tiếp tục, bạn có thể rút hồ sơ bằng liên kết rút hồ sơ bên dưới. Để yêu cầu xóa dữ liệu của bạn, vui
+lòng trả lời email này hoặc liên hệ {MAIL_FROM}." Worker hỏi `ApplicationReferralLookup.isReferral` (một
+transaction chỉ đọc riêng, `statement_timeout` 3 giây) sau `renew`, rồi truyền cờ cho
+`ApplicationConfirmationMailSender.send(payload, messageId, referred)`; payload, mã hóa, AAD và V28 không
+đổi. Thư không nêu tên người giới thiệu (câu hỏi 27, ý 6). Tra cứu lỗi thì thư ở lại `PROCESSING` tới khi
+hết lease rồi được gửi lại. Xem [API giới thiệu](application-referrals.md#api-giới-thiệu-task-351).
+
 ## Kiểm thử và phạm vi
 
 `ApplicationConfirmationSecurityTest`: URL/mailfrom/key/readiness, AES roundtrip/nonce,

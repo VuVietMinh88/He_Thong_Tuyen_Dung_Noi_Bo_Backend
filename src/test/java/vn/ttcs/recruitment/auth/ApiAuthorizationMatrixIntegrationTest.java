@@ -267,7 +267,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/candidates/{id}/unified-profile", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
             // scope check.
-            endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404));
+            endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Task 351: a staff referral, open to every internal role like the avatar write; multipart only, so the JSON
+            // sample stops at 415 before readiness, the form or the attempt quota (like POST /company-profile/media).
+            endpoint("POST", "/api/v1/referrals", permission(SELF_PROFILE_WRITE), INVALID_BODY, 415));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",

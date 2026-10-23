@@ -8,6 +8,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
+import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.application.ApplicationReferralRoutes;
 import vn.ttcs.recruitment.application.ApplicationStage;
 import vn.ttcs.recruitment.application.ApplicationStorageService;
 import vn.ttcs.recruitment.application.ApplicationSubmission;
@@ -41,6 +43,9 @@ import java.util.UUID;
 final class ApplicationTestSupport {
     static final String LOOKUP = ApplicationTrackingRoutes.LOOKUP;
     static final String WITHDRAW = ApplicationTrackingRoutes.WITHDRAW;
+    static final String REFERRALS = ApplicationReferralRoutes.SUBMISSION;
+    static final String REFERRAL_NOTE = "Bạn học cũ, mạnh Java";
+    private static final String REFERRAL_BOUNDARY = "referral-http-boundary";
     static final String FULL_NAME = "Nguyễn Văn A";
     static final String PHONE = "0912345678";
     // 10:00 on 15 Oct 2026 in Vietnam; every posting made here takes applications until 31 Dec 2026.
@@ -75,9 +80,12 @@ final class ApplicationTestSupport {
     // link cannot be deleted, and nothing else deletes a profile. The access log (task 363) has no keys but rejects
     // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) and the withdrawal notices
     // (task 346, whose recipients are staff accounts) would go with their applications (CASCADE) but are deleted
-    // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too).
+    // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too). The
+    // referral attempts and their quota rows (task 351) reference staff accounts only and are deleted with them.
     void reset() {
         jdbc.execute("TRUNCATE candidate_access_events");
+        jdbc.update("DELETE FROM referral_attempts");
+        jdbc.update("DELETE FROM referral_quotas");
         jdbc.update("DELETE FROM application_notice_outbox");
         jdbc.update("DELETE FROM application_referrals");
         jdbc.update("DELETE FROM application_stage_events");
@@ -313,5 +321,71 @@ final class ApplicationTestSupport {
         if (contentType != null) builder.header("Content-Type", contentType);
         headers.forEach(builder::header);
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    // Task 351: an enabled staff account with these roles (SQL), and a session row of it with a signed access token,
+    // valid for 15 minutes from the test clock (TokenService).
+    UUID account(String fullName, String email, Role... roles) {
+        UUID id = staff(fullName, email);
+        for (Role role : roles) {
+            jdbc.update("INSERT INTO user_roles (user_id, role) VALUES (?, ?)", id, role.name());
+        }
+        return id;
+    }
+
+    String token(TokenService tokens, UUID account) {
+        UUID session = UUID.randomUUID();
+        jdbc.update("INSERT INTO auth_sessions (id, user_id, refresh_token_hash, created_at, expires_at)"
+                + " VALUES (?, ?, ?, ?, ?)",
+                session, account, (UUID.randomUUID().toString() + UUID.randomUUID()).replace("-", ""),
+                Timestamp.from(NOW.minusSeconds(60)), Timestamp.from(NOW.plus(Duration.ofDays(7))));
+        return tokens.createAccessToken(account, session);
+    }
+
+    // Task 351: the referral form's text parts, in the frontend's order, for this posting and candidate email.
+    static Map<String, String> referralFields(UUID posting, String email) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("jobPostingId", posting.toString());
+        fields.put("fullName", FULL_NAME);
+        fields.put("email", email);
+        fields.put("phone", PHONE);
+        fields.put("referralNote", REFERRAL_NOTE);
+        fields.put("candidateConsent", "true");
+        return fields;
+    }
+
+    // The text parts, then the file part cv (left out when cv is null).
+    static byte[] referralBody(Map<String, String> fields, String filename, byte[] cv) {
+        var output = new ByteArrayOutputStream();
+        for (var field : fields.entrySet()) {
+            output.writeBytes(("--" + REFERRAL_BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + field.getKey()
+                    + "\"\r\n\r\n" + field.getValue() + "\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        if (cv != null) {
+            output.writeBytes(("--" + REFERRAL_BOUNDARY + "\r\nContent-Disposition: form-data; name=\"cv\"; filename=\""
+                    + filename + "\"\r\n\r\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            output.writeBytes(cv);
+            output.writeBytes("\r\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        }
+        output.writeBytes(("--" + REFERRAL_BOUNDARY + "--\r\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        return output.toByteArray();
+    }
+
+    HttpResponse<String> refer(String token, UUID posting, String email) throws Exception {
+        return refer(token, referralFields(posting, email), "CV.pdf", pdf().content());
+    }
+
+    HttpResponse<String> refer(String token, Map<String, String> fields, String filename, byte[] cv) throws Exception {
+        return refer(token, referralBody(fields, filename, cv));
+    }
+
+    HttpResponse<String> refer(String token, byte[] body) throws Exception {
+        return post(REFERRALS, HttpRequest.BodyPublishers.ofByteArray(body),
+                "multipart/form-data; boundary=" + REFERRAL_BOUNDARY,
+                token == null ? Map.of() : Map.of("Authorization", "Bearer " + token));
+    }
+
+    int referralAttempts() {
+        return jdbc.queryForObject("SELECT count(*) FROM referral_attempts", Integer.class);
     }
 }
