@@ -780,3 +780,50 @@ Ghi chú cho frontend:
 - Màn hình "Kho ứng viên tiềm năng": ô tìm chức danh, bộ chọn kỹ năng (tag), bảng: họ tên, chức danh quan tâm, kỹ năng,
   lý do, bằng chứng (`evidenceName`), vị trí đã ứng tuyển, ngày thêm, người thêm.
 - Nút "Gỡ khỏi kho" cần hộp xác nhận; sau 204 tải lại danh sách.
+
+## 400 — Gợi ý ứng viên tiềm năng cho vị trí mới
+
+`GET /api/v1/requisitions/{id}/talent-pool-suggestions?limit=20`
+
+Quyền: đọc ứng viên; requisition không tồn tại → 404 `REQUISITION_NOT_FOUND`; người gọi không đọc được ứng viên của
+requisition → 403. **Chỉ đọc**: không tạo hồ sơ ứng tuyển, không đổi giai đoạn, không liên hệ ứng viên.
+
+**Cơ sở so khớp** của requisition:
+
+- Chức danh: tên vị trí (danh mục) và tiêu đề tin tuyển dụng (nếu có) — `basisTitles`.
+- Kỹ năng: kỹ năng bắt buộc của vị trí (412) — `basisSkills`.
+
+Một mục đang hoạt động trong kho được gợi ý khi **ít nhất một** chức danh quan tâm khớp (chuỗi này chứa chuỗi kia, so không
+phân biệt hoa thường/dấu, chức danh quan tâm tối thiểu 3 ký tự) **hoặc** ít nhất một kỹ năng trùng. Bỏ qua ứng viên đã nộp
+vào chính requisition này, mục đã gỡ, và ứng viên không còn `AVAILABLE` (đã nhận việc hoặc đang có hồ sơ đang xử lý
+ở bất kỳ đâu, xem `candidateStatus` ở 398). Chỉ gồm mục người gọi đọc được hồ sơ nguồn. Thứ tự: khớp chức danh trước, rồi nhiều
+kỹ năng khớp hơn, rồi mục mới hơn. `limit` 1..50 (mặc định 20).
+
+Response 200:
+
+```json
+{
+  "requisitionId": "9dbc…",
+  "positionId": "19e0…",
+  "basisTitles": ["Developer", "Java Developer"],
+  "basisSkills": ["Java", "SQL"],
+  "advice": "Gợi ý từ kho tiềm năng chỉ để tham khảo; hệ thống không tự tạo hồ sơ ứng tuyển hay liên hệ ứng viên.",
+  "items": [
+    {
+      "entry": { "...": "một mục như 398" },
+      "matchedTitles": ["Java Developer"],
+      "matchedSkills": ["Java"]
+    }
+  ]
+}
+```
+
+Mỗi gợi ý hiện ra được ghi nhật ký `PROFILE` cho hồ sơ nguồn. Lỗi: 400 `VALIDATION_ERROR` (`limit`), 401, 403, 404.
+
+Ghi chú cho frontend:
+
+- Hiện ở màn hình requisition vừa được duyệt/mở: danh sách "Ứng viên tiềm năng phù hợp" với nhãn chức danh/kỹ năng đã khớp.
+- Mời ứng viên nộp hồ sơ là thao tác thủ công của recruiter (ví dụ dùng API nhập tay 407 khi ứng viên đồng ý); màn hình
+  này không có nút tạo hồ sơ tự động.
+- Câu hỏi BA/PO: (1) có nên mở rộng so khớp chức danh bằng từ đồng nghĩa (ví dụ "Developer" ~ "Lập trình viên") không;
+  (2) recruiter có được thấy gợi ý từ requisition mình không phụ trách không (hiện không).
