@@ -68,10 +68,14 @@ public class EmailMessageLog {
                 """, Boolean.class, applicationId, except));
     }
 
-    /** The email is queued in delivery; deliveryId may be null only for CANDIDATE_MAIL. Null when already recorded. */
+    /**
+     * The email is queued in delivery as the row deliveryId, which the caller writes in the same transaction (since
+     * task 538 every queued email names its row). Null when this email was already recorded.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public UUID queued(Message message, Delivery delivery, UUID deliveryId) {
         Objects.requireNonNull(delivery, "delivery");
+        Objects.requireNonNull(deliveryId, "deliveryId");
         return insert(message, "QUEUED", delivery.name(), deliveryId);
     }
 

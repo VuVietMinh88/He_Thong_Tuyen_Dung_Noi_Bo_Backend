@@ -178,3 +178,27 @@ lịch đổi, lease hết hạn) kết thúc một lần gửi mà không có d
 `email_messages`) không có dòng nhật ký.
 
 Ghi chú cho frontend: hiển thị qua API task 539; `result` và `error_code` là mã cố định để dịch sang nhãn tiếng Việt.
+
+## Hàng đợi gửi email bất đồng bộ (task 538)
+
+Không thêm endpoint. Migration `V66_3__create_candidate_mail_outbox.sql` thêm `candidate_mail_outbox`, hàng đợi bền
+vững của hai loại thư chỉ gồm mẫu (`REJECTION`, `INTERVIEW_THANKS`):
+
+- Dòng hàng đợi được ghi **trong cùng transaction** với sự kiện (đổi giai đoạn sang Loại, nộp phiếu đánh giá đầu tiên,
+  gửi thư từ chối hàng loạt), nên thao tác của người dùng trả kết quả ngay, không chờ SMTP; rollback thì không có thư.
+- `CandidateMailWorker` (chu kỳ `app.candidate-mail.poll-delay-ms`, mặc định 60 s; tắt gửi bằng
+  `CANDIDATE_MAIL_DELIVERY_ENABLED=false` mà không mất thư đang chờ) nhận từng dòng bằng lease 2 phút
+  (`FOR UPDATE SKIP LOCKED`), kiểm tra dữ liệu hiện tại, gia hạn lease, gửi SMTP ngoài transaction rồi ghi kết quả có
+  rào `lease_token`. Tối đa 6 lần tự động (chờ 1, 5, 15, 60 phút, 6 giờ); lease hết hạn ở lần thứ 6 thành
+  `FAILED`/`DELIVERY_UNCERTAIN`. Gửi ít nhất một lần: `Message-ID` cố định theo dòng hàng đợi.
+- **Không lưu payload**: nội dung dựng lúc gửi từ thư, hồ sơ, lịch phỏng vấn và mẫu hiện hành (task 533). Thư từ chối chỉ
+  gửi khi hồ sơ vẫn ở `REJECTED`; thư cảm ơn khi còn lịch phỏng vấn và hồ sơ vẫn ở giai đoạn đang xử lý (`NEW`,
+  `SCREENING`, `INTERVIEW`, `OFFER` — đã Loại, nhận việc, hội nhập hay rút thì không gửi, kể cả khi quyết định đến sau
+  lúc thư được xếp hàng); email hồ sơ phải còn đúng địa chỉ lúc quyết định — nếu không, dòng thành `CANCELLED` với
+  `OBSOLETE`/`RECIPIENT_UNAVAILABLE`, không gửi.
+- Trigger `sync_email_message_status` cũng gắn vào bảng này: trạng thái thư và nhật ký từng lần gửi (task 537) luôn khớp.
+- Thư đã được ghi `QUEUED` trước khi có bảng này (task 533) được đưa vào hàng đợi ngay trong migration.
+- Kiểm thử: `src/test/resources/application-default.properties` đặt `app.candidate-mail.poll-delay-ms=3600000`, nên
+  worker không tự chạy nền trong test (không giữ khóa khi test dọn database); test cần worker gọi `processNext()`.
+
+Ghi chú cho frontend: không có màn hình mới; trạng thái hiện trong nhật ký email (task 539).

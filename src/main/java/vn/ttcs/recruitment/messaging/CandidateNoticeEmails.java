@@ -23,17 +23,20 @@ import java.util.UUID;
  * an active stage (NEW, SCREENING, INTERVIEW, OFFER) is thanked: after a final decision (REJECTED, HIRED, ONBOARDED)
  * or a withdrawal the candidate gets no thank-you.</li>
  * </ul>
- * With the type's automatic sending on, the email is recorded QUEUED for the candidate mail queue; with it off, it is
- * recorded SUPPRESSED (the bulk rejection of story S7-09 can still send a suppressed rejection letter).
+ * With the type's automatic sending on, the email is recorded QUEUED and (task 538) its candidate mail queue row is
+ * written in the same transaction; with it off, it is recorded SUPPRESSED (the bulk rejection of story S7-09 can still
+ * send a suppressed rejection letter).
  */
 @Component
 public class CandidateNoticeEmails {
     private final JdbcTemplate jdbc;
     private final EmailMessageLog messages;
+    private final CandidateMailOutboxRepository outbox;
 
-    public CandidateNoticeEmails(JdbcTemplate jdbc, EmailMessageLog messages) {
+    public CandidateNoticeEmails(JdbcTemplate jdbc, EmailMessageLog messages, CandidateMailOutboxRepository outbox) {
         this.jdbc = jdbc;
         this.messages = messages;
+        this.outbox = outbox;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -56,7 +59,13 @@ public class CandidateNoticeEmails {
     }
 
     private void decide(EmailMessageLog.Message message) {
-        if (messages.autoSend(message.type())) messages.queued(message, EmailMessageLog.Delivery.CANDIDATE_MAIL, null);
-        else messages.suppressed(message);
+        if (!messages.autoSend(message.type())) {
+            messages.suppressed(message);
+            return;
+        }
+        UUID outboxId = UUID.randomUUID();
+        UUID recorded = messages.queued(message, EmailMessageLog.Delivery.CANDIDATE_MAIL, outboxId);
+        // Null: this email was already decided (a later evaluation of the same interview); nothing more to queue.
+        if (recorded != null) outbox.enqueue(outboxId, recorded);
     }
 }
