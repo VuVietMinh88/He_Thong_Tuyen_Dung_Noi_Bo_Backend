@@ -261,7 +261,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/job-postings/{id}/history", anyOf(JOB_POSTINGS_WRITE_ALL, JOB_POSTINGS_WRITE_SCOPED), null, 404),
             // Task 361: the unified candidate profile; both CANDIDATES read scopes pass (APPROVER is SCOPED from
             // V33_1), and the unknown id stops at 404 before any scope check.
-            endpoint("GET", "/api/v1/candidates/{id}/unified-profile", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404));
+            endpoint("GET", "/api/v1/candidates/{id}/unified-profile", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
+            // scope check.
+            endpoint("GET", "/api/v1/applications/{id}/cv", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",

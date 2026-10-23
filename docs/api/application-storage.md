@@ -17,7 +17,8 @@ Khóa email dài 512 để chứa trường hợp Unicode lowercase làm dài h�
 
 CV nằm trong bảng BYTEA riêng; MIME do backend xác định, có tên sạch, size/hash/thời điểm.
 CHECK kiểm lại số byte và SHA-256 với `pg_catalog.sha256(content)`. Không public URL,
-không query byte CV khi count pipeline. Quyền đọc CV về sau thuộc S4-09.
+không query byte CV khi count pipeline. Đọc CV: từ task 362, `GET /api/v1/applications/{id}/cv` theo
+quy tắc của task 363, xem [xem CV](candidate-profiles.md#xem-cv-task-362).
 `tracking_code_hash` là 32 byte bắt buộc/unique, caller nội bộ cung cấp cho nền 329.
 325 không sinh mã/email, không có API đổi stage/xóa/thu hồi mã.
 
@@ -54,6 +55,13 @@ Object PII/CV có toString redacted; content/hash dùng defensive copy.
 - Chặn entry trùng/traversal/vbaProject, DOCTYPE/XXE/external schema; không sửa static
   settings POI dùng chung với Excel import.
 - Filename chỉ basename, <=255 ký tự, không control/format/surrogate.
+- Task 362: 400 `APPLICATION_CV_ACTIVE_CONTENT` cho DOCX có quan hệ External không phải hyperlink
+  http/https/mailto hay đường dẫn ổ đĩa cục bộ, và PDF có Launch/JavaScript/tệp đính kèm (duyệt mọi
+  đối tượng, kể cả object stream; 64 tầng, 1.000.000 nút). Xem
+  [nội dung tự động trong CV](candidate-profiles.md#nội-dung-tự-động-trong-cv-task-362).
+- Task 362: thư mục trung tâm của ZIP phải liệt kê đúng các entry đã đọc tuần tự (cùng tên, cùng
+  thứ tự), nếu không 400 `APPLICATION_CV_INVALID`; mọi `.rels` được đọc lại qua thư mục trung tâm
+  (5 MiB mỗi phần, 100 MiB tổng).
 
 Không render PDF, chạy macro, bóc tách thông tin hoặc chứng nhận file không có malware.
 Không có sandbox hard timeout/heap riêng; trước khi mở endpoint 326 cần xét thêm ngân sách

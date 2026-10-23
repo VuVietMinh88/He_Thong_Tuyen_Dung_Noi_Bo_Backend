@@ -1,12 +1,12 @@
 # Hồ sơ ứng viên hợp nhất
 
-Phạm vi TKNHTTDNB1-360 (một hồ sơ ứng viên liên kết mọi lần ứng tuyển của cùng một người), story TKNHTTDNB1-48 (S4-09): một trang gồm thông tin cá nhân, CV xem trước ngay trong trang, lịch sử ứng tuyển các vị trí, nhãn và ghi chú; hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này; chỉ recruiter phụ trách và hiring manager của vị trí đó mở được. Task 360 chỉ thêm phần dữ liệu (migration V32 và việc liên kết khi lưu hồ sơ). Task 363 thêm quy tắc ai được xem và nhật ký truy cập (migration V33, V33_1). Task 361 thêm API đọc đầu tiên, hồ sơ và lịch sử ứng tuyển `GET /api/v1/candidates/{id}/unified-profile` (không migration); xem CV là task 362.
+Phạm vi TKNHTTDNB1-360 (một hồ sơ ứng viên liên kết mọi lần ứng tuyển của cùng một người), story TKNHTTDNB1-48 (S4-09): một trang gồm thông tin cá nhân, CV xem trước ngay trong trang, lịch sử ứng tuyển các vị trí, nhãn và ghi chú; hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này; chỉ recruiter phụ trách và hiring manager của vị trí đó mở được. Task 360 chỉ thêm phần dữ liệu (migration V32 và việc liên kết khi lưu hồ sơ). Task 363 thêm quy tắc ai được xem và nhật ký truy cập (migration V33, V33_1). Task 361 thêm API đọc đầu tiên, hồ sơ và lịch sử ứng tuyển `GET /api/v1/candidates/{id}/unified-profile` (không migration). Task 362 thêm API xem CV `GET /api/v1/applications/{id}/cv` và việc từ chối CV có nội dung tự động ngay khi nộp (không migration).
 
 Tiêu chí của story S4-09:
 
 - "Hiển thị đầy đủ các lần ứng tuyển trước đây của cùng người này": đã có. Mỗi lần ứng tuyển được gắn với đúng một hồ sơ ứng viên theo email đã chuẩn hóa (360); API hồ sơ (361) trả mọi lần ứng tuyển **người xem được đọc**, mới nhất trước. Lần ứng tuyển ngoài phạm vi người xem không hiện gì (câu hỏi 25, ý 7), xem [API hồ sơ và lịch sử](#api-hồ-sơ-và-lịch-sử-task-361).
-- "Một trang gồm thông tin cá nhân, CV xem trước…, lịch sử ứng tuyển các vị trí, nhãn và ghi chú": thông tin cá nhân (theo từng lần ứng tuyển) và lịch sử ứng tuyển có từ task 361, cùng tên tệp, loại và dung lượng CV; nội dung CV để xem trước là task 362; nhãn và ghi chú luôn rỗng tới S5-04.
-- "Chỉ recruiter phụ trách và hiring manager của vị trí đó mở được": quy tắc và nhật ký đã có (363); API hồ sơ (361) dùng, API CV (362) sẽ dùng. **Chưa đạt với HR_MANAGER và ADMIN** (giữ `CANDIDATES_READ_ALL`, câu hỏi 6 và 25 ý 4), xem [Ai được xem](#ai-được-xem-task-363).
+- "Một trang gồm thông tin cá nhân, CV xem trước…, lịch sử ứng tuyển các vị trí, nhãn và ghi chú": thông tin cá nhân (theo từng lần ứng tuyển) và lịch sử ứng tuyển có từ task 361, cùng tên tệp, loại và dung lượng CV; nội dung CV có từ task 362 (PDF xem ngay trong trang, DOCX chỉ tải về, xem [Xem CV](#xem-cv-task-362)); nhãn và ghi chú luôn rỗng tới S5-04.
+- "Chỉ recruiter phụ trách và hiring manager của vị trí đó mở được": quy tắc và nhật ký đã có (363); API hồ sơ (361) và API CV (362) đều dùng, và mọi lần đọc CV cũng được ghi nhật ký. **Chưa đạt với HR_MANAGER và ADMIN** (giữ `CANDIDATES_READ_ALL`, câu hỏi 6 và 25 ý 4), xem [Ai được xem](#ai-được-xem-task-363).
 
 ## Hồ sơ ứng viên hợp nhất (task 360)
 
@@ -64,7 +64,7 @@ Liên kết là một bảng riêng chứ không phải một cột trên `job_a
 
 ### Chưa làm
 
-- API xem CV: task 362 (API hồ sơ và lịch sử ứng tuyển có từ task 361; quyền xem và nhật ký truy cập từ task 363).
+- Xem trước DOCX ngay trong trang (câu hỏi 25, ý 10) và quét mã độc trong CV (câu hỏi 25, ý 11).
 - Gộp hồ sơ ứng viên theo số điện thoại hoặc gộp tay, so sánh cạnh nhau, hoàn tác trong 24 giờ: S5-01.
 - Xác minh email trước khi gộp (câu hỏi 25, ý 1).
 - Xóa hồ sơ ứng viên theo yêu cầu của chính ứng viên (câu hỏi 25, ý 3).
@@ -72,7 +72,7 @@ Liên kết là một bảng riêng chứ không phải một cột trên `job_a
 
 ## Ai được xem (task 363)
 
-Task 363 thêm quy tắc ai được đọc hồ sơ ứng viên và CV, cùng nhật ký mọi lần đọc. API hồ sơ (task 361) là nơi đầu tiên dùng; API CV (task 362) sẽ dùng. Quy tắc nằm ở một chỗ, `vn.ttcs.recruitment.candidate.CandidateAccess`; không thêm mã quyền, không thêm route.
+Task 363 thêm quy tắc ai được đọc hồ sơ ứng viên và CV, cùng nhật ký mọi lần đọc. API hồ sơ (task 361) và API CV (task 362) dùng nó. Quy tắc nằm ở một chỗ, `vn.ttcs.recruitment.candidate.CandidateAccess`; không thêm mã quyền, không thêm route.
 
 ### Quy tắc
 
@@ -201,7 +201,7 @@ Mỗi lần ứng tuyển (khóa không có giá trị thì bị bỏ, không g�
 | `recruiterId`, `recruiterName` | recruiter **chính** hiện tại của yêu cầu (chỉ id và họ tên); bỏ khi yêu cầu chưa có recruiter chính. Recruiter hỗ trợ không bao giờ hiện ở đây |
 | `hiringManagerId`, `hiringManagerName` | trưởng trực tiếp của phòng ban của yêu cầu (chỉ id và họ tên) |
 | `coverLetter` | thư giới thiệu; bỏ khi không có |
-| `cvFileName`, `cvFileType`, `cvFileSize` | tên tệp lúc tải lên, `pdf` hoặc `docx` theo loại đã lưu (không theo đuôi tên tệp), dung lượng theo byte. Chỉ là thông tin của tệp: nội dung CV xem ở API của task 362 |
+| `cvFileName`, `cvFileType`, `cvFileSize` | tên tệp lúc tải lên, `pdf` hoặc `docx` theo loại đã lưu (không theo đuôi tên tệp), dung lượng theo byte. Chỉ là thông tin của tệp: nội dung CV lấy ở [API CV](#xem-cv-task-362) (task 362) |
 
 Không bao giờ trả: đường dẫn tệp CV (`cvFileUrl`), nội dung hay mã băm CV, mã tra cứu hay mã băm của nó, `requisitionId`, email chuẩn hóa, email của bất kỳ nhân viên nào, mã ứng viên (`candidateCode`), chấm sao (`rating`), chức danh hiện tại, số năm kinh nghiệm.
 
@@ -235,11 +235,118 @@ Sprint 4 chưa có danh sách ứng viên (S5-02); trang hồ sơ chỉ mở t�
 - Giữ đường dẫn `GET /candidates/{id}/unified-profile`. Thêm giá trị `INTERVIEW` vào kiểu giai đoạn (frontend đang có `INTERVIEWING`, nên một hồ sơ ở `INTERVIEW` làm trang lỗi); hiện `stageName` của server thay vì tự dịch.
 - Mọi lần ứng tuyển trong response đều xem được: không có cờ `accessible`, không có dòng tóm tắt. Không tự lọc thêm.
 - Mỗi lần ứng tuyển có `fullName`, `email`, `phone` và `coverLetter` của riêng nó. Khi `contactMismatch` là `true`, `fullName` và `phone` ở phần đầu là `null`: hiện cảnh báo "Các lần ứng tuyển có họ tên hoặc số điện thoại khác nhau" cùng giá trị của từng lần, và **không** tạo liên kết `tel:` từ `null`.
-- Không có `cvFileUrl`: tải CV bằng API của task 362; dùng `cvFileName` để hiển thị.
+- Không có `cvFileUrl`: tải CV bằng `GET /applications/{id}/cv` (task 362, [ghi chú cho frontend](#ghi-chú-cho-frontend-task-359)); dùng `cvFileName` để hiển thị.
 - Người phụ trách chỉ có id và họ tên (`recruiterId`/`recruiterName`, `hiringManagerId`/`hiringManagerName`); `recruiterId` vắng khi yêu cầu chưa có recruiter chính.
 - Không có `currentTitle`, `experienceYears`, `candidateCode`, `rating`, `jobCode`; `tags`, `notes` luôn rỗng.
 - Xử lý 401 (đăng nhập lại), 403 (không có quyền, hoặc không có lần ứng tuyển nào trong phạm vi: "Bạn không có quyền xem hồ sơ ứng viên này"), 404 (hồ sơ không tồn tại). **Không** hiện dữ liệu mẫu (mock) khi gặp lỗi.
 - Mở lần ứng tuyển `currentApplicationId` trước, như hiện nay.
+
+## Xem CV (task 362)
+
+`GET /api/v1/applications/{id}/cv` (Bearer), đúng đường dẫn frontend đang gọi (`candidateProfileService`, task 359). `{id}` là id **lần ứng tuyển** (`applications[].id` trong hồ sơ hợp nhất), không phải id hồ sơ ứng viên. Không thêm mã quyền, không migration. Mọi response, kể cả lỗi, có `Cache-Control: no-store`.
+
+### Thứ tự kiểm và lỗi
+
+| Trường hợp | Kết quả | Nhật ký |
+|---|---|---|
+| Không có token, token hết hạn, phiên bị thu hồi, tài khoản bị khóa | 401 `UNAUTHORIZED` | không |
+| Không có `CANDIDATES_READ_ALL` hay `CANDIDATES_READ_SCOPED` (matcher, rồi `requireReader` đọc lại quyền từ database) | 403 `FORBIDDEN`, với mọi id, có thật hay không | không |
+| `{id}` không phải UUID | 400 `VALIDATION_ERROR` | không |
+| Lần ứng tuyển không tồn tại, hoặc không gắn với hồ sơ ứng viên nào (chỉ xảy ra khi sửa dữ liệu bằng SQL) | 404 `APPLICATION_NOT_FOUND` "Không tìm thấy hồ sơ ứng tuyển." | không |
+| Có thật nhưng ngoài phạm vi người gọi (`CandidateAccess.findApplication`, cùng đoạn SQL `READABLE`) | 403 `FORBIDDEN`, kể cả khi lần đó không có tệp CV | một dòng `DENIED` `CV` có `application_id`, ghi sau khi transaction đọc đã kết thúc |
+| Trong phạm vi nhưng không có tệp CV | 404 `APPLICATION_CV_NOT_FOUND` "Hồ sơ ứng tuyển này không có tệp CV." | không (không có gì được hiển thị) |
+| Được phép | 200 với nội dung tệp | một dòng `GRANTED` `CV` có `application_id`, trong chính transaction đọc |
+
+Bước 404 đứng trước bước phạm vi và chỉ phụ thuộc bản ghi; bước phạm vi đứng trước bước kiểm tệp, nên người ngoài phạm vi không biết được lần ứng tuyển có tệp hay không. Nội dung tệp (`application_cvs.content`) chỉ được đọc **sau** cả hai bước, bằng một câu SQL riêng. Phần đọc chạy trong một transaction REPEATABLE READ (read-write chỉ vì ghi nhật ký); `ApplicationCvService` không tự mở transaction bằng annotation, nên dòng `DENIED` được ghi sau khi transaction đọc đã kết thúc và một request không bao giờ giữ hai kết nối database. Tệp tối đa 10 MiB, trả nguyên trong bộ nhớ như mọi API tệp khác của dự án.
+
+### Response 200
+
+| Header | Giá trị |
+|---|---|
+| `Content-Type` | đúng loại đã lưu: `application/pdf` hoặc `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (V26 chỉ cho hai loại này); không bao giờ đoán từ tên tệp hay nội dung |
+| `Content-Length` | số byte của tệp |
+| `Content-Disposition` | `inline` cho PDF, `attachment` cho DOCX, rồi `filename="<tên ASCII>"`, rồi `filename*=UTF-8''<tên mã hóa>` |
+| `X-Content-Type-Options` | `nosniff` (đúng một giá trị) |
+| `Content-Security-Policy` | `default-src 'none'; sandbox` |
+| `Cache-Control` | `no-store` |
+
+Ví dụ với tệp "CV Nguyễn Văn Đức.pdf":
+
+```text
+Content-Disposition: inline; filename="CV Nguyen Van Duc.pdf"; filename*=UTF-8''CV%20Nguy%E1%BB%85n%20V%C4%83n%20%C4%90%E1%BB%A9c.pdf
+```
+
+Tên tệp (`CvContentDisposition`, viết tay):
+
+- **Đuôi tệp theo loại đã lưu**, không theo tên lúc tải lên: `.pdf` hay `.docx` ở cuối tên (không phân biệt hoa thường) được thay, đuôi khác được giữ phía trước (`CV.exe` lưu dạng DOCX thành `CV.exe.docx`).
+- **Tên ASCII** (`filename="…"`, đứng trước): tách dấu (NFD) rồi bỏ dấu, `đ`→`d`, `Đ`→`D`; mọi ký tự ngoài `A–Z a–z 0–9`, khoảng trắng và `. _ ( ) -` thành `_` (nhiều `_` liền nhau gộp một); bỏ khoảng trắng, dấu chấm và `_` ở hai đầu; tối đa 150 ký tự, giữ đuôi; không còn gì thì `cv.pdf` hoặc `cv.docx`. Vì vậy dấu nháy kép, dấu chấm phẩy, dấu `\` và xuống dòng không bao giờ vào được header.
+- **Tên đầy đủ** (`filename*`, đứng sau): tên đã lưu với đuôi theo loại, mã hóa UTF-8 theo RFC 5987 (mọi byte ngoài chữ cái ASCII, chữ số, dấu huyền ngược và `! # $ & + - . ^ _ | ~` thành `%XX`). Trình duyệt hiểu `filename*` sẽ dùng tên tiếng Việt này khi lưu tệp.
+- Header được viết tay vì `ContentDisposition` của Spring, khi có charset, viết `filename="=?UTF-8?Q?…?="` (RFC 2047), và mẫu `filename="?([^";]+)` của frontend sẽ lấy đúng chuỗi đó.
+
+### Các header bảo vệ cái gì
+
+`nosniff`, CSP `sandbox` và `no-store` bảo vệ khi **mở thẳng đường dẫn** (một trình quản lý tải xuống, hoặc sau này nếu có phiên bằng cookie): trình duyệt không được đoán loại khác (ví dụ HTML) từ nội dung, tệp mở trong tab không được tải gì khác hay chạy script, và không lưu vào bộ nhớ đệm. Hiện tại API cần Bearer, nên trình duyệt không tự mở được đường dẫn này. Frontend tải nội dung bằng axios thành một Blob rồi hiện qua URL `blob:`; URL đó dùng chính sách của trang frontend, không dùng các header trên. Khi đó an toàn dựa vào ba điều: Blob giữ đúng `Content-Type` của server, chỉ PDF được hiện ngay trong trang (DOCX chỉ tải về), và CV có nội dung tự động bị từ chối ngay khi nộp (mục dưới).
+
+Cùng quy tắc này (thứ tự kiểm, nhật ký `CV`) phải dùng cho API gợi ý dữ liệu CV (task 334 của TRAN DUC LUONG): gọi `requireReader`, `findApplication`, `recordGranted(CV, …)` và `recordDenied(CV, …)` như `ApplicationCvService`.
+
+### Ví dụ (PowerShell)
+
+```powershell
+$body = @{ email = 'hr@example.test'; password = '<mật khẩu>' } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/auth/login -ContentType 'application/json' -Body $body
+$headers = @{ Authorization = "Bearer $($login.accessToken)" }
+# <id>: id lần ứng tuyển, lấy từ applications[].id của hồ sơ hợp nhất
+$response = Invoke-WebRequest -Uri 'http://localhost:8080/api/v1/applications/<id>/cv' -Headers $headers -OutFile cv.bin -PassThru
+$response.Headers['Content-Type']
+$response.Headers['Content-Disposition']
+```
+
+### Ghi chú cho frontend (task 359)
+
+- Giữ `GET /applications/{id}/cv` với `responseType: 'blob'`. Tạo và dùng Blob với đúng `Content-Type` server trả (không để trống, không tự đoán từ tên tệp).
+- Chỉ hiện ngay trong trang khi `Content-Type` là `application/pdf`; DOCX chỉ cho tải về, không đưa Blob DOCX vào iframe. Xem trước DOCX là câu hỏi 25, ý 10.
+- Frontend đọc lần khớp đầu tiên của `filename="?([^";]+)`, nên nhận **tên ASCII**; muốn hiện tên tiếng Việt thì dùng `cvFileName` của hồ sơ hợp nhất. `Content-Disposition` đã được mở cho script khác origin (`Access-Control-Expose-Headers`).
+- Bỏ đường dự phòng `cvFileUrl` (không tồn tại). Tiếp tục thu hồi object URL khi rời trang (`URL.revokeObjectURL`).
+- **Không** thêm thuộc tính `sandbox` vào iframe hiện PDF: trình xem PDF có sẵn của Chrome được cho là không chạy trong khung bị sandbox (cần kiểm lại trên Chrome). Muốn cách ly mạnh hơn thì vẽ PDF bằng pdf.js lên canvas.
+- Lỗi: 401 (đăng nhập lại), 403 (không có quyền xem CV này), 404 `APPLICATION_NOT_FOUND` hoặc `APPLICATION_CV_NOT_FOUND`. Với `responseType: 'blob'`, body lỗi là một Blob chứa JSON: đọc bằng `await error.response.data.text()` rồi lấy `code` và `message`.
+- Form nộp hồ sơ (task 323, 324) và, từ task 351, form giới thiệu: hiện `message` của server khi nhận 400 `APPLICATION_CV_ACTIVE_CONTENT`.
+
+## Nội dung tự động trong CV (task 362)
+
+Task 362 là API đầu tiên đưa CV đã lưu tới máy của nhân viên, nên từ task này `CvValidator` (của TRAN DUC LUONG) từ chối ngay **khi nộp** những CV có nội dung mà Word hay trình đọc PDF tự chạy, tự mở hoặc tự tải từ bên ngoài. Trả lời: 400 `APPLICATION_CV_ACTIVE_CONTENT` "CV có nội dung tự động mở tệp, mẫu hoặc chương trình bên ngoài, hoặc có tệp đính kèm. Vui lòng lưu lại CV dưới dạng PDF thông thường rồi gửi lại." Body không nêu tên tệp, tên phần hay địa chỉ nào. CV hỏng vẫn trả `APPLICATION_CV_INVALID` như trước.
+
+Quy tắc áp dụng cho mọi đường nộp CV: API nộp hồ sơ công khai và, từ task 351, API giới thiệu nội bộ. API gợi ý dữ liệu CV (task 334) chỉ đọc CV đã lưu nên cũng được bảo vệ. CV đã lưu trước task 362 không được kiểm lại (API nộp hồ sơ mặc định tắt và chưa merge, nên chỉ có thể có trong database test hoặc demo; chưa kiểm trên VPS).
+
+### DOCX
+
+Lần đọc XML an toàn sẵn có (SAX, không DOCTYPE) đọc thêm từng `Relationship` của **mọi** phần `.rels`. Quan hệ có `TargetMode` khác `Internal` (so sau khi bỏ khoảng trắng hai đầu, không phân biệt hoa thường; giá trị lạ cũng bị coi là `External`) chỉ được chấp nhận khi:
+
+- là **liên kết web hoặc thư** (`Type` là quan hệ hyperlink của OOXML thường hoặc strict) và `Target` bắt đầu bằng `http://`, `https://` hoặc `mailto:` (không phân biệt hoa thường): bấm vào thì mở trình duyệt hoặc chương trình thư; hoặc
+- là **quan hệ khác** (mẫu `attachedTemplate`, `oleObject`, `frame`, `subDocument`, ảnh liên kết…) và `Target` là đường dẫn trên ổ đĩa của máy người soạn, không có máy chủ: `file:///C:/…`, `file:///C:\…`, `C:\…` hoặc `C:/…` (một chữ cái ASCII làm ổ đĩa). CV làm từ mẫu Word có sẵn trên máy thường giữ dạng này, và Word mở trên máy khác thì không tìm thấy tệp đó.
+
+Mọi phép so không phân biệt hoa thường ở đây chỉ áp dụng cho chữ cái ASCII: `ı` (i không chấm) và `ſ` (s dài) không được tính là `i`, `s`.
+
+Mọi trường hợp khác bị từ chối: đường dẫn UNC (`\\máy-chủ\…`, `//máy-chủ/…`), `file://máy-chủ/…`, `file:////…`, địa chỉ web hay giao thức khác ở quan hệ không phải hyperlink, đích tương đối hoặc rỗng, và hyperlink tới `file:` (kể cả ổ đĩa cục bộ), UNC, `javascript:` hay giao thức khác. Lý do: mẫu hoặc khung trên máy chủ khác khiến Word tự tải nội dung của người gửi khi mở tệp; với đường dẫn UNC hoặc `file://máy-chủ`, Windows còn tự đăng nhập vào máy chủ đó và lộ mã băm NTLM của người đọc. Bộ đọc chỉ bật cờ; `validate` đổi cờ thành lỗi sau khi đọc xong, sau mọi kiểm tra cấu trúc của gói ZIP và trước khi POI mở gói.
+
+**Hai cách đọc gói ZIP phải khớp nhau.** `ZipInputStream` (và POI) đọc các phần theo phần đầu cục bộ (local header), lần lượt từ đầu tệp; Word, như các chương trình đọc ZIP thông thường, tìm các phần qua thư mục trung tâm (central directory) ở cuối tệp. Một tệp có thể cho hai cách đọc thấy hai nội dung khác nhau: một phần chỉ đổi tên ở local header (ví dụ `word/_rels/settings.xmlA.xml` thay cho `word/_rels/settings.xml.rels`, nên được đọc như XML thường), các phần nằm sau một chữ ký thư mục trung tâm giả (`PK\1\2`) làm lần đọc tuần tự dừng sớm, hoặc thư mục trung tâm trỏ tới một local header thứ hai giấu trong dữ liệu của phần khác. Vì vậy, sau lần đọc tuần tự, `CvValidator` mở lại gói qua thư mục trung tâm (commons-compress, có sẵn qua POI): thư mục trung tâm phải liệt kê đúng các phần đã đọc, cùng tên, cùng thứ tự (tên do trường Unicode Path của Info-ZIP đặt cũng được tính), nếu không là `APPLICATION_CV_INVALID`; sau đó mọi phần `.rels` được đọc lại từ chỗ thư mục trung tâm trỏ tới, giữ giới hạn 5 MiB mỗi phần và 100 MiB tổng (các mục của thư mục trung tâm có thể dùng chung dữ liệu), và được kiểm như trên. Quan hệ không được phép ở bất kỳ cách đọc nào đều làm CV bị từ chối; lỗi cấu trúc, kể cả hai cách đọc không khớp, vẫn được báo trước.
+
+### PDF
+
+Sau khi PDFBox đọc tệp, mọi đối tượng gián tiếp trong bảng tham chiếu chéo, **kể cả đối tượng nằm trong object stream nén** (PDFBox 3 lưu mặc định như vậy), và trailer được duyệt cùng các từ điển, mảng trực tiếp bên trong (một tham chiếu gián tiếp được duyệt như đối tượng riêng của nó). Bị từ chối khi có:
+
+- hành động `/S /Launch` (mở chương trình hay tệp) hoặc `/S /JavaScript`;
+- khóa `/JS`, `/JavaScript` (cây tên JavaScript của tài liệu), `/EmbeddedFiles` hoặc `/EF` (tệp đính kèm);
+- `/Type /EmbeddedFile` hoặc chú thích `/Subtype /FileAttachment`.
+
+Liên kết `/URI` vẫn được chấp nhận. JavaScript bị từ chối **tạm thời**, chờ BA/PO (câu hỏi 25, ý 11). Nội dung của các luồng (stream) không bao giờ được giải mã để kiểm; chỉ từ điển của luồng được xem. Việc duyệt có giới hạn và đóng an toàn: sâu quá 64 tầng trực tiếp, quá 1.000.000 nút, hoặc một đối tượng trong bảng tham chiếu chéo mà PDFBox không đọc được (một trình đọc dễ dãi có thể dựng lại bảng và vẫn chạy được nó) đều trả `APPLICATION_CV_INVALID`.
+
+### Rủi ro còn lại
+
+- DOCX: giả định Word tìm phần và dữ liệu của phần theo đặc tả ZIP, qua thư mục trung tâm (tên trong thư mục trung tâm, dữ liệu sau local header mà nó trỏ tới); chưa kiểm được với Word thật. Một trình đọc làm khác (ví dụ tự sửa tệp hỏng bằng cách dò lại các local header) có thể thấy phần khác; các phần mà lần đọc tuần tự thấy cũng đã được kiểm.
+- DOCX: đối tượng OLE và ActiveX **nhúng bên trong** tệp (không phải liên kết ra ngoài) không bị từ chối; người đọc phải bấm đúp và Word cảnh báo. Mã trường trong nội dung (`INCLUDEPICTURE`, `INCLUDETEXT`, `DDEAUTO`) không nằm trong `.rels` nên không được kiểm.
+- PDF: hành động `GoToR`, `SubmitForm`, `ImportData` và biểu mẫu XFA (script nằm trong nội dung luồng) không được kiểm; đối tượng không có trong bảng tham chiếu chéo không được duyệt.
+- Lỗi của chính trình đọc (khai thác bộ phân tích) và mã độc: không có gì được quét (câu hỏi 25, ý 11).
+- Từ chối nhầm: CV làm từ mẫu Word nằm trên máy chủ hoặc thư mục mạng dùng chung, PDF có JavaScript của biểu mẫu, và PDF hơi hỏng mà trước đây vẫn qua (một đối tượng không đọc được) bị từ chối; thông báo hướng dẫn ứng viên lưu lại dưới dạng PDF thông thường.
 
 ## Kiểm thử
 
@@ -249,5 +356,8 @@ Sprint 4 chưa có danh sách ứng viên (S5-02); trang hồ sơ chỉ mở t�
 - `CandidateAccessIntegrationTest` (task 363): cây phòng ban TOP → PARENT → CHILD và SIBLING, ba lần ứng tuyển (hai của cùng một người ở CHILD và SIBLING), người đọc lấy từ phiên thật qua `requireReader`. HR_MANAGER và ADMIN đọc tất cả (ghim có chủ ý, câu hỏi 25 ý 4); recruiter chính và hỗ trợ chỉ đọc yêu cầu của mình, recruiter khác không đọc gì; bàn giao chuyển quyền ngay; Approver (V33_1) không đọc gì khi không có liên hệ, đọc được khi là trưởng phòng ban hoặc recruiter được phân công; trưởng phòng ban đọc phòng ban mình và mọi phòng ban con cháu, trưởng phòng ban ngang hàng thì không; người tạo yêu cầu không đọc được; Interviewer chỉ đọc khi là trưởng phòng ban; tài khoản không vai trò 403; token hết hạn, phiên bị thu hồi, tài khoản bị khóa hoặc bị vô hiệu hóa 401; gỡ hoặc thêm quyền có hiệu lực ở lần gọi sau; với mọi cặp người đọc × lần ứng tuyển, kết quả SQL bằng quy tắc Java (`isAssigned`, `findManagedDepartmentIds`), và danh sách luôn khớp `findApplication`; nhật ký: một dòng `GRANTED` cho mỗi lần ứng tuyển, thời điểm cắt tới micro giây, rollback không để lại dòng; một dòng `DENIED` đã commit, ném lỗi nếu còn transaction; `UPDATE`/`DELETE` bị chặn (23514), `TRUNCATE` được; các CHECK.
 - `RolePermissionSeedMigrationTest`: `EXPECTED_GRANTS` của APPROVER có `CANDIDATES_READ_SCOPED` thay cho `CANDIDATES_READ_ALL`; chỉ HR_MANAGER và ADMIN có `CANDIDATES_READ_ALL`; vẫn 106 dòng.
 - `CandidateProfileIntegrationTest` (task 361, HTTP thật): không token 401; không có quyền đọc ứng viên 403 với id có thật lẫn id lạ, không ghi nhật ký; id lạ và hồ sơ không còn lần ứng tuyển nào 404 `CANDIDATE_NOT_FOUND` với cả sáu vai trò có quyền, id sai định dạng 400; người đọc `SCOPED` không có lần nào trong phạm vi (Recruiter, Approver, Interviewer) 403 và đúng một dòng `DENIED` không có lần ứng tuyển; HR_MANAGER và ADMIN thấy cả ba lần ứng tuyển, mới nhất trước, đúng tập khóa của phần đầu và của từng lần (khóa trống bị bỏ), nguồn, người phụ trách, thư giới thiệu, thông tin CV; recruiter chính, hỗ trợ và trưởng phòng ban chỉ thấy lần trong phạm vi; lần ngoài phạm vi không để lộ id, tin, tên vị trí, phòng ban, người phụ trách, ngày hay giai đoạn, và `createdAt`/`updatedAt` lấy từ lần được đọc; hồ sơ "cài" bằng email người khác chỉ hiện cho recruiter của nó đúng hồ sơ đó; khác họ tên hoặc khác số điện thoại làm phần đầu `null` và `contactMismatch`, phần đầu tính trên phạm vi người đọc; response không chứa nội dung, mã băm CV, mã tra cứu hay mã băm của nó, email chuẩn hóa, email nhân viên, `requisitionId`, `cvFileUrl`; mỗi lần đọc ghi một dòng `GRANTED` cho mỗi lần ứng tuyển được trả; yêu cầu đã tuyển đủ hoặc hủy vẫn được liệt kê, tên vị trí là bản chụp, tên phòng ban là tên hiện tại, recruiter hỗ trợ không bao giờ hiện là recruiter.
+- `CvContentDispositionTest` (task 362): "CV Nguyễn Văn Đức.pdf" cho `filename="CV Nguyen Van Duc.pdf"` và `filename*` đúng từng byte; dạng tách dấu (NFD) và `đ`; dấu nháy kép, chấm phẩy, `\`, CR/LF, dấu phân cách dòng Unicode thành `_` (header vẫn đúng hai tham số); tên chỉ có ký hiệu hoặc không có ký tự nhìn thấy thành `cv.pdf`/`cv.docx`; đuôi thiếu, sai hoặc viết hoa theo loại đã lưu; cắt còn 150 ký tự, giữ đuôi; mẫu `filename="?([^";]+)` của frontend lấy tên ASCII; mỗi loại đã lưu có đúng kiểu hiển thị và đuôi (PDF `inline`, DOCX `attachment`), loại lạ ném lỗi; `filename*` chỉ giữ attr-char.
+- `CvActiveContentTest` (task 362): DOCX có mẫu `attachedTemplate` ngoài tới https, http, UNC (`\\máy-chủ`, `//máy-chủ`, `\máy-chủ`), `file://máy-chủ`, `file:////`, ftp, đích tương đối hoặc rỗng bị từ chối; mẫu trên ổ đĩa cục bộ (`file:///C:/…`, `file:///c:\…`, `C:\…`, `d:/…`) và ảnh liên kết `C:\img\a.png` được nhận; `oleObject`, `frame`, `subDocument`, ảnh tới máy chủ bị từ chối; `TargetMode` viết thường, có khoảng trắng hoặc lạ bị coi là External; chữ giống chữ ASCII (`ı`, `ſ`) không làm `TargetMode` thành Internal hay giao thức thành web, thư hoặc ổ cục bộ; hyperlink http, https, mailto (cả bản strict, cả chữ hoa) được nhận, hyperlink `file:` (kể cả ổ cục bộ), UNC, `javascript:`, ftp, rỗng bị từ chối; mọi phần `.rels` đều được đọc; lỗi cấu trúc vẫn là `APPLICATION_CV_INVALID`. Gói ZIP viết tay từng byte: một phần chỉ đổi tên ở local header (có hoặc không có mẫu), các phần sau chữ ký `PK\1\2` giả (kể cả khi lần đọc tuần tự cũng thấy mẫu), thư mục trung tâm theo thứ tự khác, trường Unicode Path đặt tên khác đều là `APPLICATION_CV_INVALID`; phần `.rels` có mẫu giấu trong dữ liệu của phần khác bị phát hiện dù chỉ thư mục trung tâm hay chỉ lần đọc tuần tự thấy nó; lần đọc thứ hai giữ giới hạn 5 MiB mỗi phần và 100 MiB tổng (21 mục cùng trỏ tới một phần 5 MiB); cùng gói viết tay không có mẹo thì được nhận. PDF có OpenAction JavaScript, Launch trên liên kết, tệp đính kèm trong cây tên, chú thích FileAttachment, cây tên JavaScript, JavaScript trong object stream nén (và cùng tài liệu không nén) bị từ chối; `/S` gián tiếp và tên viết bằng `#xx` vẫn bị phát hiện; đối tượng không đọc được, quá 64 tầng hoặc quá 1.000.000 nút là `APPLICATION_CV_INVALID`; liên kết URI, PDF của `CvValidatorTest` và tệp biên đúng 10 MiB được nhận; body lỗi không chứa tên tệp. `CvValidatorTest` của TRAN DUC LUONG chạy lại không đổi.
+- `CandidateCvIntegrationTest` (task 362, HTTP thật): PDF 200 đúng từng byte với `Content-Type`, `Content-Length`, `Content-Disposition` (`inline`, tên ASCII trước), đúng một `nosniff`, CSP, `no-store`, một dòng `GRANTED` `CV`; DOCX là `attachment` với loại DOCX; loại đã lưu thắng tên tệp sai đuôi; recruiter chính và trưởng phòng ban đọc được CV trong phạm vi, `Content-Disposition` được mở cho CORS; ngoài phạm vi 403 với một dòng `DENIED` có `application_id`, kể cả khi lần đó không có tệp; lần ứng tuyển lạ hoặc không gắn hồ sơ ứng viên 404 `APPLICATION_NOT_FOUND` với mọi người đọc, id sai định dạng 400, không ghi nhật ký; không có tệp 404 `APPLICATION_CV_NOT_FOUND`; tài khoản không vai trò 403, không token 401; mỗi lần đọc ghi lại; API nộp hồ sơ công khai trả 400 `APPLICATION_CV_ACTIVE_CONTENT` cho DOCX có mẫu từ xa và không lưu gì, cùng tài liệu không có mẫu thì 201.
 
-Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 25, ý (1)–(9); câu hỏi 3 và 6 (Approver, Admin); câu hỏi 19, ý 8 (recruiter thấy cả hồ sơ hay chỉ đơn vào yêu cầu của mình).
+Câu hỏi cho BA/PO: [ma trận vai trò và quyền](../architecture/role-permission-matrix.md), câu hỏi 25, ý (1)–(11); câu hỏi 3 và 6 (Approver, Admin); câu hỏi 19, ý 8 (recruiter thấy cả hồ sơ hay chỉ đơn vào yêu cầu của mình).

@@ -321,6 +321,10 @@ public class SecurityConfiguration {
                         // none, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/unified-profile")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Task 362: one application's CV, read like the profile: ApplicationCvService checks the code
+                        // again before any lookup, then the scope of that application (403 outside it, logged).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Avatars: every internal user may see a colleague's picture; only the owner may change it.
                         .requestMatchers(HttpMethod.GET, "/api/v1/profile/avatar", "/api/v1/accounts/*/avatar")
                                 .hasAuthority("PERM_SELF_PROFILE_READ")
