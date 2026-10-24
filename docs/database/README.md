@@ -208,5 +208,5 @@ bởi một sự kiện, `QUEUED`/`SUPPRESSED`/…, trigger `sync_email_message_
 biến từng lần gửi, ghi bởi cùng trigger), V66_3 `candidate_mail_outbox` (hàng đợi không payload của thư từ chối và
 thư cảm ơn), V66_4 thêm `retry_count`, `last_retried_by`, `last_retried_at` vào `email_messages` (gửi lại thư thất bại). Story S7-09: V66_5 `rejection_batches` (kết quả idempotent của mỗi lần gửi thư từ chối
 hàng loạt theo `requestId`). Story S8-03: V66_6 `notifications` (thông báo trong ứng dụng theo người nhận, trạng thái
-đọc riêng). Chi tiết ở
+đọc riêng), V66_7 `notification_events` (sự kiện nghiệp vụ đã commit, worker tạo thông báo bất đồng bộ). Chi tiết ở
 [email, thông báo và SLA](../api/messaging.md).

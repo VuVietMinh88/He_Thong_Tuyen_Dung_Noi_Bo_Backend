@@ -5,6 +5,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.interview.InterviewNotifications;
@@ -29,12 +32,14 @@ public class InterviewInvitationLifecycle implements InterviewNotifications {
     private final ResetTokenGenerator tokens;
     private final Clock clock;
     private final EmailMessageLog messages;
+    private final NotificationEvents notificationEvents;
 
     // Task 533: every candidate email is recorded in email_messages; the first invitation honours the
     // INTERVIEW_INVITATION automatic-send flag.
     public InterviewInvitationLifecycle(JdbcTemplate jdbc, InterviewInvitationSettings settings,
             InterviewInvitationCrypto crypto, InterviewInvitationOutboxRepository outbox,
-            ResetTokenGenerator tokens, Clock clock, EmailMessageLog messages) {
+            ResetTokenGenerator tokens, Clock clock, EmailMessageLog messages, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.jdbc = jdbc; this.settings = settings; this.crypto = crypto; this.outbox = outbox;
         this.tokens = tokens; this.clock = clock; this.messages = messages;
     }
@@ -44,6 +49,11 @@ public class InterviewInvitationLifecycle implements InterviewNotifications {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void scheduled(InterviewView current) {
+        // Task 544: the panel is told in-app even when invitation emails are off.
+        if (!current.participantIds().isEmpty()) {
+            notificationEvents.publish(NotificationType.INTERVIEW_INVITED, NotificationLink.Type.INTERVIEW, current.id(),
+                    current.participantIds());
+        }
         if (!settings.enabled()) return;
         settings.requireReady();
         revoke(current.id());
@@ -60,6 +70,12 @@ public class InterviewInvitationLifecycle implements InterviewNotifications {
     public void changed(InterviewView previous, InterviewView current) {
         // Even when sending has been disabled, old links must never remain valid after a schedule change.
         revoke(current.id());
+        var added = new java.util.ArrayList<>(current.participantIds());
+        added.removeAll(previous.participantIds());
+        if (!added.isEmpty()) {
+            notificationEvents.publish(NotificationType.INTERVIEW_INVITED, NotificationLink.Type.INTERVIEW, current.id(),
+                    added);
+        }
         if (!settings.enabled()) return;
         settings.requireReady();
         Candidate candidate = candidate(current.applicationId());

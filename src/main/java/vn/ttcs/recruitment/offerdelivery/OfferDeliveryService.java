@@ -9,6 +9,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.transaction.support.TransactionTemplate;
+import vn.ttcs.recruitment.notification.NotificationEvents;
+import vn.ttcs.recruitment.notification.NotificationLink;
+import vn.ttcs.recruitment.notification.NotificationType;
 import vn.ttcs.recruitment.auth.passwordreset.ResetTokenGenerator;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.common.BusinessCalendar;
@@ -45,11 +48,13 @@ public class OfferDeliveryService {
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
     private final EmailMessageLog messages;
+    private final NotificationEvents notificationEvents;
 
     // Task 533: sending honours the OFFER automatic-send flag and records the email in email_messages.
     public OfferDeliveryService(JdbcTemplate jdbc, OfferAccess access, OfferDeliverySettings settings,
         OfferDeliveryCrypto crypto, OfferOutboxRepository outbox, ResetTokenGenerator tokens,
-        Clock clock, BusinessCalendar calendar, PlatformTransactionManager manager, EmailMessageLog messages) {
+        Clock clock, BusinessCalendar calendar, PlatformTransactionManager manager, EmailMessageLog messages, NotificationEvents notificationEvents) {
+        this.notificationEvents = notificationEvents;
         this.messages = messages;
         this.jdbc = jdbc;
         this.access = access;
@@ -176,6 +181,8 @@ public class OfferDeliveryService {
                 "ACCEPTED".equals(status) ? "Ứng viên chấp nhận offer" : "Ứng viên từ chối offer", Timestamp.from(now), current.id());
             responseEvent(current, status, note, declineReason, now);
             outbox.cancelPending(current.id());
+            // Task 544: the offer's creator and the primary recruiter hear the answer after this commits.
+            notificationEvents.publish(NotificationType.OFFER_RESPONDED, NotificationLink.Type.OFFER, current.id());
             return new Response(status, now);
         }));
     }
