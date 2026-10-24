@@ -8,6 +8,9 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.account.AccountRepository;
 import vn.ttcs.recruitment.account.Role;
+import vn.ttcs.recruitment.candidate.ApplicationAccess;
+import vn.ttcs.recruitment.candidate.CandidateAccess;
+import vn.ttcs.recruitment.candidate.CandidateReader;
 import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.offer.OfferAccess;
 import vn.ttcs.recruitment.security.AccessScope;
@@ -35,13 +38,15 @@ public class NotificationRecipients {
     private final AccountRepository accounts;
     private final PermissionService permissions;
     private final OfferAccess offers;
+    private final CandidateAccess candidates;
 
     public NotificationRecipients(NamedParameterJdbcTemplate jdbc, AccountRepository accounts,
-                                  PermissionService permissions, OfferAccess offers) {
+                                  PermissionService permissions, OfferAccess offers, CandidateAccess candidates) {
         this.jdbc = jdbc;
         this.accounts = accounts;
         this.permissions = permissions;
         this.offers = offers;
+        this.candidates = candidates;
     }
 
     /** The active accounts among ids, in their given order, each once. */
@@ -63,6 +68,19 @@ public class NotificationRecipients {
         Set<String> granted = permissions.forUser(user);
         return AccessScope.read(granted, PermissionModule.OFFERS) != AccessScope.NONE
                 && AccessScope.write(granted, PermissionModule.OFFERS) != AccessScope.NONE;
+    }
+
+    /**
+     * The user may still read the application (task 420): an active account with a CANDIDATES read permission whose
+     * scope includes the application (CandidateAccess: ALL, or the assigned recruiter and the other scoped readers).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean readsApplication(UUID user, UUID applicationId) {
+        if (active(List.of(user)).isEmpty()) return false;
+        AccessScope scope = AccessScope.read(permissions.forUser(user), PermissionModule.CANDIDATES);
+        if (scope == AccessScope.NONE) return false;
+        return candidates.findApplication(new CandidateReader(user, scope), applicationId)
+                .map(ApplicationAccess::readable).orElse(false);
     }
 
     /**
