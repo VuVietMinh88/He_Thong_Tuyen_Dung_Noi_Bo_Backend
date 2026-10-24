@@ -385,3 +385,54 @@ Lỗi: 400 `VALIDATION_ERROR` (trang/kích thước/UUID sai), 401, 403 (thiếu
 Ghi chú cho frontend: đây là màn hình "Vị trí của tôi" của Trưởng bộ phận. Hiển thị `daysRemaining` âm bằng màu cảnh báo;
 cột "Chờ tôi quyết định" dùng `awaitingDecision`, cột "Phiếu của tôi" dùng `pendingEvaluations`; giá trị `null` hiển thị
 "—" kèm tooltip theo `lists.*.unavailableReason`.
+
+## TKNHTTDNB1-567 — Số ứng viên và tỷ lệ chuyển đổi theo giai đoạn (phễu)
+
+`GET /api/v1/reports/funnel?from=2026-07-01&to=2026-09-30`
+
+- `from`, `to`: khoảng ngày nhận hồ sơ (nhập cả hai hoặc bỏ cả hai; tối đa 366 ngày). Mặc định: 90 ngày gần nhất tính đến
+  hôm nay.
+
+Cách đếm (nhất quán cho mọi báo cáo dựa trên pipeline, dùng chung với báo cáo nguồn — `ApplicationReach`):
+
+1. **Cohort**: các hồ sơ (lần ứng tuyển) có `received_at` trong `[00:00 ngày from, 00:00 ngày sau to)` giờ Việt Nam,
+   trong phạm vi người xem. Đơn vị đếm là **hồ sơ ứng tuyển**, không phải người: một người nộp vào hai vị trí là hai hồ
+   sơ, mỗi hồ sơ được đếm đúng một lần.
+2. **Giai đoạn xa nhất đã đạt** của mỗi hồ sơ: thứ hạng cao nhất trong giai đoạn hiện tại và cả hai phía của mọi sự kiện
+   trong lịch sử `application_stage_events` (NEW 1 < SCREENING 2 < INTERVIEW 3 < OFFER 4 < HIRED 5 < ONBOARDED 6;
+   REJECTED/WITHDRAWN là kết quả, không phải vị trí), tối thiểu là NEW. Bị loại, rút hồ sơ, bị chuyển lùi hay mở lại sau
+   đó không làm giảm giai đoạn đã đạt; nhiều sự kiện lặp lại vẫn chỉ đếm một lần. Hồ sơ được HR cho bỏ qua phỏng vấn
+   (SCREENING → OFFER) được tính là đã qua INTERVIEW và được đếm riêng ở `interviewSkipped`.
+3. Kết quả tính **đến thời điểm gọi API** (`generatedAt`): phễu của một kỳ cũ vẫn tiếp tục được cập nhật khi ứng viên
+   trong kỳ đó đi tiếp.
+
+Response 200:
+
+```json
+{
+  "generatedAt": "2026-10-15T03:00:00Z", "from": "2026-07-01", "to": "2026-09-30", "scope": "ALL",
+  "cohortSize": 120, "hired": 6, "overallConversionRate": 0.0500, "interviewSkipped": 1,
+  "stages": [
+    {"stage": "NEW", "label": "Hồ sơ mới", "nextStage": "SCREENING", "reached": 120, "advanced": 80,
+     "conversionRate": 0.6667, "rejected": 30, "withdrawn": 2, "inProgress": 8, "dropped": 32, "dropRate": 0.2667},
+    {"stage": "ONBOARDED", "label": "Hoàn tất hội nhập", "nextStage": null, "reached": 3, "advanced": 0,
+     "conversionRate": null, "rejected": 0, "withdrawn": 0, "inProgress": 3, "dropped": 0, "dropRate": 0.0000}
+  ]
+}
+```
+
+| Trường | Định nghĩa |
+| --- | --- |
+| `reached` | số hồ sơ đã đạt ít nhất giai đoạn này. Luôn giảm dần (không tăng) theo thứ tự giai đoạn |
+| `advanced` | số hồ sơ đi tiếp được = `reached` của giai đoạn sau |
+| `conversionRate` | `advanced / reached` (4 chữ số thập phân, 0.6667 = 66,67%); `null` khi `reached = 0`; giai đoạn cuối luôn `null` |
+| `rejected`, `withdrawn` | hồ sơ có giai đoạn xa nhất là giai đoạn này và hiện đang `REJECTED` / `WITHDRAWN` (rơi rụng tại đây) |
+| `inProgress` | hồ sơ có giai đoạn xa nhất là giai đoạn này và vẫn còn ở đó (chưa rơi, chưa đi tiếp) |
+| `dropped`, `dropRate` | `rejected + withdrawn`; `dropped / reached` (`null` khi `reached = 0`) |
+| `hired`, `overallConversionRate` | `reached` của HIRED (gồm cả ONBOARDED); `hired / cohortSize` |
+
+Luôn đúng: `reached = advanced + dropped + inProgress` cho mọi giai đoạn. Cohort rỗng: mọi số đếm là 0, mọi tỷ lệ là
+`null` (mẫu số bằng 0 không bao giờ bị chia).
+
+Ghi chú cho frontend: vẽ phễu bằng `stages[].reached`; nhãn chuyển đổi giữa hai cột là `conversionRate` của cột trước.
+Tỷ lệ `null` hiển thị "—". Nhắc người dùng rằng đơn vị là hồ sơ ứng tuyển.
