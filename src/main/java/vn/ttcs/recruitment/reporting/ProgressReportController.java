@@ -6,6 +6,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -22,5 +23,13 @@ public class ProgressReportController {
     @GetMapping("/api/v1/reports/requisitions/{id}/progress")
     public ResponseEntity<RequisitionProgressView> progress(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(service.progress(jwt, id));
+    }
+
+    @GetMapping("/api/v1/reports/requisition-progress")
+    public ResponseEntity<RequisitionProgressPageView> list(@AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) UUID departmentId, @RequestParam(required = false) UUID positionId,
+            @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(service.list(jwt, departmentId, positionId, page, size));
     }
 }

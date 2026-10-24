@@ -655,7 +655,7 @@ public class SecurityConfiguration {
                         // CANDIDATES, ALL or SCOPED. ReportingAccess checks them again from the database and keeps a
                         // SCOPED viewer to the requisitions assigned to them or of the departments they manage.
                         .requestMatchers(HttpMethod.GET, "/api/v1/reports/dashboard", "/api/v1/reports/dashboard/charts",
-                                "/api/v1/reports/requisitions/*/progress")
+                                "/api/v1/reports/requisitions/*/progress", "/api/v1/reports/requisition-progress")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_READ_ALL", "PERM_REPORTS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED"),
