@@ -47,7 +47,9 @@ final class ApprovalTestSupport {
     // Every table the approval tests write, in an order the foreign keys accept. Flow versions and the approval
     // history cannot be deleted row by row (triggers), but TRUNCATE does not fire them.
     void reset() {
-        jdbc.execute("TRUNCATE requisition_workflow_events, approval_flow_steps, approval_flow_versions, approval_flows");
+        // Task 573: the cost ledger refuses DELETE and keeps its requisitions (RESTRICT); TRUNCATE fires no row trigger.
+        jdbc.execute("TRUNCATE recruitment_costs, requisition_workflow_events, approval_flow_steps, approval_flow_versions,"
+                + " approval_flows");
         jdbc.update("DELETE FROM requisition_recruiter_changes");
         jdbc.update("DELETE FROM requisition_recruiters");
         jdbc.update("DELETE FROM requisition_headcount_overrides");
