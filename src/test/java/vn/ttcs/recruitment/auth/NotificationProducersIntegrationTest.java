@@ -29,7 +29,7 @@ class NotificationProducersIntegrationTest extends OfferDeliveryTestSupport {
     @Autowired NotificationEvents events;
 
     @BeforeEach void clean() {
-        jdbc.execute("TRUNCATE notifications, notification_events");
+        jdbc.execute("TRUNCATE notifications, notification_events CASCADE");
     }
 
     @Test
@@ -44,6 +44,8 @@ class NotificationProducersIntegrationTest extends OfferDeliveryTestSupport {
         assertThat(jdbc.queryForList("SELECT recipient_id, notification_type, link_type, link_id FROM notifications"))
                 .containsExactly(Map.of("recipient_id", outsider, "notification_type", "RECRUITER_ASSIGNED",
                         "link_type", "REQUISITION", "link_id", requisition));
+        // Task 551: email delivery is off by default, and then no email copy is kept at all.
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notification_email_outbox", Long.class)).isZero();
     }
 
     @Test

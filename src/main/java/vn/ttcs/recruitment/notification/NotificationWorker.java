@@ -72,7 +72,7 @@ public class NotificationWorker {
                         """, UUID.class, event.event().id(), event.lease()).isEmpty();
                 if (!owned) return;
                 var now = clock.instant().truncatedTo(ChronoUnit.MICROS);
-                for (var planned : planner.plan(event.event())) dispatch.deliver(planned, now);
+                for (var planned : planner.plan(event.event())) dispatch.deliver(event.event().id(), planned, now);
                 jdbc.update("""
                         UPDATE notification_events SET status = 'DONE', processed_at = clock_timestamp(),
                             lease_token = NULL, lease_until = NULL, last_failure = NULL
@@ -136,7 +136,7 @@ public class NotificationWorker {
         jdbc.execute("SET LOCAL statement_timeout='5s'");
     }
 
-    private static List<UUID> uuids(Array array) throws SQLException {
+    static List<UUID> uuids(Array array) throws SQLException {
         return Arrays.stream((Object[]) array.getArray()).map(value -> (UUID) value).toList();
     }
 
