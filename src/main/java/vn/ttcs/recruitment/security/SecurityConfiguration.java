@@ -620,6 +620,14 @@ public class SecurityConfiguration {
                                                 "PERM_NOTIFICATIONS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
                                                 "PERM_CANDIDATES_READ_SCOPED")))
+                        .requestMatchers(HttpMethod.POST, "/api/v1/messaging/rejections")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_WRITE_ALL",
+                                                "PERM_NOTIFICATIONS_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL",
+                                                "PERM_CANDIDATES_WRITE_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
+                                                "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/cv-extractions")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv-extractions/*")
