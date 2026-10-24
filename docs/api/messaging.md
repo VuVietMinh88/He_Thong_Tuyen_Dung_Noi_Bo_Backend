@@ -458,3 +458,31 @@ Ghi chú cho frontend: không có màn hình mới; người dùng tắt kênh n
 email đang chờ cũng bị hủy khi đến lượt gửi).
 
 Câu hỏi BA/PO: thời hạn 24 giờ của bản email thông báo có phù hợp không (cấu hình được).
+
+## Ngưỡng SLA theo giai đoạn (task 418)
+
+| Method | Endpoint | Quyền |
+|---|---|---|
+| GET | `/api/v1/sla/thresholds` | `CANDIDATES_READ_ALL` hoặc `CANDIDATES_READ_SCOPED` |
+| PUT | `/api/v1/sla/thresholds/{stage}` | `CANDIDATES_WRITE_ALL` (HR_MANAGER, ADMIN) |
+
+Migration `V66_10__create_stage_sla_thresholds.sql` thêm `stage_sla_thresholds`: một dòng cho mỗi giai đoạn đang xử lý
+(`NEW`, `SCREENING`, `INTERVIEW`, `OFFER`), `max_days` là số ngày lịch tối đa (1–365, CHECK) hoặc `NULL` = không áp SLA;
+`version`, `updated_by` (`ON DELETE SET NULL`), `updated_at`. Không seed giá trị nào (HR cấu hình, ví dụ `NEW` = 3).
+Giai đoạn kết thúc (`HIRED`, `ONBOARDED`, `REJECTED`, `WITHDRAWN`) không có SLA.
+
+```json
+[{"stage":"NEW","stageName":"Hồ sơ mới","maxDays":3,"version":1,"updatedAt":"...","updatedBy":"...","updatedByName":"HR"}]
+```
+
+PUT: `{"expectedVersion": 1, "maxDays": 3}`. `maxDays` **bắt buộc có mặt**: muốn bỏ SLA phải gửi rõ
+`"maxDays": null`; thiếu trường → 400 `VALIDATION_ERROR` với `fieldErrors.maxDays` (không bao giờ vô tình xóa SLA vì
+quên trường). Lỗi: 400 `VALIDATION_ERROR` (ngoài 1–365, thiếu `expectedVersion` hoặc `maxDays`), 400 `INVALID_JSON` (số
+thập phân, chuỗi, trường lạ), 404 `SLA_STAGE_NOT_FOUND` (giai đoạn kết thúc hoặc tên sai), 409
+`SLA_THRESHOLD_VERSION_CONFLICT`, 503 `SLA_THRESHOLD_BUSY`.
+
+Ghi chú cho frontend: màn hình cấu hình bốn dòng giai đoạn với ô số ngày; gửi `version` hiện có; ô để trống thì gửi
+`"maxDays": null` (luôn gửi trường này).
+
+Câu hỏi BA/PO: tính theo ngày lịch (hiện tại) hay ngày làm việc; có áp SLA khi yêu cầu tuyển dụng đang tạm dừng không
+(hiện vẫn áp).
