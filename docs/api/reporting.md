@@ -743,3 +743,36 @@ theo tên (task 581 đổi sang sắp theo chất lượng). Phạm vi như mọ
 
 Ghi chú cho frontend: dùng `sourceKey` làm khóa dòng (ổn định cho cả ba loại); dòng `kind = UNKNOWN` nên hiển thị
 nghiêng/xám để phân biệt với nguồn thật.
+
+## TKNHTTDNB1-581 — API chất lượng nguồn tuyển dụng
+
+`GET /api/v1/reports/sources?from=&to=&requisitionId=&departmentId=&positionId=&minApplications=5`
+
+Response của task 580 có thêm:
+
+- `filters` (`requisitionId`, `departmentId`, `positionId`; kiểm tra 404/403 như task 557).
+- `minApplications`: cỡ mẫu tối thiểu để một nguồn được xếp hạng (1–1000, mặc định 5; sai → 400 `VALIDATION_ERROR`).
+- `rankingRule`: `HIRE_RATE_THEN_SCREENING_PASS_RATE_THEN_APPLICATIONS_MIN_SAMPLE`.
+- `bestSource`: nguồn xếp hạng 1 (cùng cấu trúc một dòng `sources`), `null` khi không nguồn nào đủ điều kiện.
+- `mostApplications`: nguồn thật (danh mục hoặc giới thiệu nội bộ) có nhiều hồ sơ nhất, để đối chiếu "nhiều nhất" với
+  "tốt nhất".
+- Mỗi dòng `sources` có thêm `screeningPassRate`, `hireRate`, `meetsMinimumSample`, `qualityRank`.
+
+| Trường | Định nghĩa |
+| --- | --- |
+| `screeningPassRate` | `passedScreening / applications` (4 chữ số thập phân; `null` khi không có hồ sơ) |
+| `hireRate` | `hired / applications` |
+| `meetsMinimumSample` | `applications ≥ minApplications` |
+| `qualityRank` | 1, 2, … cho nguồn thật (nguồn danh mục và "Giới thiệu nội bộ", không bao giờ "Không rõ nguồn") đủ cỡ mẫu, xếp theo `hireRate` giảm dần, rồi `screeningPassRate` giảm dần (so sánh chính xác bằng phân số, không làm tròn), rồi nhiều hồ sơ hơn, rồi tên; `null` cho nguồn chưa đủ mẫu và cho "Không rõ nguồn" |
+
+Thứ tự `sources`: các nguồn có hạng theo hạng, sau đó các nguồn còn lại theo số hồ sơ giảm dần rồi theo tên. Như vậy nguồn
+nhiều CV nhưng ít người được tuyển không đứng đầu chỉ vì số lượng, còn nguồn chỉ có 1–2 hồ sơ (tỷ lệ 100% do may mắn)
+được hiện nhưng không được xếp hạng.
+
+Câu hỏi BA/PO: ngưỡng cỡ mẫu mặc định 5 hồ sơ và thứ tự ưu tiên (tỷ lệ nhận việc trước tỷ lệ qua sàng lọc) là lựa chọn
+mặc định hợp lý; nếu nghiệp vụ muốn tiêu chí khác (ví dụ tỷ lệ nhận việc trên số qua sàng lọc), backend chỉ cần đổi
+`SourceRanking`.
+
+Ghi chú cho frontend: hiển thị huy hiệu "Chất lượng tốt nhất" cho `bestSource` và "Nhiều hồ sơ nhất" cho
+`mostApplications`; dòng có `meetsMinimumSample = false` ghi chú "Chưa đủ mẫu (cần ≥ minApplications hồ sơ)"; tỷ lệ hiển
+thị dạng phần trăm (`0.4000` → 40,00%).
