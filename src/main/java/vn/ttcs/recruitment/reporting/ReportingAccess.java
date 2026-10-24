@@ -110,7 +110,8 @@ public class ReportingAccess {
             throw AuthenticationFailureException.sessionInvalid();
         }
         Account account = auth.requireActiveAccount(jwt);
-        ReportViewer viewer = ReportViewer.of(account.getId(), permissions.forUser(account.getId()));
+        ReportViewer viewer = ReportViewer.of(account.getId(), permissions.forUser(account.getId()),
+                account.getRoles().stream().map(Enum::name).collect(java.util.stream.Collectors.toUnmodifiableSet()));
         if (!viewer.readsReports()) {
             throw new AccessDeniedException("Reports need REPORTS, REQUISITIONS and CANDIDATES read");
         }

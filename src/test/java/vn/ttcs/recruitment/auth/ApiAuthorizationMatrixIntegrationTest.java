@@ -450,7 +450,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             endpoint("GET", "/api/v1/sla/overdue", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             // Stories S8-05..S8-09: reports. A SCOPED viewer passes the matcher and sees only its own rows (empty here).
             endpoint("GET", "/api/v1/reports/dashboard", REPORT_READER, null, 200),
-            endpoint("GET", "/api/v1/reports/dashboard/charts", REPORT_READER, null, 200));
+            endpoint("GET", "/api/v1/reports/dashboard/charts", REPORT_READER, null, 200),
+            // The unknown requisition stops every permitted caller at 404 before the scope check.
+            endpoint("GET", "/api/v1/reports/requisitions/{id}/progress", REPORT_READER, null, 404));
 
     private static final List<String> STATE_TABLES = List.of("user_accounts", "user_roles", "departments",
             "auth_sessions", "account_activation_tokens", "password_reset_tokens", "role_permissions", "positions",

@@ -57,6 +57,22 @@ class ReportingPolicyTest {
     }
 
     @Test
+    void onlyHiringManagersHrAndAdminsWithAnEvaluationReadDecideHires() {
+        Set<String> grants = Set.of("REPORTS_READ_SCOPED", "REQUISITIONS_READ_SCOPED", "CANDIDATES_READ_SCOPED",
+                "EVALUATIONS_READ_SCOPED");
+        assertThat(ReportViewer.of(ID, grants, Set.of("HIRING_MANAGER")).decidesHiring()).isTrue();
+        assertThat(ReportViewer.of(ID, grants, Set.of("HIRING_MANAGER")).seniorDecider()).isFalse();
+        assertThat(ReportViewer.of(ID, grants, Set.of("HR_MANAGER")).seniorDecider()).isTrue();
+        assertThat(ReportViewer.of(ID, grants, Set.of("ADMIN")).decidesHiring()).isTrue();
+        assertThat(ReportViewer.of(ID, grants, Set.of("RECRUITER")).decidesHiring()).isFalse();
+        assertThat(ReportViewer.of(ID, Set.of("REPORTS_READ_SCOPED"), Set.of("HIRING_MANAGER")).decidesHiring()).isFalse();
+        // A form is written with EVALUATIONS write; reading evaluations is not enough.
+        assertThat(ReportViewer.of(ID, grants, Set.of()).evaluationsWrite()).isEqualTo(AccessScope.NONE);
+        assertThat(ReportViewer.of(ID, Set.of("EVALUATIONS_WRITE_SCOPED"), Set.of()).evaluationsWrite())
+                .isEqualTo(AccessScope.SCOPED);
+    }
+
+    @Test
     void pagingIsBoundedAndDefaulted() {
         assertThat(ReportPaging.of(null, null, 10, 50)).isEqualTo(new ReportPaging(0, 10));
         ReportPaging page = ReportPaging.of(3, 20, 10, 50);

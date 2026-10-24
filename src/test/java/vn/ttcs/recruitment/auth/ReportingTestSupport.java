@@ -173,6 +173,20 @@ abstract class ReportingTestSupport extends ScreeningTestSupport {
         jdbc.update("INSERT INTO interview_participants(interview_id, user_id, active) VALUES (?,?,?)", interviewId, userId, active);
     }
 
+    /** An evaluation form of the evaluator for the interview: SUBMITTED (conclusion and score set) or DRAFT. */
+    UUID evaluationForm(UUID interviewId, UUID applicationId, UUID evaluator, String status) {
+        UUID id = UUID.randomUUID();
+        boolean submitted = "SUBMITTED".equals(status);
+        Timestamp at = Timestamp.from(NOW);
+        jdbc.update("""
+                INSERT INTO evaluation_forms(id,interview_id,application_id,evaluator_id,framework_id,framework_code,
+                    framework_name,status,conclusion,total_score,first_submitted_at,submitted_at,created_at,updated_at)
+                VALUES (?,?,?,?,?,'FW','Khung đánh giá',?,?,?,?,?,?,?)
+                """, id, interviewId, applicationId, evaluator, UUID.randomUUID(), status, submitted ? "HIRE" : null,
+                submitted ? new java.math.BigDecimal("4.00") : null, submitted ? at : null, submitted ? at : null, at, at);
+        return id;
+    }
+
     /** An offer of the application in this status; SENT and later statuses carry a sent time, answers a response time. */
     UUID offer(UUID applicationId, String status, Instant deadline) {
         UUID id = UUID.randomUUID();
