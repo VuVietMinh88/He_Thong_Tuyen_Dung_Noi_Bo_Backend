@@ -651,6 +651,14 @@ public class SecurityConfiguration {
                                                 "PERM_CANDIDATES_WRITE_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
                                                 "PERM_CANDIDATES_READ_SCOPED")))
+                        // Stories S8-05..S8-09 (reports): every report needs a read grant of REPORTS, REQUISITIONS and
+                        // CANDIDATES, ALL or SCOPED. ReportingAccess checks them again from the database and keeps a
+                        // SCOPED viewer to the requisitions assigned to them or of the departments they manage.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/reports/dashboard")
+                                .access(AuthorizationManagers.allOf(
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_READ_ALL", "PERM_REPORTS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED"),
+                                        AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")))
                         .requestMatchers(HttpMethod.POST, "/api/v1/applications/*/cv-extractions")
                                 .hasAnyAuthority("PERM_CANDIDATES_WRITE_ALL", "PERM_CANDIDATES_WRITE_SCOPED")
                         .requestMatchers(HttpMethod.GET, "/api/v1/applications/*/cv-extractions/*")
