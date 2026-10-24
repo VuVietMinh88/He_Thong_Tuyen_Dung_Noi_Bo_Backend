@@ -480,8 +480,10 @@ class ApiAuthorizationMatrixIntegrationTest {
             "onboarding_template_items", "onboarding_checklists", "onboarding_checklist_items",
             // Story S8-01: email templates.
             "email_templates",
-            "job_applications", "application_cvs", "application_email_outbox", "cv_extraction_jobs",
-            "cv_extraction_attempts", "application_confirmed_contacts", "application_contact_history");
+            // Task 334: CV contact suggestion jobs.
+            "cv_extraction_jobs", "cv_extraction_attempts",
+            "job_applications", "application_cvs", "application_email_outbox", "application_confirmed_contacts",
+            "application_contact_history");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
@@ -1307,10 +1309,10 @@ class ApiAuthorizationMatrixIntegrationTest {
 
         String samplePath() {
             return template.replace("{id}", UNKNOWN_ID.toString()).replace("{formId}", UNKNOWN_ID.toString())
-                    .replace("{extractionId}", UNKNOWN_ID.toString())
                     .replace("{questionId}", UNKNOWN_ID.toString()).replace("{role}", "RECRUITER")
                     .replace("{type}", CATALOG_TYPE).replace("{applicationId}", UNKNOWN_ID.toString())
-                    .replace("{itemId}", UNKNOWN_ID.toString()).replace("{stage}", "NEW");
+                    .replace("{itemId}", UNKNOWN_ID.toString()).replace("{stage}", "NEW")
+                    .replace("{extractionId}", UNKNOWN_ID.toString());
         }
 
         @Override

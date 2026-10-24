@@ -20,6 +20,9 @@ V67_1 adds `recruitment_costs`, the hand-entered advertising and referral-bonus 
 never edited (trigger), only voided once with who, when and why. V67_2 indexes the hire evidence (the moment an
 application entered HIRED) and the requisitions' final approvals for time to hire.
 
+CV contact suggestions (task 334, TRAN DUC LUONG, `docs/api/cv-suggestions.md`): V68 adds `cv_extraction_jobs` and
+`cv_extraction_attempts`, one job per application, CV hash and extractor version, deleted with the application.
+
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one
 legacy directory, selected by `APP_MIGRATION_LINEAGE`.
