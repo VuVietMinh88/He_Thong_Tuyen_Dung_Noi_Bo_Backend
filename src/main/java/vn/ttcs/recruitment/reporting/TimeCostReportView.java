@@ -7,11 +7,13 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Task 574 (story S8-08): time to hire and cost per hire of a period, overall and per requisition.
+ * Tasks 574-575 (story S8-08): time to hire and cost per hire of a period, overall, compared by department and by
+ * position, and per requisition.
  * Hires are counted by the business date they entered HIRED; costs by the date they were incurred.
  */
-public record TimeCostReportView(Instant generatedAt, LocalDate from, LocalDate to, String scope, Metrics overall,
-                                 List<RequisitionRow> requisitions) {
+public record TimeCostReportView(Instant generatedAt, LocalDate from, LocalDate to, String scope,
+                                 ReportFilters filters, Metrics overall, List<Group> byDepartment,
+                                 List<Group> byPosition, List<RequisitionRow> requisitions) {
 
     /**
      * hires: applications that entered HIRED in the period; of them, hiresWithAcceptedOffer have an accepted offer and
@@ -31,6 +33,13 @@ public record TimeCostReportView(Instant generatedAt, LocalDate from, LocalDate 
 
     /** Costs not voided, incurred in the period: advertising, referral bonuses, their total and number of entries. */
     public record Costs(long advertisingVnd, long referralBonusVnd, long totalVnd, long entries) { }
+
+    /**
+     * Task 575: one department (by the requisition's department, not its parents) or one position (job title), with
+     * the number of its requisitions that had a hire or a cost in the period and the metrics of all their hires and
+     * costs together.
+     */
+    public record Group(UUID id, String name, long requisitions, Metrics metrics) { }
 
     /** approvedOn: the business date of the requisition's final approval, null when it has none. */
     public record RequisitionRow(UUID requisitionId, UUID departmentId, String departmentName, UUID positionId,

@@ -624,3 +624,36 @@ phải ngày đi làm thực tế — hệ thống chưa lưu ngày đi làm th�
 Ghi chú cho frontend: hiển thị `averageDays = null` thành "Chưa có dữ liệu" và chú thích số `missingApproval`;
 `costPerHireVnd = null` thành "—", với chú thích "chưa có người nhận việc" khi `hires = 0` hoặc "chưa nhập chi phí" khi
 `costsRecorded = false`.
+
+## TKNHTTDNB1-575 — API báo cáo so sánh thời gian và chi phí
+
+`GET /api/v1/reports/time-cost?from=&to=&requisitionId=&departmentId=&positionId=`
+
+Response của task 574 có thêm:
+
+- `filters`: `{"requisitionId", "departmentId", "positionId"}` (giá trị `null` khi không lọc).
+- `byDepartment`: một dòng cho mỗi phòng ban có hire hoặc chi phí trong kỳ (theo phòng ban của yêu cầu, không cộng dồn
+  lên phòng ban cha).
+- `byPosition`: một dòng cho mỗi chức danh có hire hoặc chi phí trong kỳ.
+
+```json
+"byDepartment": [
+  {"id": "…", "name": "Kỹ thuật", "requisitions": 1,
+   "metrics": {"hires": 2, "timeToHire": {"sampleSize": 2, "averageDays": 15.0, "…": "…"},
+               "costs": {"totalVnd": 4000000, "…": "…"}, "costPerHireVnd": 2000000, "…": "…"}},
+  {"id": "…", "name": "Tài chính", "requisitions": 2, "metrics": {"…": "…"}}
+],
+"byPosition": [{"id": "…", "name": "Kế toán", "requisitions": 1, "metrics": {"…": "…"}}]
+```
+
+- `requisitions` của một nhóm: số yêu cầu của nhóm có hire hoặc chi phí trong kỳ.
+- `metrics` của nhóm tính lại từ **từng hire và từng khoản chi phí** của nhóm (không lấy trung bình của các yêu cầu):
+  ví dụ chức danh có các hire 10, 20, 29 ngày có `averageDays = 19.7`.
+- Sắp theo tên rồi id. Bộ lọc áp dụng cho mọi phần (`overall`, hai bảng so sánh, `requisitions`) và được kiểm tra
+  404/403 như task 557.
+
+Lỗi: 400 (`VALIDATION_ERROR`, `REPORT_TOO_LARGE`), 401, 403, 404 `REQUISITION_NOT_FOUND`/`DEPARTMENT_NOT_FOUND`/
+`POSITION_NOT_FOUND`.
+
+Ghi chú cho frontend: hai bảng so sánh có thể vẽ biểu đồ cột ngang `averageDays` và `costPerHireVnd` theo `name`; luôn
+hiển thị kèm `metrics.hires` (cỡ mẫu) để người xem không so sánh nhóm chỉ có 1 hire với nhóm nhiều hire như nhau.
