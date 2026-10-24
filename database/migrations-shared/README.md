@@ -22,6 +22,8 @@ application entered HIRED) and the requisitions' final approvals for time to hir
 
 CV contact suggestions (task 334, TRAN DUC LUONG, `docs/api/cv-suggestions.md`): V68 adds `cv_extraction_jobs` and
 `cv_extraction_attempts`, one job per application, CV hash and extractor version, deleted with the application.
+Task 335: V68_1 adds `application_confirmed_contacts` and `application_contact_history`, the contact a recruiter
+confirmed for an application and every change to it (`docs/api/confirmed-contacts.md`).
 
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one

@@ -482,8 +482,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             "email_templates",
             // Task 334: CV contact suggestion jobs.
             "cv_extraction_jobs", "cv_extraction_attempts",
-            "job_applications", "application_cvs", "application_email_outbox", "application_confirmed_contacts",
-            "application_contact_history");
+            // Task 335: confirmed application contacts.
+            "application_confirmed_contacts", "application_contact_history",
+            "job_applications", "application_cvs", "application_email_outbox");
 
     @Autowired private Environment environment;
     @Autowired private ObjectMapper json;
