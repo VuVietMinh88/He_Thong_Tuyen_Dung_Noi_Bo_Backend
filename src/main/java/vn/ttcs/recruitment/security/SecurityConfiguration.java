@@ -397,6 +397,11 @@ public class SecurityConfiguration {
                         // none, logged).
                         .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/unified-profile")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
+                        // Story S5-01 (task 367): the candidates sharing an email or phone with one candidate, read
+                        // like the profile: CandidateDuplicateService checks the code again before any lookup, then
+                        // compares and lists readable applications only (403 when the candidate has none, logged).
+                        .requestMatchers(HttpMethod.GET, "/api/v1/candidates/*/duplicates")
+                                .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
                         // Kanban applies the same record scope and logs the profiles disclosed by its cards.
                         .requestMatchers(HttpMethod.GET, "/api/v1/application-board", "/api/v1/application-board/positions")
                                 .hasAnyAuthority("PERM_CANDIDATES_READ_ALL", "PERM_CANDIDATES_READ_SCOPED")
