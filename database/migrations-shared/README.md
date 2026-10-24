@@ -14,6 +14,9 @@ Candidate extensions (`docs/api/candidate-extensions.md`): V65 stores personal s
 V66 and its V66_x follow-ups hold candidate email templates, the email log, in-app notifications,
 notification preferences and stage SLA (`docs/api/messaging.md`).
 
+Reporting (stories S8-05..S8-09, `docs/api/reporting.md`): V67 adds the indexes of the dashboard's bounded windows
+(applications by receipt time, open requisitions by needed-by date, closure events by time, sent offers by deadline).
+
 Add the next migration here as **V61** or later. Do not reuse V46–V54 for S5, edit old scripts,
 or copy future migrations into both legacy directories. Runtime loads this directory together with exactly one
 legacy directory, selected by `APP_MIGRATION_LINEAGE`.

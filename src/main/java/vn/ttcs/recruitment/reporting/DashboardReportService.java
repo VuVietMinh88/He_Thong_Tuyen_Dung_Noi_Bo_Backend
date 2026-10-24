@@ -117,7 +117,8 @@ public class DashboardReportService {
                 new MonthlySeries(months.getFirst().start(), months.getLast().end(), monthPoints));
     }
 
-    private ReportQuery bucketQuery(ReportViewer viewer, ReportFilters filters, List<ReportBuckets.Bucket> buckets) {
+    // Package-private, like summaryQuery: DashboardQueryPlans (tests) EXPLAINs the statements with these parameters.
+    ReportQuery bucketQuery(ReportViewer viewer, ReportFilters filters, List<ReportBuckets.Bucket> buckets) {
         List<OffsetDateTime> bounds = buckets.stream()
                 .map(bucket -> calendar.startOf(bucket.start()).atOffset(ZoneOffset.UTC)).toList();
         return ReportQuery.of(viewer, filters)
@@ -131,12 +132,7 @@ public class DashboardReportService {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         LocalDate today = calendar.dateOf(now);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        ReportQuery query = ReportQuery.of(viewer, filters)
-                .with("now", Timestamp.from(now))
-                .with("horizon", Timestamp.from(now.plus(Duration.ofDays(INTERVIEW_HORIZON_DAYS))))
-                .with("today", Date.valueOf(today))
-                .with("receivedFrom", Timestamp.from(calendar.startOf(weekStart)))
-                .with("receivedTo", Timestamp.from(calendar.startOf(weekStart.plusWeeks(1))));
+        ReportQuery query = summaryQuery(viewer, filters, now);
 
         var requisitions = repository.requisitionCounts(query);
         Card upcoming = viewer.interviews() == AccessScope.NONE ? Card.unavailable("MISSING_INTERVIEWS_READ")
@@ -157,6 +153,18 @@ public class DashboardReportService {
                 new WeekRange(weekStart, weekStart.plusDays(6)), INTERVIEW_HORIZON_DAYS,
                 new OverduePage(overdue, paging.page(), paging.size(), overdueTotal, paging.totalPages(overdueTotal)),
                 charts);
+    }
+
+    // The parameters of the cards and of the overdue list: now, the interview horizon, the business date and week.
+    ReportQuery summaryQuery(ReportViewer viewer, ReportFilters filters, Instant now) {
+        LocalDate today = calendar.dateOf(now);
+        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        return ReportQuery.of(viewer, filters)
+                .with("now", Timestamp.from(now))
+                .with("horizon", Timestamp.from(now.plus(Duration.ofDays(INTERVIEW_HORIZON_DAYS))))
+                .with("today", Date.valueOf(today))
+                .with("receivedFrom", Timestamp.from(calendar.startOf(weekStart)))
+                .with("receivedTo", Timestamp.from(calendar.startOf(weekStart.plusWeeks(1))));
     }
 
     private static DashboardReportView.Filters view(ReportFilters filters) {

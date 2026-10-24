@@ -32,20 +32,17 @@ import java.util.function.Supplier;
  * database (403 without a read grant of REPORTS, REQUISITIONS and CANDIDATES). Reports run in one REPEATABLE READ
  * snapshot, so the grants, the assignments, the department tree and the numbers all come from the same moment.
  * <p>
- * SCOPE is a constant SQL fragment over the alias r (recruitment_requisitions): unrestricted viewers see every row; the
- * others see the requisitions they are now the primary or a supporting recruiter of (RecruiterAssignmentAccess) and the
- * requisitions of the departments they manage, with every department below them (DepartmentRepository). The creator of
- * a requisition, the assignment history and the approval history never count, so a handover changes the next report.
+ * rows(...) is the row condition over the alias r (recruitment_requisitions): TRUE for an unrestricted viewer, so its
+ * statements carry no subquery at all (task 558); otherwise SCOPED_ROWS, the requisitions the viewer is now the primary
+ * or a supporting recruiter of (RecruiterAssignmentAccess) and the requisitions of the departments they manage, with
+ * every department below them (DepartmentRepository). The creator of a requisition, the assignment history and the
+ * approval history never count, so a handover changes the next report.
  */
 @Component
 public class ReportingAccess {
-    static final String UNRESTRICTED = "reportUnrestricted";
-    static final String INTERVIEWS_UNRESTRICTED = "reportInterviewsUnrestricted";
-    static final String OFFERS_UNRESTRICTED = "reportOffersUnrestricted";
-
-    static final String SCOPE = scope(UNRESTRICTED);
-    static final String INTERVIEW_SCOPE = scope(INTERVIEWS_UNRESTRICTED);
-    static final String OFFER_SCOPE = scope(OFFERS_UNRESTRICTED);
+    // The constant fragment of a SCOPED viewer, bound with parameters(viewer). Never null: x IN (no rows) is false.
+    static final String SCOPED_ROWS = "(r.id IN (" + RecruiterAssignmentAccess.ASSIGNED_REQUISITION_IDS + ")"
+            + " OR r.department_id IN (" + DepartmentRepository.MANAGED_DEPARTMENT_IDS + "))";
 
     private final AuthService auth;
     private final PermissionService permissions;
@@ -73,10 +70,9 @@ public class ReportingAccess {
         auditedReads.setTimeout(15);
     }
 
-    private static String scope(String flag) {
-        return "(CAST(:" + flag + " AS boolean)"
-                + " OR r.id IN (" + RecruiterAssignmentAccess.ASSIGNED_REQUISITION_IDS + ")"
-                + " OR r.department_id IN (" + DepartmentRepository.MANAGED_DEPARTMENT_IDS + "))";
+    /** The row condition: TRUE when the viewer may see every row of the statement, otherwise SCOPED_ROWS. */
+    static String rows(boolean unrestricted) {
+        return unrestricted ? "TRUE" : SCOPED_ROWS;
     }
 
     /**
@@ -121,26 +117,24 @@ public class ReportingAccess {
         return viewer;
     }
 
-    /** The named parameters of SCOPE, INTERVIEW_SCOPE and OFFER_SCOPE for this viewer. */
+    /** The named parameters of SCOPED_ROWS for this viewer (unused, and harmless, when the rows are TRUE). */
     static MapSqlParameterSource parameters(ReportViewer viewer) {
         return new MapSqlParameterSource()
-                .addValue(UNRESTRICTED, viewer.unrestricted())
-                .addValue(INTERVIEWS_UNRESTRICTED, viewer.interviewsUnrestricted())
-                .addValue(OFFERS_UNRESTRICTED, viewer.offersUnrestricted())
                 .addValue(RecruiterAssignmentAccess.ASSIGNEE, viewer.id())
                 .addValue(DepartmentRepository.MANAGER, viewer.id());
     }
 
     /**
      * Task 557: a filter must name something that exists (404) and that the viewer may report on (403), checked in
-     * the report's snapshot after the permission check. A requisition must be in SCOPE; a department must be managed
-     * by the viewer or hold a requisition assigned to them; a position must have a requisition in SCOPE. An
+     * the report's snapshot after the permission check. A requisition must be in the scope; a department must be
+     * managed by the viewer or hold a requisition assigned to them; a position must have a requisition in scope. An
      * unrestricted viewer may filter on anything that exists.
      */
     void requireFilters(ReportViewer viewer, ReportFilters filters) {
         var parameters = parameters(viewer);
         if (filters.requisitionId() != null) {
-            List<Boolean> visible = named.query("SELECT " + SCOPE + " AS visible FROM recruitment_requisitions r"
+            List<Boolean> visible = named.query("SELECT " + rows(viewer.unrestricted()) + " AS visible"
+                            + " FROM recruitment_requisitions r"
                             + " WHERE r.id = :target", parameters.addValue("target", filters.requisitionId()),
                     (row, number) -> row.getBoolean("visible"));
             if (visible.isEmpty()) {
@@ -164,7 +158,7 @@ public class ReportingAccess {
             requireExisting("positions", filters.positionId(), "POSITION_NOT_FOUND", "Không tìm thấy chức danh.");
             if (!viewer.unrestricted() && !Boolean.TRUE.equals(named.queryForObject(
                     "SELECT EXISTS (SELECT 1 FROM recruitment_requisitions r WHERE r.position_id = :target AND "
-                            + SCOPE + ")", parameters.addValue("target", filters.positionId()), Boolean.class))) {
+                            + SCOPED_ROWS + ")", parameters.addValue("target", filters.positionId()), Boolean.class))) {
                 throw new AccessDeniedException("No requisition of the position is in the report scope");
             }
         }
