@@ -254,3 +254,31 @@ Ghi chú cho frontend: màn hình nhật ký có bộ lọc loại/trạng thái
 
 Câu hỏi BA/PO: có cho người xem nhật ký thấy đầy đủ địa chỉ email ứng viên không (hiện hiển thị đầy đủ cho người đã
 được xem hồ sơ); có cần gửi lại hàng loạt.
+
+## Xem trước thư từ chối hàng loạt (task 526)
+
+`POST /api/v1/messaging/rejections/preview` — quyền: `NOTIFICATIONS_READ_*` + `CANDIDATES_READ_*` (đọc lại từ database).
+
+```json
+{"applicationIds":["<uuid>","<uuid>"],"subject":"<nháp, tùy chọn>","body":"<nháp, tùy chọn>"}
+```
+
+```json
+{"draft":true,"templateVersion":0,"entries":[{"applicationId":"...","candidateName":"Nguyễn Văn A",
+  "positionTitle":"Java","recipientEmail":"lan@example.test","subject":"Kết quả Java cho Nguyễn Văn A",
+  "text":"Xin chào Nguyễn Văn A,\n\n...","html":"<!DOCTYPE html>...","rejectionLetter":"NONE"}]}
+```
+
+- 1–100 hồ sơ, không trùng (400 `VALIDATION_ERROR`); hồ sơ không tồn tại → 404 `APPLICATION_NOT_FOUND`.
+- **Mọi** hồ sơ phải thuộc phạm vi đọc của người gọi; chỉ một hồ sơ ngoài phạm vi là 403 cho cả lô, không trả gì của các
+  hồ sơ khác (ghi nhật ký truy cập `DENIED`).
+- Mọi hồ sơ phải cùng ở trạng thái `REJECTED`: nếu không → 409 `REJECTION_BATCH_NOT_REJECTED` (thông báo và
+  `fieldErrors.applicationIds` liệt kê id chưa ở trạng thái Loại).
+- Mỗi thư điền đúng dữ liệu của từng ứng viên theo mẫu `REJECTION` đã lưu hoặc bản nháp gửi kèm (400
+  `EMAIL_TEMPLATE_INVALID` nếu nháp sai). `rejectionLetter`: `NONE` (chưa có thư), `NOTIFIED` (đã có thư từ chối đang
+  chờ/đang gửi/đã gửi — khi gửi sẽ bỏ qua), `FAILED` (thư lỗi — dùng nút gửi lại ở nhật ký email).
+- Không gửi, không lưu gì ngoài nhật ký truy cập hồ sơ (`GRANTED` cho từng hồ sơ hiển thị).
+
+Ghi chú cho frontend: màn hình danh sách hồ sơ Loại cho chọn nhiều dòng → "Xem trước" hiển thị từng thư (tab/accordion
+theo ứng viên), đánh dấu người sẽ bị bỏ qua; nếu sửa nội dung, lưu mẫu (PUT task 532) trước khi gửi vì lệnh gửi luôn dùng
+mẫu đã lưu.
