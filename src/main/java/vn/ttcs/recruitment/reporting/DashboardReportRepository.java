@@ -5,7 +5,9 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -101,6 +103,43 @@ class DashboardReportRepository {
                         row.getObject("department_id", UUID.class), row.getString("department_name"),
                         row.getString("status"), row.getDate("needed_by").toLocalDate(), row.getInt("headcount"),
                         row.getLong("hired_count")));
+    }
+
+    record ClosedCounts(long filled, long cancelled) { }
+
+    // Task 556: applications received per bucket. :bounds are the moments the buckets start (ascending) and
+    // [:seriesFrom, :seriesTo) the whole series, so width_bucket gives 1..n for every counted row.
+    Map<Integer, Long> applicationsPerBucket(MapSqlParameterSource parameters) {
+        Map<Integer, Long> counts = new HashMap<>();
+        jdbc.query("""
+                SELECT width_bucket(a.received_at, CAST(ARRAY[:bounds] AS timestamptz[])) AS bucket, count(*) AS total
+                FROM job_applications a
+                JOIN recruitment_requisitions r ON r.id = a.requisition_id
+                WHERE a.received_at >= :seriesFrom AND a.received_at < :seriesTo AND\s""" + ReportingAccess.SCOPE + """
+                 GROUP BY 1
+                """, parameters, row -> {
+            counts.put(row.getInt("bucket"), row.getLong("total"));
+        });
+        return counts;
+    }
+
+    // Task 556: requisitions closed per bucket, by the time of their FILLED or CANCELLED workflow event (append-only,
+    // at most one per requisition: requisition_workflow_events_one_end_idx), never by updated_at.
+    Map<Integer, ClosedCounts> closedPerBucket(MapSqlParameterSource parameters) {
+        Map<Integer, ClosedCounts> counts = new HashMap<>();
+        jdbc.query("""
+                SELECT width_bucket(e.occurred_at, CAST(ARRAY[:bounds] AS timestamptz[])) AS bucket,
+                       count(*) FILTER (WHERE e.event_type = 'FILLED') AS filled,
+                       count(*) FILTER (WHERE e.event_type = 'CANCELLED') AS cancelled
+                FROM requisition_workflow_events e
+                JOIN recruitment_requisitions r ON r.id = e.requisition_id
+                WHERE e.event_type IN ('FILLED', 'CANCELLED')
+                  AND e.occurred_at >= :seriesFrom AND e.occurred_at < :seriesTo AND\s""" + ReportingAccess.SCOPE + """
+                 GROUP BY 1
+                """, parameters, row -> {
+            counts.put(row.getInt("bucket"), new ClosedCounts(row.getLong("filled"), row.getLong("cancelled")));
+        });
+        return counts;
     }
 
     // Open, with a needed-by date before the business date :today. A requisition without a date is never overdue.
