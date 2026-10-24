@@ -570,3 +570,57 @@ phép và lưu vết đầy đủ; frontend nên khóa nút Lưu trong lúc ch�
 Ghi chú cho frontend: màn hình "Chi phí tuyển dụng" chỉ hiện nút Thêm/Hủy khi `/api/v1/auth/permissions` có
 `REPORTS_WRITE_ALL` hoặc `REPORTS_WRITE_SCOPED`; khoản `voided = true` hiển thị gạch ngang kèm lý do; số tiền hiển thị
 định dạng `5.000.000 ₫`.
+
+## TKNHTTDNB1-574 — Thời gian tuyển và chi phí trên mỗi người
+
+`GET /api/v1/reports/time-cost?from=2026-09-01&to=2026-09-30` (mặc định 90 ngày gần nhất; tối đa 366 ngày). Migration
+`V67_2__index_hire_evidence.sql` thêm index cho hai tra cứu bên dưới.
+
+Định nghĩa (bằng chứng thật, không dùng ngày dự kiến):
+
+| Khái niệm | Cách tính |
+| --- | --- |
+| Một lần tuyển (hire) | lần **đầu tiên** hồ sơ chuyển vào `HIRED` ("Nhận việc") theo lịch sử `application_stage_events`, rơi vào kỳ theo ngày nghiệp vụ. Sự kiện này được ghi khi ứng viên chấp nhận offer (cổng offer) hoặc HR ghi nhận nhận việc. `offers.start_date` và `onboarding_checklists.start_date` là ngày **dự kiến** nên không bao giờ được dùng |
+| `hiresWithAcceptedOffer` | trong số hire, hồ sơ có offer `ACCEPTED` (hoặc sự kiện HIRED đến từ câu trả lời offer) |
+| `hiresOnboarded` | trong số hire, hồ sơ đã hoàn tất hội nhập (`ONBOARDED`) |
+| Mốc duyệt yêu cầu | sự kiện `APPROVED` **đầu tiên làm yêu cầu thành `APPROVED`** (duyệt cấp trung gian giữ `PENDING_APPROVAL` nên không tính; `RESUMED` sau tạm dừng không phải là duyệt) |
+| Time to hire của một hire | ngày nghiệp vụ của hire − ngày nghiệp vụ của mốc duyệt (giờ Việt Nam; 00:30 ngày 21 là ngày 21) |
+| `averageDays` | trung bình cộng theo **từng hire** (có trọng số theo số hire, không lấy trung bình của các trung bình), 1 chữ số thập phân; `null` khi không có mẫu |
+| `missingApproval` | hire mà yêu cầu không có sự kiện duyệt cuối (ví dụ dữ liệu nhập cũ): không đưa vào trung bình |
+| `invalid` | hire có ngày trước mốc duyệt (dữ liệu mâu thuẫn): không đưa vào trung bình |
+| Chi phí | các khoản **chưa hủy** của task 573 có `incurredOn` trong kỳ: `advertisingVnd`, `referralBonusVnd`, `totalVnd`, `entries` |
+| `costsRecorded` | `true` khi kỳ có ít nhất một khoản chi phí chưa hủy trong nhóm |
+| `costPerHireVnd` | `costs.totalVnd / hires`, làm tròn half-up tới đồng; `null` khi `hires = 0` (yêu cầu có chi phí nhưng chưa tuyển được ai vẫn hiện chi phí) và `null` khi `costsRecorded = false` (chưa nhập chi phí thì chi phí/người là **chưa biết**, không phải 0). Mỗi khoản ≥ 1 đồng nên chi phí đã nhập không bao giờ cộng ra 0 |
+
+Chi phí và hire được đọc riêng rồi ghép theo yêu cầu tuyển dụng, nên một khoản chi phí không bao giờ bị nhân theo số
+hire. Phạm vi như mọi báo cáo.
+
+Response 200:
+
+```json
+{
+  "generatedAt": "…", "from": "2026-09-01", "to": "2026-09-30", "scope": "ALL",
+  "overall": {
+    "hires": 4, "hiresWithAcceptedOffer": 3, "hiresOnboarded": 1,
+    "timeToHire": {"sampleSize": 3, "averageDays": 30.0, "minDays": 10, "maxDays": 60, "missingApproval": 1, "invalid": 0},
+    "costs": {"advertisingVnd": 5000000, "referralBonusVnd": 0, "totalVnd": 5000000, "entries": 1},
+    "costsRecorded": true,
+    "costPerHireVnd": 1250000
+  },
+  "requisitions": [
+    {"requisitionId": "…", "departmentId": "…", "departmentName": "IT", "positionId": "…", "positionName": "Developer",
+     "status": "APPROVED", "approvedOn": "2026-09-01", "metrics": {"…": "cùng cấu trúc"}}
+  ]
+}
+```
+
+`requisitions` gồm mọi yêu cầu trong phạm vi có hire hoặc chi phí trong kỳ, sắp theo tên phòng ban, tên chức danh, id.
+Giới hạn: tối đa 50.000 hire và 5.000 yêu cầu trong một báo cáo, vượt quá trả 400 `REPORT_TOO_LARGE` (không cắt bớt âm
+thầm).
+
+Câu hỏi BA/PO: "ngày ứng viên nhận việc" được hiểu là ngày chấp nhận làm việc (stage HIRED, nhãn "Nhận việc"), không
+phải ngày đi làm thực tế — hệ thống chưa lưu ngày đi làm thực tế. Nếu cần tính tới ngày đi làm, cần bổ sung dữ liệu đó.
+
+Ghi chú cho frontend: hiển thị `averageDays = null` thành "Chưa có dữ liệu" và chú thích số `missingApproval`;
+`costPerHireVnd = null` thành "—", với chú thích "chưa có người nhận việc" khi `hires = 0` hoặc "chưa nhập chi phí" khi
+`costsRecorded = false`.
