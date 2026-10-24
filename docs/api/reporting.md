@@ -657,3 +657,41 @@ Lỗi: 400 (`VALIDATION_ERROR`, `REPORT_TOO_LARGE`), 401, 403, 404 `REQUISITION_
 
 Ghi chú cho frontend: hai bảng so sánh có thể vẽ biểu đồ cột ngang `averageDays` và `costPerHireVnd` theo `name`; luôn
 hiển thị kèm `metrics.hires` (cỡ mẫu) để người xem không so sánh nhóm chỉ có 1 hire với nhóm nhiều hire như nhau.
+
+## TKNHTTDNB1-576 — Xuất Excel báo cáo thời gian và chi phí tuyển dụng
+
+`GET /api/v1/reports/time-cost/export?from=&to=&requisitionId=&departmentId=&positionId=`
+
+Cùng tham số, cùng quyền, cùng phạm vi và **cùng đối tượng báo cáo** với `GET /api/v1/reports/time-cost` (file được dựng
+từ đúng response JSON đó, nên số liệu trên file và trên màn hình luôn khớp). Response 200:
+
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename="bao-cao-thoi-gian-chi-phi_<from>_<to>.xlsx"`
+- `Cache-Control: no-store`
+
+Workbook (Apache POI, `.xlsx` thật):
+
+| Sheet | Nội dung |
+| --- | --- |
+| `Bộ lọc` | từ ngày, đến ngày, phạm vi dữ liệu, các bộ lọc (id hoặc "Tất cả"), thời điểm lập, định nghĩa ngắn các chỉ số |
+| `Tổng hợp` | một dòng chỉ số tổng |
+| `Theo phòng ban` / `Theo chức danh` | mã, tên, số yêu cầu, rồi các cột chỉ số |
+| `Theo yêu cầu` | mã yêu cầu, phòng ban, chức danh, trạng thái, ngày duyệt, rồi các cột chỉ số |
+
+Các cột chỉ số: số người nhận việc, có offer được chấp nhận, đã hoàn tất hội nhập, số mẫu, thời gian tuyển TB (ngày, 1
+chữ số thập phân), nhanh nhất, chậm nhất, thiếu mốc duyệt, ngày không hợp lệ, chi phí đăng tin, thưởng giới thiệu, tổng
+chi phí (VND, định dạng `#,##0`), số khoản chi phí, chi phí mỗi người.
+
+An toàn:
+
+- Ô số là ô số (NUMERIC), ô chữ là ô chữ (STRING); **không bao giờ có ô công thức**.
+- Chữ bắt đầu bằng `=`, `+`, `-`, `@`, tab hoặc xuống dòng (ví dụ tên phòng ban `=HYPERLINK(...)`) được đánh dấu
+  quote-prefixed nên Excel hiển thị và giữ đúng nguyên văn, không chạy như công thức (chống CSV/formula injection).
+- Giá trị không có (ví dụ chưa có người nhận việc nên không có chi phí/người) là **ô trống**, không ghi số 0 giả.
+- Mỗi sheet tối đa 5.000 dòng dữ liệu; vượt quá trả 400 `REPORT_TOO_LARGE` thay vì cắt bớt âm thầm.
+- File không chứa dữ liệu cá nhân của ứng viên (chỉ có nhóm và yêu cầu tuyển dụng).
+
+Lỗi: như task 575 nhưng trả JSON lỗi (không phải file): 400, 401, 403, 404.
+
+Ghi chú cho frontend: tải file bằng `fetch` kèm header `Authorization` rồi tạo `Blob` (không mở link trực tiếp vì cần
+token); lấy tên file từ `Content-Disposition`; nếu response là JSON (status khác 200) thì hiển thị `message`.
