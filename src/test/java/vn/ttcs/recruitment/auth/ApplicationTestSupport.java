@@ -82,7 +82,9 @@ final class ApplicationTestSupport {
     // DELETE (append-only, V33); TRUNCATE fires no row trigger. The stage events (task 345) and the withdrawal notices
     // (task 346, whose recipients are staff accounts) would go with their applications (CASCADE) but are deleted
     // first, like every child table; so are the referrals (task 350, whose referrers are staff accounts too). The
-    // referral attempts and their quota rows (task 351) reference staff accounts only and are deleted with them.
+    // referral attempts and their quota rows (task 351) reference staff accounts only and are deleted with them. The
+    // candidate merge trail (task 369) references profiles and staff accounts and rejects DELETE (append-only, V68_2),
+    // so it is emptied with TRUNCATE before the profiles.
     void reset() {
         // Disposable test databases: remove immutable completed checklists before their application/account parents.
         jdbc.execute("TRUNCATE onboarding_templates CASCADE");
@@ -99,6 +101,7 @@ final class ApplicationTestSupport {
         jdbc.update("DELETE FROM application_notice_outbox");
         jdbc.update("DELETE FROM application_referrals");
         jdbc.update("DELETE FROM application_stage_events");
+        jdbc.execute("TRUNCATE candidate_merges CASCADE");
         jdbc.update("DELETE FROM candidate_applications");
         jdbc.update("DELETE FROM candidates");
         jdbc.update("DELETE FROM application_email_outbox");
