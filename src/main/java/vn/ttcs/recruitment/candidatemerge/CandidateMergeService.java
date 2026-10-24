@@ -23,7 +23,9 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -49,10 +51,24 @@ import java.util.function.Supplier;
  * candidates merged into it point at the target, and the trail of task 369 records what an undo needs, with a deadline
  * of 24 hours (UNDO_WINDOW, the injected Clock). Every application keeps its rows, stages and history: only the link
  * to the profile moves.
+ * <p>
+ * Task 370 (story S5-01, "Gộp nhầm có thể hoàn tác trong 24 giờ"): the undo is the same candidate write, over the
+ * target's applications (the moved ones among them), with the target, the source and the candidates the merge
+ * re-pointed locked FOR UPDATE and then the merge row. 404 for an unknown merge, 403 when the caller cannot write
+ * every application of the target, then 409 when it was undone already, when its deadline has passed (the deadline
+ * itself is too late), or when something changed since that an undo cannot put back (CANDIDATE_MERGE_CHANGED): the
+ * target was merged into another candidate, a moved application belongs to another candidate now, or an offer or a
+ * talent pool entry was created since for an application that would go back (both name the target for good). The
+ * undo links back the applications the merge moved, with their old link times, and the ones that joined the target
+ * since through an email of the source or of a candidate it had re-pointed (they would have joined the source), points
+ * those candidates at the source again, makes the source a profile of its own and marks the merge undone. The history
+ * of one candidate is a read like the preview: 404 unknown, 403 without a readable application (logged).
  */
 @Service
 public class CandidateMergeService {
     static final Duration UNDO_WINDOW = Duration.ofHours(24);
+    // The merges of one candidate listed at most; one more is read only to report that the list was cut.
+    static final int MAX_HISTORY = 50;
     private final CandidateAccess access;
     private final CandidateWriteGuard guard;
     private final CandidateMergeRepository merges;
@@ -87,12 +103,12 @@ public class CandidateMergeService {
         requireDistinct(targetId, sourceId);
         // The write scope only decides whether the offer and talent pool blockers are shown; the merge checks it again.
         AccessScope write = AccessScope.write(permissions.forUser(reader.id()), PermissionModule.CANDIDATES);
-        PreviewRead read = Objects.requireNonNull(reads.execute(status -> {
+        Read<CandidateMergePreview> read = Objects.requireNonNull(reads.execute(status -> {
             var target = merges.profile(targetId).orElse(null);
             var source = merges.profile(sourceId).orElse(null);
             if (target == null || source == null) {
                 status.setRollbackOnly();
-                return new PreviewRead.Unknown();
+                return new Read.Unknown<>();
             }
             List<CandidateMergeRepository.PreviewApplication> targetApplications = target.merged() ? List.of()
                     : merges.readableApplications(reader, targetId);
@@ -103,7 +119,7 @@ public class CandidateMergeService {
             if (!readable(reader, source, sourceApplications)) refused.add(sourceId);
             if (!refused.isEmpty()) {
                 status.setRollbackOnly();
-                return new PreviewRead.Refused(refused);
+                return new Read.Refused<>(refused);
             }
             List<CandidateMergePreview.Blocker> blockers = new ArrayList<>();
             if (target.merged()) blockers.add(CandidateMergePreview.Blocker.TARGET_MERGED);
@@ -118,19 +134,10 @@ public class CandidateMergeService {
             }
             logShown(reader, targetId, targetApplications);
             logShown(reader, sourceId, sourceApplications);
-            return new PreviewRead.Shown(CandidateMergePreview.of(target, targetApplications, source,
+            return new Read.Shown<>(CandidateMergePreview.of(target, targetApplications, source,
                     sourceApplications, blockers));
         }));
-        return switch (read) {
-            case PreviewRead.Shown shown -> shown.preview();
-            case PreviewRead.Unknown unknown -> throw CandidateDuplicateService.candidateNotFound();
-            case PreviewRead.Refused refused -> {
-                // The read transaction has ended: each refusal commits alone (CandidateAccess.recordDenied).
-                refused.candidateIds().forEach(candidate ->
-                        access.recordDenied(reader, CandidateAccessKind.PROFILE, candidate, null));
-                throw new AccessDeniedException("No readable application in one of the candidate profiles");
-            }
-        };
+        return shown(read, reader);
     }
 
     public CandidateMergeResult merge(Jwt jwt, UUID targetId, CandidateMergeRequest request) {
@@ -176,6 +183,103 @@ public class CandidateMergeService {
                     moved.stream().map(CandidateMergeRepository.Link::applicationId).toList(),
                     redirected.stream().map(CandidateMergeRepository.Candidate::id).toList());
         });
+    }
+
+    public CandidateMergeUndoResult undo(Jwt jwt, UUID mergeId) {
+        return write(() -> {
+            CandidateWriteGuard.Writer writer = guard.lockWriter(jwt);
+            guard.freshScopes(jwt, writer);
+            CandidateMergeRecords.CandidateMerge recorded = records.find(mergeId)
+                    .orElseThrow(CandidateMergeService::mergeNotFound);
+            UUID targetId = recorded.targetCandidateId();
+            UUID sourceId = recorded.sourceCandidateId();
+            List<CandidateMergeRecords.Redirect> redirects = records.redirects(mergeId);
+            List<UUID> rows = new ArrayList<>(List.of(targetId, sourceId));
+            redirects.forEach(redirect -> rows.add(redirect.candidateId()));
+            Locked locked = lock(rows, Set.of());
+            // Two undos of one merge pass the candidate locks one after the other; the second sees the first's mark.
+            CandidateMergeRecords.CandidateMerge merge = records.lock(mergeId)
+                    .orElseThrow(CandidateMergeService::mergeNotFound);
+            CandidateMergeRepository.Candidate target = locked.candidate(targetId);
+            CandidateMergeRepository.Candidate source = locked.candidate(sourceId);
+            CandidateWriteGuard.Scopes scopes = guard.freshScopes(jwt, writer);
+            if (!merges.allWritable(scopes.reader(writer.id()), scopes.write(),
+                    Set.copyOf(List.of(target.profileId(), source.profileId())))) {
+                throw new AccessDeniedException("An application of the candidates is outside the caller's write scope");
+            }
+            if (merge.undone()) {
+                throw new ApiException(HttpStatus.CONFLICT, "CANDIDATE_MERGE_ALREADY_UNDONE",
+                        "Lần gộp này đã được hoàn tác.");
+            }
+            Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+            if (!merge.undoableAt(now)) {
+                throw new ApiException(HttpStatus.CONFLICT, "CANDIDATE_MERGE_UNDO_EXPIRED",
+                        "Đã quá 24 giờ kể từ khi gộp nên không thể hoàn tác.");
+            }
+            List<CandidateMergeRecords.MovedApplication> moved = records.movedApplications(mergeId);
+            Set<UUID> movedIds = new HashSet<>(moved.stream()
+                    .map(CandidateMergeRecords.MovedApplication::applicationId).toList());
+            // A moved application deleted since (its link cascaded) has nothing to put back.
+            Map<UUID, UUID> linkedNow = merges.linkedCandidates(movedIds);
+            List<CandidateMergeRepository.Link> back = moved.stream()
+                    .filter(application -> linkedNow.containsKey(application.applicationId()))
+                    .map(application -> new CandidateMergeRepository.Link(sourceId, application.applicationId(), null,
+                            application.linkedAt())).toList();
+            Set<String> emails = new HashSet<>();
+            emails.add(source.normalizedEmail());
+            Map<UUID, Instant> repointed = new LinkedHashMap<>();
+            for (CandidateMergeRecords.Redirect redirect : redirects) {
+                CandidateMergeRepository.Candidate candidate = locked.candidate(redirect.candidateId());
+                emails.add(candidate.normalizedEmail());
+                repointed.put(candidate.id(), redirect.mergedAt());
+            }
+            List<CandidateMergeRepository.Link> later = merges.linkedSince(targetId, merge.mergedAt(), emails).stream()
+                    .filter(link -> !movedIds.contains(link.applicationId())).toList();
+            List<UUID> restored = new ArrayList<>(back.stream().map(CandidateMergeRepository.Link::applicationId).toList());
+            later.forEach(link -> restored.add(link.applicationId()));
+            boolean changed = target.merged() || !targetId.equals(source.mergedInto())
+                    || linkedNow.values().stream().anyMatch(candidate -> !candidate.equals(targetId))
+                    || repointed.keySet().stream().anyMatch(id -> !targetId.equals(locked.candidate(id).mergedInto()))
+                    || merges.hasOfferSince(restored, merge.mergedAt())
+                    || merges.hasTalentPoolEntrySince(restored, merge.mergedAt());
+            if (changed) {
+                throw new ApiException(HttpStatus.CONFLICT, "CANDIDATE_MERGE_CHANGED",
+                        "Hồ sơ đã thay đổi sau khi gộp (gộp tiếp, tạo offer hoặc đưa vào kho tiềm năng) nên không thể hoàn tác.");
+            }
+            merges.relink(sourceId, back);
+            merges.relink(sourceId, later);
+            merges.unmarkMerged(sourceId, repointed);
+            if (!records.markUndone(mergeId, writer.id(), now)) {
+                throw new IllegalStateException("The locked merge was undone by someone else");
+            }
+            return new CandidateMergeUndoResult(mergeId, targetId, sourceId, now, List.copyOf(restored),
+                    List.copyOf(repointed.keySet()));
+        });
+    }
+
+    public CandidateMergeHistory history(Jwt jwt, UUID candidateId) {
+        CandidateReader reader = access.requireReader(jwt);
+        Read<CandidateMergeHistory> read = Objects.requireNonNull(reads.execute(status -> {
+            var candidate = merges.profile(candidateId).orElse(null);
+            if (candidate == null) {
+                status.setRollbackOnly();
+                return new Read.Unknown<>();
+            }
+            if (!merges.hasReadableApplication(reader, candidate.profileId())) {
+                status.setRollbackOnly();
+                return new Read.Refused<>(List.of(candidateId));
+            }
+            List<CandidateMergeRecords.CandidateMerge> found = records.involving(candidateId, MAX_HISTORY + 1);
+            Set<UUID> staff = new HashSet<>();
+            found.forEach(merge -> {
+                staff.add(merge.mergedBy());
+                if (merge.undoneBy() != null) staff.add(merge.undoneBy());
+            });
+            return new Read.Shown<>(CandidateMergeHistory.of(candidateId, found, MAX_HISTORY, merges.staffNames(staff),
+                    merges.movedCounts(found.stream().map(CandidateMergeRecords.CandidateMerge::id).toList()),
+                    clock.instant()));
+        }));
+        return shown(read, reader);
     }
 
     // The links of these candidates and the candidates merged into the ones listed in redirectsOf, locked in the
@@ -257,12 +361,30 @@ public class CandidateMergeService {
         }
     }
 
-    // What the preview's read transaction found; the switch above is exhaustive over it.
-    private sealed interface PreviewRead {
-        record Shown(CandidateMergePreview preview) implements PreviewRead { }
+    // The value a read transaction found, or its answer: 404 for an unknown candidate, 403 for refused ones.
+    private <T> T shown(Read<T> read, CandidateReader reader) {
+        return switch (read) {
+            case Read.Shown<T> shown -> shown.value();
+            case Read.Unknown<T> unknown -> throw CandidateDuplicateService.candidateNotFound();
+            case Read.Refused<T> refused -> {
+                // The read transaction has ended: each refusal commits alone (CandidateAccess.recordDenied).
+                refused.candidateIds().forEach(candidate ->
+                        access.recordDenied(reader, CandidateAccessKind.PROFILE, candidate, null));
+                throw new AccessDeniedException("No readable application in a candidate profile");
+            }
+        };
+    }
 
-        record Unknown() implements PreviewRead { }
+    static ApiException mergeNotFound() {
+        return new ApiException(HttpStatus.NOT_FOUND, "CANDIDATE_MERGE_NOT_FOUND", "Không tìm thấy lần gộp hồ sơ.");
+    }
 
-        record Refused(List<UUID> candidateIds) implements PreviewRead { }
+    // What a read transaction found; the switch in shown is exhaustive over it.
+    private sealed interface Read<T> {
+        record Shown<T>(T value) implements Read<T> { }
+
+        record Unknown<T>() implements Read<T> { }
+
+        record Refused<T>(List<UUID> candidateIds) implements Read<T> { }
     }
 }

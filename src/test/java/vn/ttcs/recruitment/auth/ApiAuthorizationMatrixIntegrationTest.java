@@ -375,6 +375,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Task 368: the preview without a source stops at 400 before any lookup; the merge's empty body at 400.
             endpoint("GET", "/api/v1/candidates/{id}/merge-preview", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 400),
             endpoint("POST", "/api/v1/candidates/{id}/merge", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
+            // Task 370: an unknown merge or candidate stops at 404 before any scope check.
+            endpoint("POST", "/api/v1/candidate-merges/{id}/undo", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), null, 404),
+            endpoint("GET", "/api/v1/candidates/{id}/merges", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
             endpoint("GET", "/api/v1/application-board", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             endpoint("GET", "/api/v1/application-board/positions", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any

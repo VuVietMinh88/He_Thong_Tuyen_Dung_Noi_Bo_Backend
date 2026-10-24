@@ -7,7 +7,7 @@ Tiêu chí của story:
 - "Phát hiện trùng theo email và số điện thoại khi có hồ sơ mới": task 367, [Gợi ý ứng viên trùng](#gợi-ý-ứng-viên-trùng-task-367).
 - "Hiển thị so sánh cạnh nhau trước khi gộp": task 368, [Xem trước khi gộp](#xem-trước-khi-gộp-task-368).
 - "Gộp giữ lại toàn bộ lịch sử ứng tuyển của cả hai hồ sơ": task 368, [Gộp hồ sơ](#gộp-hồ-sơ-task-368).
-- "Gộp nhầm có thể hoàn tác trong 24 giờ": dấu vết và dữ liệu hoàn tác có từ task 369, [Dấu vết gộp](#dấu-vết-gộp-và-dữ-liệu-hoàn-tác-task-369); API hoàn tác chưa có (task 370).
+- "Gộp nhầm có thể hoàn tác trong 24 giờ": dấu vết và dữ liệu hoàn tác của task 369, [Dấu vết gộp](#dấu-vết-gộp-và-dữ-liệu-hoàn-tác-task-369); API của task 370, [Hoàn tác gộp](#hoàn-tác-gộp-task-370) và [Lịch sử gộp](#lịch-sử-gộp-của-một-hồ-sơ-task-370).
 
 ## Gợi ý ứng viên trùng (task 367)
 
@@ -197,3 +197,79 @@ Trong một transaction:
 **Khóa.** Tài khoản và phiên của người gộp, rồi các yêu cầu tuyển dụng và lần ứng tuyển của cả hai hồ sơ `FOR NO KEY UPDATE` theo thứ tự id (thứ tự chung của mọi thao tác ghi một lần ứng tuyển, nên chuyển giai đoạn, tạo offer hay thêm vào kho tiềm năng chờ lần gộp hoặc ngược lại), rồi các dòng `candidates` (đích, nguồn, các hồ sơ đã gộp vào nguồn) `FOR UPDATE` theo thứ tự id. Liên kết được đọc lại dưới khóa hồ sơ; lần ứng tuyển vừa liên kết xen giữa được khóa thêm. Quyền đọc và ghi được đọc lại sau các lần chờ khóa.
 
 **Offer cũ của nguồn.** Offer đã kết thúc (từ chối, hết hạn, hủy…) của một lần ứng tuyển được chuyển vẫn ghi `candidate_id` của nguồn, vì cột này không đổi được.
+
+## Hoàn tác gộp (task 370)
+
+`POST /api/v1/candidate-merges/{mergeId}/undo` (không có body)
+
+`mergeId` là `mergeId` trả về khi gộp, hoặc trong [lịch sử gộp](#lịch-sử-gộp-của-một-hồ-sơ-task-370). Quyền: `CANDIDATES_WRITE_ALL` hoặc `CANDIDATES_WRITE_SCOPED`. Thứ tự kiểm tra:
+
+1. 401 `SESSION_INVALID`; 403 không có quyền đọc và ghi CANDIDATES (đọc lại từ cơ sở dữ liệu). Id không phải UUID: 400 `VALIDATION_ERROR`.
+2. Lần gộp không có: 404 `CANDIDATE_MERGE_NOT_FOUND`.
+3. Người hoàn tác phải ghi được mọi lần ứng tuyển của hồ sơ đích (gồm các lần đã được chuyển sang), cùng luật như khi gộp: 403. Recruiter đã gộp hai hồ sơ trong yêu cầu tuyển dụng mình phụ trách thì hoàn tác được; người khác cùng quyền ghi đầy đủ cũng được.
+4. Đã hoàn tác: 409 `CANDIDATE_MERGE_ALREADY_UNDONE`.
+5. Đã tới hạn (`undo_deadline = merged_at + 24 giờ`, đúng hạn là đã muộn, theo `Clock` của ứng dụng): 409 `CANDIDATE_MERGE_UNDO_EXPIRED`.
+6. Có thay đổi sau khi gộp mà hoàn tác không đặt lại được: 409 `CANDIDATE_MERGE_CHANGED`:
+   - hồ sơ đích đã bị gộp tiếp vào hồ sơ khác (hoàn tác lần gộp sau trước, rồi mới tới lần này);
+   - một lần ứng tuyển đã chuyển nay thuộc hồ sơ khác;
+   - đã có offer (bất kỳ trạng thái) hoặc mục kho tiềm năng được tạo từ thời điểm gộp cho một lần ứng tuyển sẽ được trả về nguồn: chúng ghi id hồ sơ đích mãi mãi, trả lần ứng tuyển về nguồn sẽ làm chúng chỉ sai hồ sơ.
+   Offer hay mục kho tiềm năng của chính các lần ứng tuyển của đích không chặn hoàn tác.
+7. Chờ khóa quá lâu, deadlock: 503 `CANDIDATE_MERGE_BUSY`, không thay đổi gì.
+
+Response 200 (`Cache-Control: no-store`):
+
+```json
+{
+  "mergeId": "0d4e…",
+  "targetCandidateId": "6b0f…",
+  "sourceCandidateId": "c41e…",
+  "undoneAt": "2026-10-22T06:00:00Z",
+  "restoredApplicationIds": ["9a2d…", "e870…"],
+  "restoredCandidateIds": []
+}
+```
+
+Trong một transaction:
+
+- Các lần ứng tuyển lần gộp đã chuyển (còn tồn tại) về lại nguồn với `linked_at` cũ trong dấu vết. Lần ứng tuyển đã bị xóa thì bỏ qua.
+- Các lần ứng tuyển **nộp sau khi gộp** đã vào đích vì email của nguồn (hoặc của một hồ sơ được chuyển hướng) dẫn tới đó cũng về nguồn, giữ `linked_at` của chúng: không có lần gộp thì chúng đã thuộc nguồn. Lần ứng tuyển nộp sau với email của chính đích ở lại đích.
+- Các hồ sơ lần gộp đã chuyển hướng (`restoredCandidateIds`) chỉ lại về nguồn với `merged_at` của lần gộp của chính chúng.
+- Nguồn hết `merged_into`/`merged_at`, lại là một hồ sơ riêng và lại xuất hiện trong gợi ý trùng; lần ứng tuyển mới với email của nó vào lại nó.
+- Lần gộp được đánh dấu `undone_by`, `undone_at` (lần thay đổi duy nhất trigger cho phép). Nguồn có thể được gộp lại sau đó (một lần gộp mới).
+
+**Khóa.** Như khi gộp: tài khoản, phiên, các yêu cầu tuyển dụng và lần ứng tuyển của đích `FOR NO KEY UPDATE`, rồi đích, nguồn và các hồ sơ được chuyển hướng `FOR UPDATE` theo thứ tự id, rồi dòng `candidate_merges` `FOR UPDATE`, nên hai lần hoàn tác cùng một lần gộp chạy lần lượt và lần sau nhận 409 `CANDIDATE_MERGE_ALREADY_UNDONE`.
+
+## Lịch sử gộp của một hồ sơ (task 370)
+
+`GET /api/v1/candidates/{id}/merges`
+
+Quyền và thứ tự kiểm tra như [xem trước](#xem-trước-khi-gộp-task-368): 401/403 trước mọi tra cứu; 404 `CANDIDATE_NOT_FOUND`; 403 khi người xem không đọc được lần ứng tuyển nào của hồ sơ (hồ sơ đã bị gộp thì xét hồ sơ nó đã gộp vào), ghi một dòng `DENIED` loại `PROFILE`. Lịch sử không trả dữ liệu của lần ứng tuyển nào nên không ghi dòng `GRANTED`.
+
+Response 200 (`Cache-Control: no-store`):
+
+```json
+{
+  "candidateId": "6b0f…",
+  "merges": [
+    {
+      "mergeId": "0d4e…",
+      "role": "TARGET",
+      "targetCandidateId": "6b0f…",
+      "sourceCandidateId": "c41e…",
+      "reason": "Cùng số điện thoại, đã gọi xác nhận.",
+      "mergedBy": { "id": "2f9a…", "fullName": "HR Nội Bộ" },
+      "mergedAt": "2026-10-22T04:00:00Z",
+      "undoDeadline": "2026-10-23T04:00:00Z",
+      "undoneBy": null,
+      "undoneAt": null,
+      "movedApplications": 1,
+      "undoable": true
+    }
+  ],
+  "truncated": false
+}
+```
+
+- Các lần gộp có hồ sơ là đích (`role = TARGET`) hoặc nguồn (`SOURCE`), mới nhất trước, tối đa 50 (`truncated = true` khi còn nữa).
+- `undoable`: chưa hoàn tác và chưa tới hạn tại lúc đọc. Lần hoàn tác vẫn kiểm tra thay đổi sau khi gộp (409 `CANDIDATE_MERGE_CHANGED`) và quyền ghi.
+- `movedApplications`: số lần ứng tuyển lần gộp đã chuyển; không trả id của chúng.

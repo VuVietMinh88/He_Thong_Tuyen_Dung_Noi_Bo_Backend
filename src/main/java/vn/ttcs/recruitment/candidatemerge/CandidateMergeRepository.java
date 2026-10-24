@@ -14,7 +14,9 @@ import vn.ttcs.recruitment.security.AccessScope;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -30,6 +32,10 @@ import java.util.UUID;
  * about one application, so a stage change, an offer or a talent pool entry of one of them waits for the merge or the
  * merge for it), then the candidate rows FOR UPDATE in id order. A FOR UPDATE candidate row also makes the foreign key
  * of a new link, offer or talent pool entry naming it wait, and the FOR SHARE lock of CandidateLinks.
+ * <p>
+ * Task 370 (story S5-01, "Gộp nhầm có thể hoàn tác trong 24 giờ"): the reads and writes of an undo, which takes the
+ * same locks (the target's applications, then the target, the source and the candidates the merge re-pointed) and puts
+ * the links back as the trail of task 369 says.
  */
 @Repository
 class CandidateMergeRepository {
@@ -205,6 +211,103 @@ class CandidateMergeRepository {
                 .addValue("at", Timestamp.from(at));
         jdbc.update("UPDATE candidates SET merged_into = :target WHERE merged_into = :source", parameters);
         jdbc.update("UPDATE candidates SET merged_into = :target, merged_at = :at WHERE id = :source", parameters);
+    }
+
+    // The candidate each of these applications is linked to now; a deleted application (its link cascades) is missing.
+    @Transactional(propagation = Propagation.MANDATORY)
+    Map<UUID, UUID> linkedCandidates(Collection<UUID> applicationIds) {
+        Map<UUID, UUID> linked = new HashMap<>();
+        if (applicationIds.isEmpty()) return linked;
+        jdbc.query("SELECT application_id, candidate_id FROM candidate_applications WHERE application_id IN (:ids)",
+                new MapSqlParameterSource("ids", Set.copyOf(applicationIds)), row -> {
+                    linked.put(row.getObject("application_id", UUID.class), row.getObject("candidate_id", UUID.class));
+                });
+        return linked;
+    }
+
+    // The candidate's links made at or after this instant by an application whose submitted email is one of these:
+    // what CandidateLinks sent to the candidate because an email led there through merged_into.
+    @Transactional(propagation = Propagation.MANDATORY)
+    List<Link> linkedSince(UUID candidateId, Instant since, Collection<String> emails) {
+        if (emails.isEmpty()) return List.of();
+        return jdbc.query("""
+                SELECT ca.candidate_id, ca.application_id, a.requisition_id, ca.linked_at FROM candidate_applications ca
+                JOIN job_applications a ON a.id = ca.application_id
+                WHERE ca.candidate_id = :candidate AND ca.linked_at >= :since AND a.normalized_email IN (:emails)
+                ORDER BY ca.application_id
+                """, new MapSqlParameterSource("candidate", candidateId).addValue("since", Timestamp.from(since))
+                .addValue("emails", Set.copyOf(emails)), (row, number) -> new Link(
+                row.getObject("candidate_id", UUID.class), row.getObject("application_id", UUID.class),
+                row.getObject("requisition_id", UUID.class), row.getTimestamp("linked_at").toInstant()));
+    }
+
+    // Was an offer created at or after this instant for one of these applications? It names the candidate the
+    // application belonged to then (offers.candidate_id never changes, V61).
+    @Transactional(propagation = Propagation.MANDATORY)
+    boolean hasOfferSince(Collection<UUID> applicationIds, Instant since) {
+        if (applicationIds.isEmpty()) return false;
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM offers WHERE application_id IN (:ids) AND created_at >= :since)
+                """, new MapSqlParameterSource("ids", Set.copyOf(applicationIds)).addValue("since", Timestamp.from(since)),
+                Boolean.class));
+    }
+
+    // Was one of these applications added to the talent pool at or after this instant (for the candidate it belonged
+    // to then)?
+    @Transactional(propagation = Propagation.MANDATORY)
+    boolean hasTalentPoolEntrySince(Collection<UUID> applicationIds, Instant since) {
+        if (applicationIds.isEmpty()) return false;
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM talent_pool_entries WHERE source_application_id IN (:ids) AND added_at >= :since)
+                """, new MapSqlParameterSource("ids", Set.copyOf(applicationIds)).addValue("since", Timestamp.from(since)),
+                Boolean.class));
+    }
+
+    // Links each application to the candidate again, with this link time (the one kept in the trail, or its own).
+    @Transactional(propagation = Propagation.MANDATORY)
+    void relink(UUID candidateId, List<Link> links) {
+        jdbc.batchUpdate("""
+                UPDATE candidate_applications SET candidate_id = :candidate, linked_at = :linkedAt
+                WHERE application_id = :application
+                """, links.stream().map(link -> new MapSqlParameterSource("candidate", candidateId)
+                .addValue("application", link.applicationId()).addValue("linkedAt", Timestamp.from(link.linkedAt())))
+                .toArray(MapSqlParameterSource[]::new));
+    }
+
+    // The source is a profile of its own again, and the candidates the merge re-pointed point at it as before, with
+    // the time of their own merge.
+    @Transactional(propagation = Propagation.MANDATORY)
+    void unmarkMerged(UUID sourceId, Map<UUID, Instant> redirects) {
+        jdbc.batchUpdate("UPDATE candidates SET merged_into = :source, merged_at = :at WHERE id = :id",
+                redirects.entrySet().stream().map(redirect -> new MapSqlParameterSource("source", sourceId)
+                        .addValue("id", redirect.getKey()).addValue("at", Timestamp.from(redirect.getValue())))
+                        .toArray(MapSqlParameterSource[]::new));
+        jdbc.update("UPDATE candidates SET merged_into = NULL, merged_at = NULL WHERE id = :source",
+                new MapSqlParameterSource("source", sourceId));
+    }
+
+    // The full names of these staff accounts, for the merge history.
+    @Transactional(propagation = Propagation.MANDATORY)
+    Map<UUID, String> staffNames(Collection<UUID> accountIds) {
+        Map<UUID, String> names = new HashMap<>();
+        if (accountIds.isEmpty()) return names;
+        jdbc.query("SELECT id, full_name FROM user_accounts WHERE id IN (:ids)",
+                new MapSqlParameterSource("ids", Set.copyOf(accountIds)),
+                row -> { names.put(row.getObject("id", UUID.class), row.getString("full_name")); });
+        return names;
+    }
+
+    // How many applications each of these merges moved (task 369's details).
+    @Transactional(propagation = Propagation.MANDATORY)
+    Map<UUID, Integer> movedCounts(Collection<UUID> mergeIds) {
+        Map<UUID, Integer> counts = new HashMap<>();
+        if (mergeIds.isEmpty()) return counts;
+        jdbc.query("""
+                SELECT merge_id, count(*) AS moved FROM candidate_merge_applications WHERE merge_id IN (:ids)
+                GROUP BY merge_id
+                """, new MapSqlParameterSource("ids", Set.copyOf(mergeIds)),
+                row -> { counts.put(row.getObject("merge_id", UUID.class), row.getInt("moved")); });
+        return counts;
     }
 
     private static Candidate candidate(java.sql.ResultSet row) throws java.sql.SQLException {
