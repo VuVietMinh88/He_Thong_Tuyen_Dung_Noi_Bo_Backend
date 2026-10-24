@@ -368,7 +368,7 @@ class StaffImportReportIntegrationTest {
         assertThat(refused.path("cell").asText()).isEqualTo("A3");
         assertThat(refused.path("code").asText()).isEqualTo("EMAIL_ADDRESS_REFUSED");
         // The SMTP reply itself is never shown.
-        assertThat(report.toString()).doesNotContain("550", "Mailbox");
+        assertThat(withoutAccountIds(report)).doesNotContain("550", "Mailbox");
     }
 
     @Test
@@ -406,7 +406,7 @@ class StaffImportReportIntegrationTest {
             assertThat(notTried.path("message").asText()).contains("dòng 3");
         }
         assertThat(emails()).containsExactlyInAnyOrder(ADMIN_EMAIL, "an@example.com");
-        assertThat(report.toString()).doesNotContain("451", "Temporary");
+        assertThat(withoutAccountIds(report)).doesNotContain("451", "Temporary");
     }
 
     @Test
@@ -468,6 +468,12 @@ class StaffImportReportIntegrationTest {
 
     private static List<String> codes(JsonNode skippedRow) {
         return skippedRow.path("errors").findValuesAsString("code");
+    }
+
+    // The report as text without the new accounts' random ids, so a check that no SMTP reply code ("550", "451")
+    // leaked into it cannot fail just because an id happens to contain those digits.
+    private static String withoutAccountIds(JsonNode report) {
+        return report.toString().replaceAll("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "<id>");
     }
 
     private static JsonNode onlyError(JsonNode skippedRow) {
