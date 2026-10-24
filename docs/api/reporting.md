@@ -695,3 +695,51 @@ Lỗi: như task 575 nhưng trả JSON lỗi (không phải file): 400, 401, 403
 
 Ghi chú cho frontend: tải file bằng `fetch` kèm header `Authorization` rồi tạo `Blob` (không mở link trực tiếp vì cần
 token); lấy tên file từ `Content-Disposition`; nếu response là JSON (status khác 200) thì hiển thị `message`.
+
+## TKNHTTDNB1-580 — Tổng hợp CV và kết quả pipeline theo nguồn
+
+`GET /api/v1/reports/sources?from=2026-07-01&to=2026-09-30` (mặc định 90 ngày gần nhất; tối đa 366 ngày).
+
+Liên kết mỗi hồ sơ với **nguồn hiệu lực** và kết quả pipeline của nó:
+
+1. Hồ sơ do nhân viên giới thiệu (có dòng `application_referrals`, API `POST /api/v1/referrals`) thuộc nguồn
+   "Giới thiệu nội bộ" (`kind = INTERNAL_REFERRAL`, `sourceKey = code = INTERNAL_REFERRAL`) — giống nhãn trên hồ sơ
+   ứng viên hợp nhất; hồ sơ giới thiệu được lưu không có nguồn danh mục.
+2. Nếu không, nguồn danh mục lúc nhận hồ sơ (`job_applications.source_id`, danh mục `CANDIDATE_SOURCE`;
+   `kind = CATALOG`, `sourceKey` = id nguồn).
+3. Còn lại: "Không rõ nguồn" (`kind = UNKNOWN`, `sourceKey = UNKNOWN`). Cohort và "giai đoạn xa nhất đã đạt" dùng đúng quy tắc của phễu (task 567, `ApplicationReach`), nên tổng
+của báo cáo nguồn luôn khớp với phễu cùng kỳ và cùng bộ lọc.
+
+Response 200:
+
+```json
+{
+  "generatedAt": "…", "from": "2026-07-01", "to": "2026-09-30", "scope": "ALL", "cohortSize": 7,
+  "sources": [
+    {"sourceId": "…", "sourceKey": "…", "kind": "CATALOG", "code": "…", "name": "Website", "active": true,
+     "applications": 3, "passedScreening": 2, "hired": 1, "rejected": 1, "withdrawn": 0, "inProgress": 1},
+    {"sourceId": null, "sourceKey": "INTERNAL_REFERRAL", "kind": "INTERNAL_REFERRAL", "code": "INTERNAL_REFERRAL",
+     "name": "Giới thiệu nội bộ", "active": null, "applications": 2, "passedScreening": 1, "hired": 1, "rejected": 0,
+     "withdrawn": 0, "inProgress": 1},
+    {"sourceId": null, "sourceKey": "UNKNOWN", "kind": "UNKNOWN", "code": null, "name": "Không rõ nguồn", "active": null,
+     "applications": 2, "passedScreening": 0, "hired": 0, "rejected": 0, "withdrawn": 0, "inProgress": 2}
+  ]
+}
+```
+
+| Trường | Định nghĩa |
+| --- | --- |
+| `applications` | số hồ sơ (lần ứng tuyển, = số CV) của nguồn trong cohort |
+| `passedScreening` | hồ sơ đã đạt ít nhất `INTERVIEW` (qua sàng lọc), kể cả được HR cho bỏ qua phỏng vấn và đi thẳng tới offer |
+| `hired` | hồ sơ đã đạt `HIRED` (gồm cả `ONBOARDED`), dù sau đó trạng thái hiện tại là gì |
+| `rejected`, `withdrawn` | hồ sơ hiện đang `REJECTED` / `WITHDRAWN` |
+| `inProgress` | hồ sơ hiện còn ở `NEW`..`OFFER` |
+| `rejected` | gồm cả hồ sơ ứng viên từ chối offer (phễu tách riêng thành `declined`) |
+| `active` | nguồn danh mục còn đang dùng; nguồn bị ngừng dùng sau này vẫn giữ lịch sử của mình; `null` cho "Giới thiệu nội bộ" và "Không rõ nguồn" |
+
+Hồ sơ không có nguồn được gom vào một dòng "Không rõ nguồn". Danh sách sắp theo số hồ sơ giảm dần rồi
+theo tên (task 581 đổi sang sắp theo chất lượng). Phạm vi như mọi báo cáo; người xem không có hồ sơ nào trong phạm vi nhận
+`sources: []`.
+
+Ghi chú cho frontend: dùng `sourceKey` làm khóa dòng (ổn định cho cả ba loại); dòng `kind = UNKNOWN` nên hiển thị
+nghiêng/xám để phân biệt với nguồn thật.

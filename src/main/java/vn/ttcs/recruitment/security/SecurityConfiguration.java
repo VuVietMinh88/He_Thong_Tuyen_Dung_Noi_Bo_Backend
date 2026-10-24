@@ -657,7 +657,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/reports/dashboard", "/api/v1/reports/dashboard/charts",
                                 "/api/v1/reports/requisitions/*/progress", "/api/v1/reports/requisition-progress",
                                 "/api/v1/reports/funnel", "/api/v1/reports/costs", "/api/v1/reports/time-cost",
-                                "/api/v1/reports/time-cost/export")
+                                "/api/v1/reports/time-cost/export", "/api/v1/reports/sources")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REPORTS_READ_ALL", "PERM_REPORTS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_REQUISITIONS_READ_ALL", "PERM_REQUISITIONS_READ_SCOPED"),
