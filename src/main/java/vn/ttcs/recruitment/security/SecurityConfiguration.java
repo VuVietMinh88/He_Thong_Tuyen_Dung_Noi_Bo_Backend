@@ -620,6 +620,15 @@ public class SecurityConfiguration {
                                                 "PERM_NOTIFICATIONS_READ_SCOPED"),
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_CANDIDATES_READ_ALL",
                                                 "PERM_CANDIDATES_READ_SCOPED")))
+                        // Story S8-03 (tasks 543-545): every internal account's own inbox, whatever its other
+                        // permissions (an approver must see what waits for it). NotificationService takes the recipient
+                        // from the token only and reads the code again.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/notifications", "/api/v1/notifications/unread-count")
+                                .hasAuthority("PERM_SELF_PROFILE_READ")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/notifications/*/read")
+                                .hasAuthority("PERM_SELF_PROFILE_WRITE")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/notifications/read-all")
+                                .hasAuthority("PERM_SELF_PROFILE_WRITE")
                         .requestMatchers(HttpMethod.POST, "/api/v1/messaging/rejections")
                                 .access(AuthorizationManagers.allOf(
                                         AuthorityAuthorizationManager.hasAnyAuthority("PERM_NOTIFICATIONS_WRITE_ALL",

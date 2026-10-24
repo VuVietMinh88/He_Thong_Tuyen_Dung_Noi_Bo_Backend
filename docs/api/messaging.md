@@ -364,3 +364,36 @@ worker không tự chạy nền trong test (không giữ khóa tài khoản/phê
 
 Ghi chú cho frontend: thông báo xuất hiện sau vài giây (không đồng bộ); làm mới số chưa đọc định kỳ (ví dụ 30–60 s)
 hoặc khi người dùng mở chuông.
+
+## API thông báo và đánh dấu đã đọc (task 545)
+
+| Method | Endpoint | Quyền |
+|---|---|---|
+| GET | `/api/v1/notifications?unreadOnly=false&page=0&size=20` | `SELF_PROFILE_READ` (mọi tài khoản nội bộ) |
+| GET | `/api/v1/notifications/unread-count` | `SELF_PROFILE_READ` |
+| PATCH | `/api/v1/notifications/{id}/read` | `SELF_PROFILE_WRITE` |
+| POST | `/api/v1/notifications/read-all` | `SELF_PROFILE_WRITE` |
+
+Người nhận luôn là tài khoản của token, không bao giờ là tham số; APPROVER (không có quyền `NOTIFICATIONS_*`) vẫn có
+hộp thư vì phải thấy yêu cầu chờ mình duyệt. Thông báo của người khác: 404 `NOTIFICATION_NOT_FOUND` (không tiết lộ là
+có tồn tại).
+
+```json
+{"items":[{"id":"...","type":"OFFER_RESPONDED","typeName":"Ứng viên phản hồi offer","title":"Ứng viên phản hồi offer",
+  "body":"Ứng viên Nguyễn Văn A đã chấp nhận offer vị trí Java.",
+  "link":{"type":"OFFER","id":"<offerId>","applicationId":"<applicationId>"},
+  "createdAt":"...","readAt":null,"read":false}],
+ "page":0,"size":20,"totalItems":1,"totalPages":1,"unreadCount":1}
+```
+
+- `size` 1–100, `page` ≥ 0 (400 `VALIDATION_ERROR`); mới nhất trước.
+- `unread-count` → `{"unreadCount": 3}` cho biểu tượng chuông.
+- PATCH đánh dấu đã đọc một lần (gọi lại giữ thời điểm đọc đầu tiên) và trả thông báo; POST read-all →
+  `{"updated": n, "unreadCount": 0}`. Ghi theo thứ tự khóa tài khoản → phiên; 503 `NOTIFICATION_BUSY` khi chờ khóa.
+- `link` để mở đúng màn hình: `REQUISITION` → chi tiết yêu cầu tuyển dụng (`id`), `JOB_POSTING` → chi tiết tin,
+  `APPLICATION` → hồ sơ ứng tuyển, `INTERVIEW` → lịch phỏng vấn `id` của hồ sơ `applicationId`, `OFFER` → offer `id`
+  của hồ sơ `applicationId`. Khi mở, API của màn hình đó vẫn kiểm quyền như thường (thông báo không cấp quyền).
+
+Ghi chú cho frontend: chuông gọi `unread-count` khi tải trang và định kỳ; mở danh sách gọi GET; bấm một thông báo → PATCH
+read rồi điều hướng theo `link`; nút "Đánh dấu tất cả đã đọc" → POST read-all. Xử lý 403/404 của màn hình đích (quyền
+có thể đã đổi sau khi nhận thông báo).
