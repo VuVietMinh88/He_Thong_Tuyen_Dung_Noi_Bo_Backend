@@ -9,7 +9,8 @@ import java.util.List;
  * Task 567 (story S8-07): the recruitment funnel of a cohort, the applications received between from and to (business
  * dates, inclusive), each followed through its stage history up to generatedAt.
  */
-public record FunnelReportView(Instant generatedAt, LocalDate from, LocalDate to, String scope, long cohortSize,
+public record FunnelReportView(Instant generatedAt, LocalDate from, LocalDate to, String scope, ReportFilters filters,
+                               long cohortSize,
                                long hired, BigDecimal overallConversionRate, long interviewSkipped,
                                List<Stage> stages) {
 
