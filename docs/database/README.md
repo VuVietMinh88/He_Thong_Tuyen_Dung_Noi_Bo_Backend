@@ -206,5 +206,5 @@ Test dùng PostgreSQL tạm thời thật để kiểm transaction, khóa hàng 
 biến được hỗ trợ, cờ gửi tự động của năm loại thư ứng viên), V66_1 `email_messages` (mỗi thư ứng viên được quyết định
 bởi một sự kiện, `QUEUED`/`SUPPRESSED`/…, trigger `sync_email_message_status` giữ trạng thái khớp với outbox). Story S8-02: V66_2 `email_attempts` (nhật ký bất
 biến từng lần gửi, ghi bởi cùng trigger), V66_3 `candidate_mail_outbox` (hàng đợi không payload của thư từ chối và
-thư cảm ơn). Chi tiết ở
+thư cảm ơn), V66_4 thêm `retry_count`, `last_retried_by`, `last_retried_at` vào `email_messages` (gửi lại thư thất bại). Chi tiết ở
 [email, thông báo và SLA](../api/messaging.md).
