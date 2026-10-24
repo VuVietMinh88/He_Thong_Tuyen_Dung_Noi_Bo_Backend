@@ -6,12 +6,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Task 555 (story S8-05): the HR dashboard's metric cards and the overdue requisitions, all from one snapshot and all
- * inside the viewer's scope. scope is ALL or SCOPED (ReportViewer.scopeName).
+ * Tasks 555-557 (story S8-05): the HR dashboard's metric cards, the overdue requisitions and the charts, all from one
+ * snapshot and all inside the viewer's scope and the filters. scope is ALL or SCOPED (ReportViewer.scopeName).
  */
 public record DashboardReportView(Instant generatedAt, LocalDate businessDate, String businessZone, String scope,
-                                  Cards cards, WeekRange currentWeek, int interviewHorizonDays,
-                                  OverduePage overdueRequisitions) {
+                                  Filters filters, Cards cards, WeekRange currentWeek, int interviewHorizonDays,
+                                  OverduePage overdueRequisitions, DashboardChartsView charts) {
+
+    /** The structural filters applied to every part of the dashboard (null when not set). */
+    public record Filters(UUID departmentId, UUID positionId) { }
 
     /** A card the viewer may see has available=true and a value; otherwise value is null and the reason says why. */
     public record Card(boolean available, Long value, String unavailableReason) {

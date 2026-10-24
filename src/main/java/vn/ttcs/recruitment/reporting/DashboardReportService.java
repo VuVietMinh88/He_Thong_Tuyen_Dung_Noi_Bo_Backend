@@ -1,6 +1,5 @@
 package vn.ttcs.recruitment.reporting;
 
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import vn.ttcs.recruitment.common.BusinessCalendar;
@@ -30,9 +29,10 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Task 555 (story S8-05): the dashboard's cards (open requisitions, applications received this business week,
+ * Tasks 555-557 (story S8-05): the dashboard's cards (open requisitions, applications received this business week,
  * upcoming interviews, offers awaiting an answer) and the open requisitions past their needed-by date, most overdue
  * first. Every number is computed in SQL inside the viewer's scope (ReportingAccess). A card whose module the viewer may
  * not read (INTERVIEWS, OFFERS) is returned unavailable with a reason, never as a misleading zero.
@@ -58,9 +58,20 @@ public class DashboardReportService {
         this.clock = clock;
     }
 
-    public DashboardReportView dashboard(Jwt jwt, Integer page, Integer size) {
+    /**
+     * Task 557: the whole dashboard in one call and one snapshot: cards, overdue requisitions and both charts, each
+     * narrowed by the same scope and the same department and position filters. from/to choose the chart range
+     * (task 556 rules); the cards always describe today.
+     */
+    public DashboardReportView dashboard(Jwt jwt, LocalDate from, LocalDate to, UUID departmentId, UUID positionId,
+                                         Integer page, Integer size) {
         ReportPaging paging = ReportPaging.of(page, size, DEFAULT_OVERDUE_PAGE_SIZE, MAX_OVERDUE_PAGE_SIZE);
-        return access.read(jwt, viewer -> summary(viewer, paging));
+        ReportPeriod period = ReportPeriod.explicit(from, to);
+        ReportFilters filters = new ReportFilters(null, departmentId, positionId);
+        return access.read(jwt, viewer -> {
+            access.requireFilters(viewer, filters);
+            return summary(viewer, filters, paging, charts(viewer, filters, period));
+        });
     }
 
     /**
@@ -68,12 +79,16 @@ public class DashboardReportService {
      * series cover the whole weeks and months of that range; without them, the last DEFAULT_WEEKS weeks and the last
      * DEFAULT_MONTHS months up to today.
      */
-    public DashboardChartsView charts(Jwt jwt, LocalDate from, LocalDate to) {
+    public DashboardChartsView charts(Jwt jwt, LocalDate from, LocalDate to, UUID departmentId, UUID positionId) {
         ReportPeriod period = ReportPeriod.explicit(from, to);
-        return access.read(jwt, viewer -> charts(viewer, period));
+        ReportFilters filters = new ReportFilters(null, departmentId, positionId);
+        return access.read(jwt, viewer -> {
+            access.requireFilters(viewer, filters);
+            return charts(viewer, filters, period);
+        });
     }
 
-    DashboardChartsView charts(ReportViewer viewer, ReportPeriod period) {
+    DashboardChartsView charts(ReportViewer viewer, ReportFilters filters, ReportPeriod period) {
         LocalDate today = calendar.today();
         List<ReportBuckets.Bucket> weeks = period == null
                 ? ReportBuckets.weeks(today.minusWeeks(DEFAULT_WEEKS - 1L), today)
@@ -82,14 +97,14 @@ public class DashboardReportService {
                 ? ReportBuckets.months(today.minusMonths(DEFAULT_MONTHS - 1L), today)
                 : ReportBuckets.months(period.from(), period.to());
 
-        Map<Integer, Long> received = repository.applicationsPerBucket(bucketParameters(viewer, weeks));
+        Map<Integer, Long> received = repository.applicationsPerBucket(bucketQuery(viewer, filters, weeks));
         List<WeekPoint> weekPoints = new ArrayList<>();
         for (int index = 0; index < weeks.size(); index++) {
             var bucket = weeks.get(index);
             weekPoints.add(new WeekPoint(bucket.start(), bucket.end(), received.getOrDefault(index + 1, 0L)));
         }
         Map<Integer, DashboardReportRepository.ClosedCounts> closed =
-                repository.closedPerBucket(bucketParameters(viewer, months));
+                repository.closedPerBucket(bucketQuery(viewer, filters, months));
         List<MonthPoint> monthPoints = new ArrayList<>();
         for (int index = 0; index < months.size(); index++) {
             var bucket = months.get(index);
@@ -97,48 +112,54 @@ public class DashboardReportService {
             monthPoints.add(new MonthPoint(YearMonth.from(bucket.start()).toString(), bucket.start(), bucket.end(),
                     counts.filled(), counts.cancelled(), counts.filled() + counts.cancelled()));
         }
-        return new DashboardChartsView(viewer.scopeName(),
+        return new DashboardChartsView(viewer.scopeName(), view(filters),
                 new WeeklySeries(weeks.getFirst().start(), weeks.getLast().end(), weekPoints),
                 new MonthlySeries(months.getFirst().start(), months.getLast().end(), monthPoints));
     }
 
-    private MapSqlParameterSource bucketParameters(ReportViewer viewer, List<ReportBuckets.Bucket> buckets) {
+    private ReportQuery bucketQuery(ReportViewer viewer, ReportFilters filters, List<ReportBuckets.Bucket> buckets) {
         List<OffsetDateTime> bounds = buckets.stream()
                 .map(bucket -> calendar.startOf(bucket.start()).atOffset(ZoneOffset.UTC)).toList();
-        return ReportingAccess.parameters(viewer)
-                .addValue("bounds", bounds)
-                .addValue("seriesFrom", bounds.getFirst())
-                .addValue("seriesTo", calendar.startOf(buckets.getLast().dayAfter()).atOffset(ZoneOffset.UTC));
+        return ReportQuery.of(viewer, filters)
+                .with("bounds", bounds)
+                .with("seriesFrom", bounds.getFirst())
+                .with("seriesTo", calendar.startOf(buckets.getLast().dayAfter()).atOffset(ZoneOffset.UTC));
     }
 
-    DashboardReportView summary(ReportViewer viewer, ReportPaging paging) {
+    DashboardReportView summary(ReportViewer viewer, ReportFilters filters, ReportPaging paging,
+                                DashboardChartsView charts) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         LocalDate today = calendar.dateOf(now);
         LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-        var parameters = ReportingAccess.parameters(viewer)
-                .addValue("now", Timestamp.from(now))
-                .addValue("horizon", Timestamp.from(now.plus(Duration.ofDays(INTERVIEW_HORIZON_DAYS))))
-                .addValue("today", Date.valueOf(today))
-                .addValue("receivedFrom", Timestamp.from(calendar.startOf(weekStart)))
-                .addValue("receivedTo", Timestamp.from(calendar.startOf(weekStart.plusWeeks(1))));
+        ReportQuery query = ReportQuery.of(viewer, filters)
+                .with("now", Timestamp.from(now))
+                .with("horizon", Timestamp.from(now.plus(Duration.ofDays(INTERVIEW_HORIZON_DAYS))))
+                .with("today", Date.valueOf(today))
+                .with("receivedFrom", Timestamp.from(calendar.startOf(weekStart)))
+                .with("receivedTo", Timestamp.from(calendar.startOf(weekStart.plusWeeks(1))));
 
-        var requisitions = repository.requisitionCounts(parameters);
+        var requisitions = repository.requisitionCounts(query);
         Card upcoming = viewer.interviews() == AccessScope.NONE ? Card.unavailable("MISSING_INTERVIEWS_READ")
-                : Card.of(repository.upcomingInterviews(parameters));
+                : Card.of(repository.upcomingInterviews(query));
         Card offers = viewer.offers() == AccessScope.NONE ? Card.unavailable("MISSING_OFFERS_READ")
-                : Card.of(repository.pendingOffers(parameters));
+                : Card.of(repository.pendingOffers(query));
         Cards cards = new Cards(Card.of(requisitions.approved()), Card.of(requisitions.paused()),
-                Card.of(repository.applicationsReceived(parameters)), upcoming, offers);
+                Card.of(repository.applicationsReceived(query)), upcoming, offers);
 
-        long overdueTotal = repository.overdueCount(parameters);
-        List<OverdueRequisition> overdue = repository.overduePage(parameters, paging).stream()
+        long overdueTotal = repository.overdueCount(query);
+        List<OverdueRequisition> overdue = repository.overduePage(query, paging).stream()
                 .map(row -> new OverdueRequisition(row.requisitionId(), row.positionId(), row.positionName(),
                         row.departmentId(), row.departmentName(), row.status(), row.neededBy(),
                         ChronoUnit.DAYS.between(row.neededBy(), today), row.headcount(), row.hiredCount(),
                         Math.max(0, row.headcount() - row.hiredCount()), row.hiredCount() >= row.headcount()))
                 .toList();
-        return new DashboardReportView(now, today, calendar.zone().getId(), viewer.scopeName(), cards,
+        return new DashboardReportView(now, today, calendar.zone().getId(), viewer.scopeName(), view(filters), cards,
                 new WeekRange(weekStart, weekStart.plusDays(6)), INTERVIEW_HORIZON_DAYS,
-                new OverduePage(overdue, paging.page(), paging.size(), overdueTotal, paging.totalPages(overdueTotal)));
+                new OverduePage(overdue, paging.page(), paging.size(), overdueTotal, paging.totalPages(overdueTotal)),
+                charts);
+    }
+
+    private static DashboardReportView.Filters view(ReportFilters filters) {
+        return new DashboardReportView.Filters(filters.departmentId(), filters.positionId());
     }
 }

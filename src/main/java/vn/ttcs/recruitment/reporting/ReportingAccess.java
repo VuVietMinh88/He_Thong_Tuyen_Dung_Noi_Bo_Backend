@@ -1,7 +1,9 @@
 package vn.ttcs.recruitment.reporting;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
@@ -11,12 +13,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import vn.ttcs.recruitment.account.Account;
 import vn.ttcs.recruitment.auth.AuthService;
 import vn.ttcs.recruitment.auth.AuthenticationFailureException;
+import vn.ttcs.recruitment.common.ApiException;
 import vn.ttcs.recruitment.department.DepartmentRepository;
 import vn.ttcs.recruitment.requisition.RecruiterAssignmentAccess;
 import vn.ttcs.recruitment.security.PermissionService;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -45,15 +50,17 @@ public class ReportingAccess {
     private final AuthService auth;
     private final PermissionService permissions;
     private final JdbcTemplate jdbc;
+    private final NamedParameterJdbcTemplate named;
     private final Clock clock;
     private final TransactionTemplate reads;
     private final TransactionTemplate auditedReads;
 
-    public ReportingAccess(AuthService auth, PermissionService permissions, JdbcTemplate jdbc, Clock clock,
-                           PlatformTransactionManager transactions) {
+    public ReportingAccess(AuthService auth, PermissionService permissions, JdbcTemplate jdbc,
+                           NamedParameterJdbcTemplate named, Clock clock, PlatformTransactionManager transactions) {
         this.auth = auth;
         this.permissions = permissions;
         this.jdbc = jdbc;
+        this.named = named;
         this.clock = clock;
         reads = new TransactionTemplate(transactions);
         reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -122,6 +129,57 @@ public class ReportingAccess {
                 .addValue(OFFERS_UNRESTRICTED, viewer.offersUnrestricted())
                 .addValue(RecruiterAssignmentAccess.ASSIGNEE, viewer.id())
                 .addValue(DepartmentRepository.MANAGER, viewer.id());
+    }
+
+    /**
+     * Task 557: a filter must name something that exists (404) and that the viewer may report on (403), checked in
+     * the report's snapshot after the permission check. A requisition must be in SCOPE; a department must be managed
+     * by the viewer or hold a requisition assigned to them; a position must have a requisition in SCOPE. An
+     * unrestricted viewer may filter on anything that exists.
+     */
+    void requireFilters(ReportViewer viewer, ReportFilters filters) {
+        var parameters = parameters(viewer);
+        if (filters.requisitionId() != null) {
+            List<Boolean> visible = named.query("SELECT " + SCOPE + " AS visible FROM recruitment_requisitions r"
+                            + " WHERE r.id = :target", parameters.addValue("target", filters.requisitionId()),
+                    (row, number) -> row.getBoolean("visible"));
+            if (visible.isEmpty()) {
+                throw notFound("REQUISITION_NOT_FOUND", "Không tìm thấy yêu cầu tuyển dụng.");
+            }
+            if (!visible.getFirst()) {
+                throw new AccessDeniedException("The requisition is outside the report scope");
+            }
+        }
+        if (filters.departmentId() != null) {
+            requireExisting("departments", filters.departmentId(), "DEPARTMENT_NOT_FOUND", "Không tìm thấy phòng ban.");
+            if (!viewer.unrestricted() && !Boolean.TRUE.equals(named.queryForObject("""
+                    SELECT CAST(:target AS uuid) IN (""" + DepartmentRepository.MANAGED_DEPARTMENT_IDS + """
+                    ) OR EXISTS (SELECT 1 FROM recruitment_requisitions r WHERE r.department_id = :target
+                        AND r.id IN (""" + RecruiterAssignmentAccess.ASSIGNED_REQUISITION_IDS + "))",
+                    parameters.addValue("target", filters.departmentId()), Boolean.class))) {
+                throw new AccessDeniedException("The department is outside the report scope");
+            }
+        }
+        if (filters.positionId() != null) {
+            requireExisting("positions", filters.positionId(), "POSITION_NOT_FOUND", "Không tìm thấy chức danh.");
+            if (!viewer.unrestricted() && !Boolean.TRUE.equals(named.queryForObject(
+                    "SELECT EXISTS (SELECT 1 FROM recruitment_requisitions r WHERE r.position_id = :target AND "
+                            + SCOPE + ")", parameters.addValue("target", filters.positionId()), Boolean.class))) {
+                throw new AccessDeniedException("No requisition of the position is in the report scope");
+            }
+        }
+    }
+
+    // The table name is one of three constants of this class, never client text.
+    private void requireExisting(String table, UUID id, String code, String message) {
+        if (!Boolean.TRUE.equals(named.queryForObject("SELECT EXISTS (SELECT 1 FROM " + table + " WHERE id = :id)",
+                new MapSqlParameterSource("id", id), Boolean.class))) {
+            throw notFound(code, message);
+        }
+    }
+
+    private static ApiException notFound(String code, String message) {
+        return new ApiException(HttpStatus.NOT_FOUND, code, message);
     }
 
     // A report is a handful of aggregate statements; one that runs away is stopped instead of holding a connection.
