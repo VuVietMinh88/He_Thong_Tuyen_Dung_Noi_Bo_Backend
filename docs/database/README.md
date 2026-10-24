@@ -207,5 +207,6 @@ biến được hỗ trợ, cờ gửi tự động của năm loại thư ứng
 bởi một sự kiện, `QUEUED`/`SUPPRESSED`/…, trigger `sync_email_message_status` giữ trạng thái khớp với outbox). Story S8-02: V66_2 `email_attempts` (nhật ký bất
 biến từng lần gửi, ghi bởi cùng trigger), V66_3 `candidate_mail_outbox` (hàng đợi không payload của thư từ chối và
 thư cảm ơn), V66_4 thêm `retry_count`, `last_retried_by`, `last_retried_at` vào `email_messages` (gửi lại thư thất bại). Story S7-09: V66_5 `rejection_batches` (kết quả idempotent của mỗi lần gửi thư từ chối
-hàng loạt theo `requestId`). Chi tiết ở
+hàng loạt theo `requestId`). Story S8-03: V66_6 `notifications` (thông báo trong ứng dụng theo người nhận, trạng thái
+đọc riêng). Chi tiết ở
 [email, thông báo và SLA](../api/messaging.md).

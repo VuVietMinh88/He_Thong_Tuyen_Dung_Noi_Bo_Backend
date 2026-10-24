@@ -316,3 +316,20 @@ và phạm vi ghi của **từng** hồ sơ (ALL, hoặc recruiter được phâ
 
 Ghi chú cho frontend: tạo `requestId` mới (UUID v4) mỗi lần người dùng bấm "Gửi", giữ nguyên khi tự động thử lại; hiển
 thị bảng kết quả theo `outcome`; khóa nút trong lúc chờ phản hồi.
+
+## Lưu thông báo theo người nhận (task 543)
+
+Không thêm endpoint (API ở task 545). Migration `V66_6__create_notifications.sql` thêm `notifications`: mỗi người nhận
+một dòng, trạng thái đọc riêng từng người.
+
+| Cột | Ý nghĩa |
+|---|---|
+| `recipient_id` | người nhận (`ON DELETE CASCADE`: xóa tài khoản thì thông báo đi theo) |
+| `notification_type` | `APPROVAL_PENDING` (có yêu cầu chờ mình duyệt), `RECRUITER_ASSIGNED` (được phân công vị trí mới), `INTERVIEW_INVITED` (được mời phỏng vấn), `OFFER_RESPONDED` (ứng viên phản hồi offer), `SLA_OVERDUE` (hồ sơ quá hạn, story S5-10) |
+| `title`, `body` | văn bản hiển thị (một dòng, tối đa 200/1.000 ký tự) |
+| `link_type`, `link_id`, `parent_id` | màn hình cần mở: `REQUISITION`, `JOB_POSTING`, `APPLICATION`, hoặc `INTERVIEW`/`OFFER` kèm hồ sơ (`parent_id`); không bao giờ là URL tự do |
+| `dedupe_key` | khóa nghiệp vụ; unique `(recipient_id, dedupe_key)`: một người không nhận hai lần cùng một thông báo |
+| `created_at`, `read_at` | thời điểm tạo, thời điểm người nhận đọc (CHECK `read_at >= created_at`) |
+
+Chỉ mục hộp thư `(recipient_id, created_at DESC, id DESC)` và chỉ mục một phần cho số chưa đọc. `NotificationRepository`
+luôn lọc theo người nhận ở mọi câu đọc/ghi.
