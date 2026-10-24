@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Story S5-01 (tasks 367-370): the screening fixture (first and other are one person, lan@example.test with the
  * default phone 0912345678, in RECRUITER's requisition and in OUTSIDER's otherRequisition) plus helpers to store
- * other people, confirm their contacts with SQL and call the duplicate and merge APIs.
+ * other people, confirm their contacts, offers and talent pool entries with SQL and call the duplicate and merge
+ * APIs.
  */
 abstract class CandidateMergeTestSupport extends ScreeningTestSupport {
     static String candidatePath(UUID candidate) {
@@ -67,6 +68,52 @@ abstract class CandidateMergeTestSupport extends ScreeningTestSupport {
         List<String> values = new ArrayList<>();
         array.forEach(value -> values.add(value.asText()));
         return values;
+    }
+
+    HttpResponse<String> previewOf(UUID target, UUID source, String token) throws Exception {
+        return call("GET", candidatePath(target) + "/merge-preview?sourceCandidateId=" + source, null, token);
+    }
+
+    HttpResponse<String> mergeOf(UUID target, UUID source, String token) throws Exception {
+        return call("POST", candidatePath(target) + "/merge", "{\"sourceCandidateId\":\"" + source + "\"}", token);
+    }
+
+    // The candidate an application is linked to now (candidate_applications).
+    UUID linkOf(UUID application) {
+        return jdbc.queryForObject("SELECT candidate_id FROM candidate_applications WHERE application_id = ?", UUID.class,
+                application);
+    }
+
+    UUID mergedInto(UUID candidate) {
+        return jdbc.queryForObject("SELECT merged_into FROM candidates WHERE id = ?", UUID.class, candidate);
+    }
+
+    // An active offer for the application, written with SQL like the offer tests (the application at OFFER first).
+    UUID offer(UUID application, String status, java.time.Instant createdAt) {
+        UUID offer = UUID.randomUUID();
+        jdbc.update("UPDATE job_applications SET stage = 'OFFER' WHERE id = ?", application);
+        jdbc.update("""
+                INSERT INTO offers(id,application_id,candidate_id,position_id,candidate_name,email,position_title,
+                    salary,allowance,start_date,response_deadline,band_min,band_max,outside_band,status,version,
+                    approval_round,created_by,submitted_by,hr_approver_id,created_at,updated_at)
+                SELECT ?,a.id,ca.candidate_id,r.position_id,a.full_name,a.email,p.name,
+                    20000000,0,DATE '2026-12-01',?,10000000,30000000,false,?,0,1,?,?,?,?,?
+                FROM job_applications a JOIN candidate_applications ca ON ca.application_id=a.id
+                JOIN recruitment_requisitions r ON r.id=a.requisition_id JOIN positions p ON p.id=r.position_id WHERE a.id=?
+                """, offer, Timestamp.from(createdAt.plusSeconds(86400 * 10)), status, recruiter, recruiter, hr,
+                Timestamp.from(createdAt), Timestamp.from(createdAt), application);
+        return offer;
+    }
+
+    // An active talent pool entry of the application's candidate, written with SQL.
+    UUID poolEntry(UUID application, java.time.Instant addedAt) {
+        UUID entry = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO talent_pool_entries(id, candidate_id, source_application_id, evidence, reason, added_by, added_at)
+                SELECT ?, candidate_id, application_id, 'FINAL_STAGE_REJECTION', 'Phù hợp vị trí sau', ?, ?
+                FROM candidate_applications WHERE application_id = ?
+                """, entry, hr, Timestamp.from(addedAt), application);
+        return entry;
     }
 
     void assertError(HttpResponse<String> response, int status, String code) {

@@ -372,6 +372,9 @@ class ApiAuthorizationMatrixIntegrationTest {
             // Story S5-01 (task 367): the duplicate suggestions are read like the profile; the unknown id stops at 404
             // before any scope check.
             endpoint("GET", "/api/v1/candidates/{id}/duplicates", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 404),
+            // Task 368: the preview without a source stops at 400 before any lookup; the merge's empty body at 400.
+            endpoint("GET", "/api/v1/candidates/{id}/merge-preview", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 400),
+            endpoint("POST", "/api/v1/candidates/{id}/merge", anyOf(CANDIDATES_WRITE_ALL, CANDIDATES_WRITE_SCOPED), INVALID_BODY, 400),
             endpoint("GET", "/api/v1/application-board", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             endpoint("GET", "/api/v1/application-board/positions", anyOf(CANDIDATES_READ_ALL, CANDIDATES_READ_SCOPED), null, 200),
             // Task 362: one application's CV, read like the profile; the unknown application stops at 404 before any
